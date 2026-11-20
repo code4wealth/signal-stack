@@ -85,3 +85,54 @@ def test_settings_read_the_key_from_whichever_file_exists(tmp_path: Path, ) -> N
         _clean("GROQ_API_KEY")
         if original is not None:
             os.environ["GROQ_API_KEY"] = original
+
+
+# --- CA bundle resolution (TLS-inspecting networks) -------------------------------
+
+
+def _clear_ca_env() -> None:
+    for name in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+        os.environ.pop(name, None)
+
+
+def test_ca_bundle_is_none_when_unset(tmp_path: Path) -> None:
+    _clear_ca_env()
+    try:
+        assert config.ca_bundle_path() is None, "must not invent a bundle"
+    finally:
+        _clear_ca_env()
+
+
+def test_ca_bundle_ignores_a_missing_file(tmp_path: Path) -> None:
+    _clear_ca_env()
+    os.environ["SSL_CERT_FILE"] = str(tmp_path / "nope.crt")
+    try:
+        assert config.ca_bundle_path() is None, "a bad path must fall back to normal verification"
+    finally:
+        _clear_ca_env()
+
+
+def test_ca_bundle_order_ssl_cert_file_first(tmp_path: Path) -> None:
+    bundle = tmp_path / "ca.crt"
+    bundle.write_text("-----BEGIN CERTIFICATE-----\nTEST\n-----END CERTIFICATE-----\n")
+    _clear_ca_env()
+    os.environ["SSL_CERT_FILE"] = str(bundle)
+    os.environ["REQUESTS_CA_BUNDLE"] = str(tmp_path / "other.crt")
+    try:
+        assert config.ca_bundle_path() == str(bundle)
+    finally:
+        _clear_ca_env()
+
+
+def test_safe_fetch_verifies_against_the_configured_bundle(tmp_path: Path) -> None:
+    import safe_fetch
+
+    bundle = tmp_path / "ca.crt"
+    bundle.write_text("-----BEGIN CERTIFICATE-----\nTEST\n-----END CERTIFICATE-----\n")
+    _clear_ca_env()
+    try:
+        assert safe_fetch._verify() is True, "default must be real verification, never False"
+        os.environ["SSL_CERT_FILE"] = str(bundle)
+        assert safe_fetch._verify() == str(bundle)
+    finally:
+        _clear_ca_env()

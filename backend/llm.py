@@ -16,7 +16,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from config import get_settings
+from config import ca_bundle_path, get_settings
 
 logger = logging.getLogger("signalstack.llm")
 
@@ -50,9 +50,13 @@ def _get_client():
             raise LLMError(
                 "GROQ_API_KEY is not set. Add it to .env (see .env.example) and restart the server."
             )
+        import httpx
         from groq import Groq
 
-        _client = Groq(api_key=settings.groq_api_key)
+        # Honour a custom CA bundle when the network inspects TLS; verification is never disabled.
+        bundle = ca_bundle_path()
+        http_client = httpx.Client(verify=bundle) if bundle else None
+        _client = Groq(api_key=settings.groq_api_key, http_client=http_client)
     return _client
 
 

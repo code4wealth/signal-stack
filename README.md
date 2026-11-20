@@ -148,6 +148,7 @@ The companies live in `scripts/demo_companies.json` as data. No company name app
 | `ENABLE_SCHEDULER` | `1` starts APScheduler in-process (default `0`, so `--reload` cannot double-schedule) |
 | `MAX_ANALYSES_PER_RUN` | Groq budget guard, default 40 |
 | `CRAWL_CONCURRENCY` | Fetches in flight, capped at 4 |
+| `SSL_CERT_FILE` | Optional CA bundle for TLS-inspecting networks (also reads `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`). Unset = httpx default verification |
 | `FETCH_TIMEOUT_SECONDS` / `FETCH_MAX_BYTES` / `FETCH_REQUESTS_PER_SECOND` | Fetcher limits, defaults 15 s / 3 MB / 1 per host-second |
 
 > **Model warning (unverified here, 2026-11-20).** Published free-tier reports disagree about

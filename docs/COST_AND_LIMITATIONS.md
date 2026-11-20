@@ -72,7 +72,12 @@ Consequences, stated plainly:
    `api_key_configured: true` and `/api/llm/healthcheck` moves from "key is not set" to
    `Groq request failed after 2 attempts: APIConnectionError` — the credential is read correctly and the socket is
    still refused. Both egress **and** a key are required; this environment has the second and not the first.
-5. This is an *environment* limitation, not a product limitation: the same code runs unmodified on a host with
+5. **The crawler itself is not the problem.** With a CA bundle configured (`SSL_CERT_FILE` pointing at the system
+   store, the same trust `curl` uses), `safe_fetch` fetched `https://github.com/` from this sandbox: HTTP 200,
+   537,480 characters extracted. Without that variable Python verified against `certifi`, which lacks the local CA,
+   and the identical request failed with `CERTIFICATE_VERIFY_FAILED`. The app now honours the conventional CA
+   variables. The three demo domains and `api.groq.com` stay unreachable at the transport layer either way.
+6. This is an *environment* limitation, not a product limitation: the same code runs unmodified on a host with
    internet and a key. The one design interaction worth knowing is that `safe_fetch`'s allow-list is deliberately
    strict, so a misconfigured host fails closed rather than reaching something it should not.
 

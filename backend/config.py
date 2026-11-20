@@ -35,6 +35,21 @@ def load_env_files(root: Path = REPO_ROOT) -> list[Path]:
 load_env_files()
 
 
+def ca_bundle_path() -> str | None:
+    """Optional CA bundle for TLS-inspecting networks (corporate proxies, sandboxes).
+
+    Honours the conventional variables in order. Returns None when unset or when the file does
+    not exist, in which case callers keep their normal verification — this never *disables*
+    certificate checking, it only adds a trust anchor.
+    """
+
+    for name in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+        value = os.getenv(name)
+        if value and Path(value).is_file():
+            return value
+    return None
+
+
 def _int(name: str, default: int) -> int:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":

@@ -29,7 +29,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from config import get_settings
+from config import ca_bundle_path, get_settings
 
 settings = get_settings()
 
@@ -297,12 +297,19 @@ def _raw_get(url: str, timeout: float) -> httpx.Response:
 # --------------------------------------------------------------------------- #
 # HTTP plumbing
 # --------------------------------------------------------------------------- #
+def _verify():
+    """CA bundle from the environment when one is configured; True keeps httpx's default check."""
+
+    return ca_bundle_path() or True
+
+
 def _client(timeout: float) -> httpx.Client:
     return httpx.Client(
         timeout=timeout,
         follow_redirects=False,
         headers={"User-Agent": settings.user_agent, "Accept-Encoding": "gzip, deflate"},
         trust_env=False,
+        verify=_verify(),
     )
 
 
