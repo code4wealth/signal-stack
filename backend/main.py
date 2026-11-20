@@ -29,9 +29,15 @@ APP_VERSION = "0.1.0"
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    import scheduler
+
     db.init_db()
     logger.info("signal stack up: db=%s model=%s", settings.database_url.split("://")[0], settings.groq_model)
-    yield
+    scheduler.start()
+    try:
+        yield
+    finally:
+        scheduler.shutdown()
 
 
 app = FastAPI(

@@ -181,10 +181,11 @@ class Analysis(BaseModel):
 # --------------------------------------------------------------------------- #
 # Brief (Phase 6)
 # --------------------------------------------------------------------------- #
-class BriefSection(BaseModel):
-    heading: str
-    body: str
-    record_ids: list[int] = Field(default_factory=list)
+class SectionProse(BaseModel):
+    body: str = Field(description="2-5 factual sentences drawn only from the cited records")
+    record_ids: list[int] = Field(
+        default_factory=list, description="Every record id the sentences rely on"
+    )
 
 
 class BriefAction(BaseModel):
@@ -195,8 +196,14 @@ class BriefAction(BaseModel):
 
 
 class BriefDraft(BaseModel):
-    """Prose the LLM writes. Section headings are fixed by code, not by the model."""
+    """Prose the LLM writes. Section headings and record selection are code's job."""
 
-    executive_summary: str = Field(description="5-8 sentences, no new facts beyond the records")
-    sections: list[BriefSection] = Field(default_factory=list)
+    executive_summary: str = Field(description="5-8 sentences summarising only the cited records")
+    executive_record_ids: list[int] = Field(default_factory=list)
+    customer_signals: SectionProse = Field(default_factory=SectionProse)
+    competitor_moves: SectionProse = Field(default_factory=SectionProse)
+    market_shifts: SectionProse = Field(default_factory=SectionProse)
+    founder_intelligence: SectionProse = Field(default_factory=SectionProse)
+    strategic_implications: SectionProse = Field(default_factory=SectionProse)
+    risks_watchlist: SectionProse = Field(default_factory=SectionProse)
     actions: list[BriefAction] = Field(default_factory=list, max_length=6)
