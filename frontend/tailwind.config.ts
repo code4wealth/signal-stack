@@ -15,9 +15,14 @@ const config: Config = {
         primary: "#1C1D21",
         accent: "#4F46E5",
         brandBlue: "#2563EB",
-        success: "#0D9488",
+        success: "#059669",
+        opportunity: "#16A34A",
         danger: "#DC2626",
         warning: "#EA580C",
+        catCustomers: "#0D9488",
+        catCompetitors: "#EA580C",
+        catMarket: "#2563EB",
+        catInternal: "#7C3AED",
       },
       fontFamily: {
         sans: [
@@ -38,6 +43,11 @@ const config: Config = {
           "Menlo",
           "monospace",
         ],
+      },
+      borderRadius: {
+        card: "16px",
+        button: "12px",
+        panel: "28px",
       },
     },
   },

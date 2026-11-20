@@ -82,7 +82,7 @@ export function CompanySetupPanel({
       transition={{ duration: 0.36, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
       className="relative z-40 mx-auto w-full max-w-4xl"
     >
-      <div className="glass-strong rounded-[28px] p-4 sm:rounded-[32px] sm:p-6">
+      <div className="glass-panel rounded-[28px] p-4 sm:rounded-[32px] sm:p-6">
         {isResearchActive ? (
           <ResearchProgress
             companyName={nameCheck.value || companyName}

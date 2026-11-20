@@ -277,10 +277,15 @@ def research_company(db, company) -> dict:
 
     profile = build_profile(company.name, company.context, content)
     stored = profile.model_dump()
+    from datetime import datetime, timezone
+
+    existing_meta = (company.profile or {}).get("_meta", {})
     stored["_meta"] = {
         "pages_fetched": [page.url for page in content.pages],
         "fetch_failures": content.failures[:20],
         "model": llm.settings.groq_model,
+        "researched_at": datetime.now(timezone.utc).isoformat(),
+        "confirmed_at": existing_meta.get("confirmed_at"),
         "intelligence": (company.profile or {}).get("intelligence", {}),
     }
     if company.profile and company.profile.get("intelligence"):

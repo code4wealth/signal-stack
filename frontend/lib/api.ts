@@ -233,6 +233,30 @@ export async function startResearch(params: {
   }
 }
 
+export async function getCompany(id: number): Promise<import("./types").CompanyDetailApi> {
+  return get<import("./types").CompanyDetailApi>(`/api/companies/${id}`);
+}
+
+export async function updateCompany(
+  id: number,
+  patchPayload: import("./types").CompanyPatchPayload,
+): Promise<import("./types").CompanyDetailApi> {
+  return patch<import("./types").CompanyDetailApi>(`/api/companies/${id}`, patchPayload);
+}
+
+export async function rerunResearch(id: number) {
+  return post<JobStatusResponse>(`/api/companies/${id}/jobs/research`);
+}
+
+export async function confirmProfile(id: number) {
+  return post<{
+    company_id: number;
+    confirmed: boolean;
+    confirmed_at: string;
+    workflow_status: import("./types").WorkflowStatus;
+  }>(`/api/companies/${id}/confirm`);
+}
+
 export const api = {
   apiBase: API_BASE,
   health: () => get<{ status: string; tables: string[]; llm: { model: string; api_key_configured: boolean } }>("/api/health"),
@@ -244,11 +268,12 @@ export const api = {
   listCompanies: () => get<{ items: import("./types").Company[]; total: number }>("/api/companies?limit=100"),
   createCompany: (payload: { name: string; website: string; context: string }) =>
     post<import("./types").Company>("/api/companies", payload),
-  getCompany: (id: number) =>
-    get<import("./types").Company & { profile: import("./types").Profile | null }>(`/api/companies/${id}`),
+  getCompany: (id: number) => get<import("./types").CompanyDetailApi>(`/api/companies/${id}`),
   getOverview: (id: number) => get<import("./types").CompanyOverview>(`/api/companies/${id}/overview`),
-  updateCompany: (id: number, payload: { name?: string; website?: string; context?: string }) =>
-    patch<import("./types").Company>(`/api/companies/${id}`, payload),
+  updateCompany: (id: number, payload: import("./types").CompanyPatchPayload) =>
+    patch<import("./types").CompanyDetailApi>(`/api/companies/${id}`, payload),
+  confirmProfile: (id: number) => confirmProfile(id),
+  rerunResearch: (id: number) => rerunResearch(id),
 
   research: (id: number) =>
     runJob<{ company_id: number; profile: import("./types").Profile; pages_fetched: string[]; unverified_count: number }>(

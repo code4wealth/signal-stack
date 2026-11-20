@@ -1,3 +1,150 @@
+export type WorkflowStepState = "done" | "current" | "locked";
+
+export type WorkflowStatus = {
+  company: WorkflowStepState;
+  interview: WorkflowStepState;
+  sources: WorkflowStepState;
+  signals: WorkflowStepState;
+  briefs: WorkflowStepState;
+};
+
+export type CompanyResearchState = "queued" | "running" | "ready" | "failed";
+
+export type ConfidenceLevel = "high" | "medium" | "low";
+
+export type Evidence = {
+  id: string;
+  url: string;
+  title?: string;
+  type: "webpage" | "research" | "user-provided";
+  usedFor: string;
+  fetchedAt: string;
+  publishedAt?: string;
+  snippet?: string;
+  verified: boolean;
+};
+
+export type ServiceItem = {
+  id: string;
+  name: string;
+  description: string;
+  evidenceIds: string[];
+  verified: boolean;
+};
+
+export type SegmentItem = {
+  id: string;
+  name: string;
+  rationale: string;
+  evidenceIds: string[];
+  verified: boolean;
+};
+
+export type CompetitorDecision = "keep" | "remove" | "review";
+
+export type CompetitorItem = {
+  id: string;
+  name: string;
+  website: string;
+  domain: string;
+  reason: string;
+  evidenceIds: string[];
+  confidence: ConfidenceLevel;
+  decision: CompetitorDecision;
+};
+
+export type LogEntry = {
+  id: string;
+  title: string;
+  detail: string;
+  at: string;
+  status: "ok" | "running" | "error" | "info";
+  kind: "fetch" | "extract" | "competitors" | "confirm" | "job";
+};
+
+export type CompanyDetailApi = Company & {
+  profile: (Profile & {
+    headquarters?: string | null;
+    founded?: string | null;
+    company_size?: string | null;
+    primary_region?: string | null;
+    primary_language?: string | null;
+    competitor_decisions?: Record<string, CompetitorDecision>;
+    _meta?: Profile["_meta"] & {
+      researched_at?: string | null;
+      confirmed_at?: string | null;
+      updated_at?: string | null;
+    };
+  }) | null;
+  research_status?: CompanyResearchState;
+  research_job_id?: number | null;
+  research_error?: string | null;
+  workflow_status?: WorkflowStatus;
+  category_counts?: Record<SourceCategory, number>;
+  research_logs?: JobLog[];
+};
+
+export type CompanyRecord = {
+  id: number;
+  name: string;
+  website: string;
+  domain: string;
+  context: string;
+  created: string;
+  industry?: string | null;
+  businessModel?: string | null;
+  valueProposition?: string | null;
+  positioning?: string | null;
+  headquarters?: string | null;
+  founded?: string | null;
+  size?: string | null;
+  primaryRegion?: string | null;
+  primaryLanguage?: string | null;
+  summary: string;
+  summaryUpdatedAt?: string | null;
+  confirmedAt?: string | null;
+  services: ServiceItem[];
+  customerSegments: SegmentItem[];
+  competitors: CompetitorItem[];
+  evidence: Evidence[];
+  researchLog: LogEntry[];
+  unverified: string[];
+  pagesFetchedCount: number;
+  confidence: ConfidenceLevel;
+  confidenceBreakdown: {
+    services: number;
+    customers: number;
+    competitors: number;
+  };
+  researchStatus: CompanyResearchState;
+  researchJobId: number | null;
+  researchError: string | null;
+  workflowStatus: WorkflowStatus;
+  categoryCounts: Record<SourceCategory, number>;
+  isMock?: boolean;
+};
+
+export type CompanyPatchPayload = {
+  name?: string;
+  website?: string;
+  context?: string;
+  summary?: string;
+  industry?: string;
+  business_model?: string;
+  value_proposition?: string;
+  positioning?: string;
+  headquarters?: string;
+  founded?: string;
+  company_size?: string;
+  primary_region?: string;
+  primary_language?: string;
+  products?: Fact[];
+  customers?: Fact[];
+  likely_competitors?: CompetitorHint[];
+  competitor_decisions?: Record<string, CompetitorDecision>;
+  unverified?: string[];
+};
+
 export type Company = {
   id: number;
   name: string;

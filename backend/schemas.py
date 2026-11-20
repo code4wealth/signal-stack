@@ -40,6 +40,21 @@ class CompanyUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     website: str | None = None
     context: str | None = Field(default=None, max_length=4000)
+    summary: str | None = None
+    industry: str | None = None
+    business_model: str | None = None
+    value_proposition: str | None = None
+    positioning: str | None = None
+    headquarters: str | None = None
+    founded: str | None = None
+    company_size: str | None = None
+    primary_region: str | None = None
+    primary_language: str | None = None
+    products: list[dict] | None = None
+    customers: list[dict] | None = None
+    likely_competitors: list[dict] | None = None
+    competitor_decisions: dict[str, str] | None = None
+    unverified: list[str] | None = None
 
 
 class CompanyOut(BaseModel):

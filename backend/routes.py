@@ -127,13 +127,119 @@ def list_companies(
     }
 
 
-@router.get("/companies/{company_id}", tags=["companies"])
-def get_company(company_id: int, db: Session = Depends(get_db)) -> dict:
-    company = get_company_or_404(db, company_id)
+def _compute_workflow_status(db: Session, company: Company) -> dict:
+    profile = company.profile or {}
+    meta = profile.get("_meta") or {}
+    has_profile = bool(company.profile)
+    confirmed = bool(meta.get("confirmed_at"))
+    interview_done = bool((profile.get("intelligence") or {}).get("completed_at"))
+    qa_count = db.scalar(select(func.count(QA.id)).where(QA.company_id == company.id)) or 0
+    approved_sources = (
+        db.scalar(
+            select(func.count(Source.id)).where(
+                Source.company_id == company.id, Source.status == "approved"
+            )
+        )
+        or 0
+    )
+    total_sources = (
+        db.scalar(select(func.count(Source.id)).where(Source.company_id == company.id)) or 0
+    )
+    analysed_records = (
+        db.scalar(
+            select(func.count(Record.id)).where(
+                Record.company_id == company.id, Record.analysis.is_not(None)
+            )
+        )
+        or 0
+    )
+    reports_count = (
+        db.scalar(select(func.count(Report.id)).where(Report.company_id == company.id)) or 0
+    )
+
+    return {
+        "company": "done" if confirmed else "current",
+        "interview": "done"
+        if interview_done
+        else ("current" if (confirmed or has_profile or qa_count > 0) else "locked"),
+        "sources": "done"
+        if approved_sources > 0
+        else ("current" if (interview_done or total_sources > 0) else "locked"),
+        "signals": "done"
+        if analysed_records > 0
+        else ("current" if approved_sources > 0 else "locked"),
+        "briefs": "done"
+        if reports_count > 0
+        else ("current" if analysed_records > 0 else "locked"),
+    }
+
+
+def _company_detail(db: Session, company: Company) -> dict:
+    import json as _json
+
+    latest_research_job = db.scalar(
+        select(JobLog)
+        .where(JobLog.company_id == company.id, JobLog.job == "job:research")
+        .order_by(JobLog.id.desc())
+        .limit(1)
+    )
+    research_error: str | None = None
+    if latest_research_job and latest_research_job.status == "running":
+        research_status = "running"
+    elif company.profile:
+        research_status = "ready"
+    elif latest_research_job and latest_research_job.status == "error":
+        research_status = "failed"
+        try:
+            parsed = _json.loads(latest_research_job.detail or "{}")
+            research_error = parsed.get("error") or latest_research_job.detail
+        except Exception:
+            research_error = latest_research_job.detail or "Research failed"
+    else:
+        research_status = "queued"
+
+    source_counts_rows = db.execute(
+        select(Source.category, func.count(Source.id))
+        .where(Source.company_id == company.id)
+        .group_by(Source.category)
+    ).all()
+    category_counts = {"customers": 0, "competitors": 0, "market": 0, "internal": 0}
+    for cat, cnt in source_counts_rows:
+        if cat in category_counts:
+            category_counts[cat] = int(cnt)
+
+    logs = db.scalars(
+        select(JobLog)
+        .where(JobLog.company_id == company.id)
+        .order_by(JobLog.id.desc())
+        .limit(30)
+    ).all()
+
     return {
         **_company_out(company).model_dump(mode="json"),
         "profile": company.profile,
+        "research_status": research_status,
+        "research_job_id": latest_research_job.id if latest_research_job else None,
+        "research_error": research_error,
+        "workflow_status": _compute_workflow_status(db, company),
+        "category_counts": category_counts,
+        "research_logs": [
+            {
+                "id": row.id,
+                "job": row.job,
+                "status": row.status,
+                "at": row.at.isoformat(),
+                "detail": row.detail,
+            }
+            for row in logs
+        ],
     }
+
+
+@router.get("/companies/{company_id}", tags=["companies"])
+def get_company(company_id: int, db: Session = Depends(get_db)) -> dict:
+    company = get_company_or_404(db, company_id)
+    return _company_detail(db, company)
 
 
 @router.get("/companies/{company_id}/overview", tags=["companies"])
@@ -218,10 +324,10 @@ def get_company_overview(company_id: int, db: Session = Depends(get_db)) -> dict
     }
 
 
-@router.patch("/companies/{company_id}", response_model=CompanyOut, tags=["companies"])
+@router.patch("/companies/{company_id}", tags=["companies"])
 def update_company(
     company_id: int, payload: CompanyUpdate, db: Session = Depends(get_db)
-) -> CompanyOut:
+) -> dict:
     company = get_company_or_404(db, company_id)
     if payload.name is not None:
         company.name = payload.name.strip()
@@ -229,9 +335,71 @@ def update_company(
         company.website = _validate_http_url(payload.website)
     if payload.context is not None:
         company.context = payload.context
+
+    profile_fields = (
+        "summary",
+        "industry",
+        "business_model",
+        "value_proposition",
+        "positioning",
+        "headquarters",
+        "founded",
+        "company_size",
+        "primary_region",
+        "primary_language",
+        "products",
+        "customers",
+        "likely_competitors",
+        "competitor_decisions",
+        "unverified",
+    )
+    patch_data = payload.model_dump(exclude_none=True)
+    if any(k in patch_data for k in profile_fields):
+        profile = dict(company.profile or {})
+        for field in profile_fields:
+            if field in patch_data:
+                profile[field] = patch_data[field]
+        meta = dict(profile.get("_meta") or {})
+        from datetime import datetime, timezone
+
+        meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+        profile["_meta"] = meta
+        company.profile = profile
+
     db.commit()
     db.refresh(company)
-    return _company_out(company)
+    return _company_detail(db, company)
+
+
+@router.post("/companies/{company_id}/confirm", tags=["companies", "research"])
+def confirm_company_profile(company_id: int, db: Session = Depends(get_db)) -> dict:
+    from datetime import datetime, timezone
+
+    company = get_company_or_404(db, company_id)
+    if not company.profile:
+        raise HTTPException(status_code=400, detail="no profile yet; run research first")
+    profile = dict(company.profile)
+    meta = dict(profile.get("_meta") or {})
+    confirmed_at = datetime.now(timezone.utc).isoformat()
+    meta["confirmed_at"] = confirmed_at
+    profile["_meta"] = meta
+    company.profile = profile
+    db.add(
+        JobLog(
+            company_id=company.id,
+            job="profile_confirm",
+            status="ok",
+            detail=f"Profile confirmed at {confirmed_at}",
+        )
+    )
+    db.commit()
+    db.refresh(company)
+    return {
+        "company_id": company.id,
+        "confirmed": True,
+        "confirmed_at": confirmed_at,
+        "workflow_status": _compute_workflow_status(db, company),
+    }
 
 
 # --------------------------------------------------------------------------- #

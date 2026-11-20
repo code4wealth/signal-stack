@@ -1,0 +1,404 @@
+import type {
+  CompanyDetailApi,
+  CompanyRecord,
+  CompetitorItem,
+  ConfidenceLevel,
+  Evidence,
+  Fact,
+  LogEntry,
+  SegmentItem,
+  ServiceItem,
+} from "@/lib/types";
+
+export function extractDomain(url: string): string {
+  try {
+    return new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace(/^www\./, "");
+  } catch {
+    return url.replace(/^https?:\/\//, "").split("/")[0] || url;
+  }
+}
+
+export function formatDomainPath(url: string): string {
+  try {
+    const parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
+    const host = parsed.hostname.replace(/^www\./, "");
+    const path = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/$/, "");
+    return `${host}${path}`;
+  } catch {
+    return url;
+  }
+}
+
+export function formatRelativeTime(iso: string | null | undefined): string {
+  if (!iso) return "not yet";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const diffSec = Math.round((Date.now() - date.getTime()) / 1000);
+  if (diffSec < 45) return "just now";
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDays = Math.round(diffHr / 24);
+  if (diffDays < 30) return `${diffDays}d ago`;
+  return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+export function formatShortDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+function splitFactText(text: string): { title: string; body: string } {
+  const colonIdx = text.indexOf(":");
+  if (colonIdx > 2 && colonIdx < 48) {
+    return {
+      title: text.slice(0, colonIdx).trim(),
+      body: text.slice(colonIdx + 1).trim(),
+    };
+  }
+  const dashIdx = text.indexOf(" — ");
+  if (dashIdx > 2 && dashIdx < 48) {
+    return {
+      title: text.slice(0, dashIdx).trim(),
+      body: text.slice(dashIdx + 3).trim(),
+    };
+  }
+  const words = text.split(/\s+/);
+  if (words.length <= 5) return { title: text, body: "" };
+  return {
+    title: words.slice(0, 4).join(" "),
+    body: text,
+  };
+}
+
+function computeConfidence(
+  pagesCount: number,
+  verifiedRatio: number,
+  unverifiedCount: number,
+): ConfidenceLevel {
+  if (pagesCount >= 3 && verifiedRatio >= 0.7 && unverifiedCount <= 3) return "high";
+  if (pagesCount >= 1 && verifiedRatio >= 0.4) return "medium";
+  return "low";
+}
+
+function parseJobLogTitle(job: string, detail: string): { title: string; summary: string; kind: LogEntry["kind"] } {
+  if (job === "profile_confirm") {
+    return { title: "Founder confirmed company profile", summary: detail, kind: "confirm" };
+  }
+  if (job === "job:research") {
+    try {
+      const parsed = JSON.parse(detail) as {
+        error?: string;
+        result?: { pages_fetched?: string[]; unverified_count?: number };
+      };
+      if (parsed.error) {
+        return { title: "Research run failed", summary: parsed.error, kind: "job" };
+      }
+      if (parsed.result) {
+        const count = parsed.result.pages_fetched?.length ?? 0;
+        const unv = parsed.result.unverified_count ?? 0;
+        return {
+          title: `Completed website research (${count} pages)`,
+          summary: `${unv} unverified hypothesis item(s) separated`,
+          kind: "extract",
+        };
+      }
+    } catch {
+      /* raw detail */
+    }
+    return { title: "Company website research", summary: detail, kind: "job" };
+  }
+  return { title: job.replace(/^job:/, "").replace(/_/g, " "), summary: detail, kind: "job" };
+}
+
+export function adaptCompanyDetail(raw: CompanyDetailApi): CompanyRecord {
+  const profile = raw.profile;
+  const meta = profile?._meta;
+  const researchedAt = meta?.updated_at || meta?.researched_at || raw.created;
+  const pagesFetched = meta?.pages_fetched ?? [];
+
+  const evidenceMap = new Map<string, Evidence>();
+
+  const registerEvidence = (url: string, usedFor: string, verified: boolean): string => {
+    const clean = url.trim();
+    const existing = evidenceMap.get(clean);
+    if (existing) {
+      if (!existing.usedFor.includes(usedFor)) {
+        existing.usedFor = `${existing.usedFor}, ${usedFor}`;
+      }
+      return existing.id;
+    }
+    const id = `ev-${evidenceMap.size + 1}`;
+    evidenceMap.set(clean, {
+      id,
+      url: clean,
+      title: formatDomainPath(clean),
+      type: clean.startsWith("internal://") ? "user-provided" : "webpage",
+      usedFor,
+      fetchedAt: researchedAt,
+      verified,
+    });
+    return id;
+  };
+
+  for (const pageUrl of pagesFetched) {
+    registerEvidence(pageUrl, "Company profile", true);
+  }
+
+  const services: ServiceItem[] = (profile?.products ?? []).map((fact: Fact, idx: number) => {
+    const { title, body } = splitFactText(fact.text);
+    const evId = fact.evidence_url ? registerEvidence(fact.evidence_url, "Services", fact.verified) : "";
+    return {
+      id: `svc-${idx}`,
+      name: title,
+      description: body || fact.text,
+      evidenceIds: evId ? [evId] : [],
+      verified: fact.verified,
+    };
+  });
+
+  const customerSegments: SegmentItem[] = (profile?.customers ?? []).map((fact: Fact, idx: number) => {
+    const { title, body } = splitFactText(fact.text);
+    const evId = fact.evidence_url ? registerEvidence(fact.evidence_url, "Customers", fact.verified) : "";
+    return {
+      id: `seg-${idx}`,
+      name: title,
+      rationale: body || fact.text,
+      evidenceIds: evId ? [evId] : [],
+      verified: fact.verified,
+    };
+  });
+
+  const decisions = profile?.competitor_decisions ?? {};
+  const competitors: CompetitorItem[] = (profile?.likely_competitors ?? []).map((hint, idx) => {
+    const fallbackEvidenceUrl = pagesFetched[0] || raw.website;
+    const evId = fallbackEvidenceUrl ? registerEvidence(fallbackEvidenceUrl, "Competitor hint", true) : "";
+    return {
+      id: `comp-${idx}-${extractDomain(hint.website)}`,
+      name: hint.name,
+      website: hint.website,
+      domain: extractDomain(hint.website),
+      reason: hint.reason || "Identified from company positioning on public site",
+      evidenceIds: evId ? [evId] : [],
+      confidence: hint.reason ? "medium" : "low",
+      decision: decisions[hint.website] ?? "review",
+    };
+  });
+
+  const totalFacts =
+    (profile?.products?.length ?? 0) +
+    (profile?.customers?.length ?? 0) +
+    (profile?.geography?.length ?? 0) +
+    (profile?.differentiators?.length ?? 0);
+  const verifiedFacts =
+    (profile?.products?.filter((f) => f.verified).length ?? 0) +
+    (profile?.customers?.filter((f) => f.verified).length ?? 0) +
+    (profile?.geography?.filter((f) => f.verified).length ?? 0) +
+    (profile?.differentiators?.filter((f) => f.verified).length ?? 0);
+  const verifiedRatio = totalFacts > 0 ? verifiedFacts / totalFacts : pagesFetched.length > 0 ? 0.6 : 0;
+
+  const researchLog: LogEntry[] = [];
+  for (const jobRow of raw.research_logs ?? []) {
+    const parsed = parseJobLogTitle(jobRow.job, jobRow.detail);
+    researchLog.push({
+      id: `job-${jobRow.id}`,
+      title: parsed.title,
+      detail: parsed.summary,
+      at: jobRow.at,
+      status: jobRow.status === "error" ? "error" : jobRow.status === "running" ? "running" : "ok",
+      kind: parsed.kind,
+    });
+  }
+  for (const [idx, pageUrl] of pagesFetched.entries()) {
+    researchLog.push({
+      id: `page-${idx}`,
+      title: idx === 0 ? "Fetched homepage" : `Read ${new URL(pageUrl).pathname || "/"}`,
+      detail: pageUrl,
+      at: researchedAt,
+      status: "ok",
+      kind: "fetch",
+    });
+  }
+  if (services.length > 0) {
+    researchLog.push({
+      id: "extract-services",
+      title: `Identified ${services.length} service${services.length === 1 ? "" : "s"}`,
+      detail: `${services.filter((s) => s.verified).length} verified from fetched pages`,
+      at: researchedAt,
+      status: "ok",
+      kind: "extract",
+    });
+  }
+  if (competitors.length > 0) {
+    researchLog.push({
+      id: "extract-competitors",
+      title: `Discovered ${competitors.length} competitor candidate${competitors.length === 1 ? "" : "s"}`,
+      detail: "Pending founder Keep / Remove review",
+      at: researchedAt,
+      status: "info",
+      kind: "competitors",
+    });
+  }
+
+  const servicesPct =
+    services.length > 0
+      ? Math.round((services.filter((s) => s.verified).length / services.length) * 100)
+      : 0;
+  const customersPct =
+    customerSegments.length > 0
+      ? Math.round((customerSegments.filter((s) => s.verified).length / customerSegments.length) * 100)
+      : 0;
+  const competitorsPct =
+    competitors.length > 0
+      ? Math.round(
+          (competitors.filter((c) => c.decision === "keep" || c.confidence !== "low").length /
+            competitors.length) *
+            100,
+        )
+      : 0;
+
+  return {
+    id: raw.id,
+    name: raw.name,
+    website: raw.website,
+    domain: extractDomain(raw.website),
+    context: raw.context || "",
+    created: raw.created,
+    industry: profile?.industry || null,
+    businessModel: profile?.business_model || null,
+    valueProposition: profile?.value_proposition || null,
+    positioning: profile?.positioning || null,
+    headquarters: profile?.headquarters || null,
+    founded: profile?.founded || null,
+    size: profile?.company_size || null,
+    primaryRegion: profile?.primary_region || null,
+    primaryLanguage: profile?.primary_language || null,
+    summary: profile?.summary || "",
+    summaryUpdatedAt: researchedAt,
+    confirmedAt: meta?.confirmed_at || null,
+    services,
+    customerSegments,
+    competitors,
+    evidence: Array.from(evidenceMap.values()),
+    researchLog,
+    unverified: profile?.unverified ?? [],
+    pagesFetchedCount: pagesFetched.length,
+    confidence: computeConfidence(pagesFetched.length, verifiedRatio, profile?.unverified?.length ?? 0),
+    confidenceBreakdown: {
+      services: servicesPct,
+      customers: customersPct,
+      competitors: competitorsPct,
+    },
+    researchStatus: raw.research_status ?? (profile ? "ready" : "queued"),
+    researchJobId: raw.research_job_id ?? null,
+    researchError: raw.research_error ?? null,
+    workflowStatus: raw.workflow_status ?? {
+      company: meta?.confirmed_at ? "done" : "current",
+      interview: profile ? "current" : "locked",
+      sources: "locked",
+      signals: "locked",
+      briefs: "locked",
+    },
+    categoryCounts: raw.category_counts ?? {
+      customers: 0,
+      competitors: 0,
+      market: 0,
+      internal: 0,
+    },
+  };
+}
+
+export function buildDevMockCompany(id: number): CompanyRecord {
+  const now = new Date().toISOString();
+  return {
+    id,
+    name: "MOCK DATA — Demo Workspace",
+    website: "https://example.com",
+    domain: "example.com",
+    context: "Dev-only preview enabled via NEXT_PUBLIC_USE_MOCKS=true",
+    created: now,
+    industry: "B2B SaaS (MOCK)",
+    businessModel: "Subscription",
+    valueProposition: "Evidence-backed operations",
+    positioning: "Workflow automation",
+    headquarters: "Bengaluru, India",
+    founded: "2022",
+    size: "11-50",
+    primaryRegion: "India",
+    primaryLanguage: "English",
+    summary:
+      "MOCK DATA — Demo Workspace is shown because NEXT_PUBLIC_USE_MOCKS=true is enabled. Disable NEXT_PUBLIC_USE_MOCKS to inspect live backend records.",
+    summaryUpdatedAt: now,
+    confirmedAt: null,
+    services: [
+      {
+        id: "mock-svc-1",
+        name: "Signal Monitoring",
+        description: "MOCK DATA — Example service card.",
+        evidenceIds: ["ev-1"],
+        verified: true,
+      },
+    ],
+    customerSegments: [
+      {
+        id: "mock-seg-1",
+        name: "B2B Founders",
+        rationale: "MOCK DATA — Example customer segment.",
+        evidenceIds: ["ev-1"],
+        verified: true,
+      },
+    ],
+    competitors: [
+      {
+        id: "mock-comp-1",
+        name: "Sample Rival",
+        website: "https://example.org",
+        domain: "example.org",
+        reason: "MOCK DATA — Placeholder rival.",
+        evidenceIds: ["ev-1"],
+        confidence: "low",
+        decision: "review",
+      },
+    ],
+    evidence: [
+      {
+        id: "ev-1",
+        url: "https://example.com/about",
+        title: "example.com/about",
+        type: "webpage",
+        usedFor: "Summary, Services, Customers",
+        fetchedAt: now,
+        verified: true,
+      },
+    ],
+    researchLog: [
+      {
+        id: "mock-log-1",
+        title: "MOCK DATA — Preview active",
+        detail: "Set NEXT_PUBLIC_USE_MOCKS=false for live API data",
+        at: now,
+        status: "info",
+        kind: "job",
+      },
+    ],
+    unverified: [],
+    pagesFetchedCount: 1,
+    confidence: "low",
+    confidenceBreakdown: { services: 100, customers: 100, competitors: 50 },
+    researchStatus: "ready",
+    researchJobId: null,
+    researchError: null,
+    workflowStatus: {
+      company: "current",
+      interview: "current",
+      sources: "locked",
+      signals: "locked",
+      briefs: "locked",
+    },
+    categoryCounts: { customers: 0, competitors: 0, market: 0, internal: 0 },
+    isMock: true,
+  };
+}
