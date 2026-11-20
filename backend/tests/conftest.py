@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
+
+# Point the app at a throwaway SQLite file before any project module reads settings.
+_TEST_DB_DIR = Path(tempfile.mkdtemp(prefix="signalstack-test-"))
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TEST_DB_DIR / 'signalstack.db'}")
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:

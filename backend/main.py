@@ -17,6 +17,7 @@ import db
 from config import get_settings
 from safe_fetch import FetchError
 from llm import LLMError
+from routes import router as api_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("signalstack")
@@ -39,6 +40,8 @@ app = FastAPI(
     version=APP_VERSION,
     lifespan=lifespan,
 )
+
+app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
