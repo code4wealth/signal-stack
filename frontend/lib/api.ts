@@ -24,15 +24,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    let detail = `Request failed with ${response.status}`;
+    let detail = `Request failed with ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`;
+    let parsed = false;
     try {
       const body: unknown = await response.json();
       if (body && typeof body === "object" && "detail" in body) {
         const raw = (body as { detail: unknown }).detail;
         detail = typeof raw === "string" ? raw : JSON.stringify(raw);
+        parsed = true;
       }
     } catch {
-      // non-JSON error body: keep the status message
+      // non-JSON error body — usually the dev proxy, not the API
+    }
+    if (!parsed && response.status >= 500) {
+      // A 502/504 with no JSON body comes from the Next dev proxy, not FastAPI: the backend was
+      // restarting or unreachable when the request went out. Say so instead of a bare status code.
+      detail += " — the API returned no error body, so the backend was probably restarting or unreachable";
     }
     throw new ApiError(detail, response.status);
   }
