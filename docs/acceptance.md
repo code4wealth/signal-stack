@@ -46,6 +46,9 @@ $ curl -s localhost:8000/api/llm/healthcheck
 | API surface | 30 paths in `/openapi.json` |
 | Database before the live run | 0 companies, 0 sources, 0 records, 0 reports, 0 qa, 0 job_logs |
 | Upload of `demo_data/DEMO_synthetic_support_tickets.csv` | 201, 1692 chars, label `user-provided` |
+| Python 3.11 (local) | **verified** — 117 tests pass |
+| Python 3.12 (PRD target) | **not run yet** — not installable in the build sandbox; matrix added in `.github/workflows/tests.yml` on 2026-11-20, first CI run pending |
+| CI workflows | `tests.yml` (3.11 + 3.12 matrix, frontend typecheck/build) and `weekly.yml` (weekly brief + monthly audit) both parse as valid YAML; neither has been executed on GitHub |
 
 ## Why this is not "complete"
 

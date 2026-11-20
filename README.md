@@ -85,8 +85,13 @@ More detail: [`docs/architecture.md`](docs/architecture.md).
 
 ## Prerequisites
 
-Python 3.11+ (developed and tested on 3.11.2; the PRD asks for 3.12, which was not installable here and is
-supported by the same code), Node 20+, and a free Groq API key.
+Python 3.11+ (developed and tested on 3.11.2), Node 20+, and a free Groq API key.
+
+**Python 3.12 status: not run yet.** The PRD targets 3.12, which was not installable in the build sandbox (no apt
+access, CPython downloads blocked), so 3.12 has never executed this code. `.github/workflows/tests.yml` now runs
+`pytest` on a **3.11 and 3.12 matrix** plus the frontend type check and build. A `GROQ_API_KEY` is *not* needed
+for CI (LLM and HTTP are mocked). The workflow was committed on 2026-11-20 and **has not had its first run**, so
+treat 3.12 support as untested until the Actions run is green.
 
 ## Setup
 
@@ -161,6 +166,9 @@ cd frontend && npm run build             # all 8 routes built
 ```
 
 LLM calls and HTTP are mocked in tests. Fixtures are labelled `TEST_` and are never stored as intelligence records.
+
+CI: `.github/workflows/tests.yml` (pytest on Python 3.11 **and** 3.12, then `tsc --noEmit` and `npm run build`).
+Status: **not run yet** — the workflow exists and is valid YAML, but no Actions run has executed it.
 
 ## Scheduler
 
