@@ -161,10 +161,12 @@ def run_company(runner: Runner, data: dict, args: argparse.Namespace) -> dict:
         ],
         "report_id": report["id"] if report else None,
         "report_actions": len(report["content"]["actions"]) if report else 0,
-        "question_sample": [
-            question["question"]
-            for question in runner.call("GET", f"/api/companies/{company_id}/interview")["questions"][:3]
+        # every generated question, so AC3 ("questions differ per company") is provable from the output
+        "questions": [
+            {"idx": question["idx"], "is_followup": question["is_followup"], "question": question["question"]}
+            for question in runner.call("GET", f"/api/companies/{company_id}/interview")["questions"]
         ],
+        "crawl_history": runner.call("GET", f"/api/companies/{company_id}/crawl-history")["items"][:2],
     }
     print(f"  sources: {sources['total']} total ({json.dumps(by_category)}), records analysed: {intel['total']}")
     if report:
@@ -217,6 +219,11 @@ def main() -> int:
     EXPORT_DIR.mkdir(exist_ok=True)
     out = EXPORT_DIR / "demo_run.json"
     out.write_text(json.dumps(summaries, indent=2))
+    for summary in summaries:
+        if "company_id" not in summary:
+            continue
+        slug = "".join(ch if ch.isalnum() else "-" for ch in summary["company"].lower()).strip("-")
+        (EXPORT_DIR / f"demo_{slug}.json").write_text(json.dumps(summary, indent=2))
     print(f"\nSummary written to {out}")
     print(json.dumps(summaries, indent=2)[:4000])
     return 0
