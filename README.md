@@ -108,7 +108,8 @@ git clone <repo-url> && cd signal-stack
 # backend
 python3 -m venv .venv
 ./.venv/bin/pip install -r backend/requirements.txt
-cp .env.example .env          # then add GROQ_API_KEY
+cp .env.example .env          # then add GROQ_API_KEY (repo root or backend/.env — both are read,
+                             # repo root wins; a real env var beats both)
 cd backend
 ../.venv/bin/uvicorn main:app --reload --port 8000
 # API docs: http://127.0.0.1:8000/docs   health: http://127.0.0.1:8000/api/health

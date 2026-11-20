@@ -68,7 +68,11 @@ Consequences, stated plainly:
    "Not measured" because filling them would require inventing data.
 3. **The failure is loud, not silent.** The application returns typed errors (502 for a fetch failure, 503 for a
    missing LLM), the CLI driver exits non-zero, and no partial or placeholder record is written.
-4. This is an *environment* limitation, not a product limitation: the same code runs unmodified on a host with
+4. **A key alone does not lift the block.** With `GROQ_API_KEY` set, `/api/health` reports
+   `api_key_configured: true` and `/api/llm/healthcheck` moves from "key is not set" to
+   `Groq request failed after 2 attempts: APIConnectionError` — the credential is read correctly and the socket is
+   still refused. Both egress **and** a key are required; this environment has the second and not the first.
+5. This is an *environment* limitation, not a product limitation: the same code runs unmodified on a host with
    internet and a key. The one design interaction worth knowing is that `safe_fetch`'s allow-list is deliberately
    strict, so a misconfigured host fails closed rather than reaching something it should not.
 

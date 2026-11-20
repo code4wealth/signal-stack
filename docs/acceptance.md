@@ -16,6 +16,9 @@ would settle it.
 curl https://api.groq.com/openai/v1/models      -> HTTP 000 (no connection)
 curl https://www.meetuniversity.com             -> HTTP 000
 GET  /api/llm/healthcheck                       -> 503 {"detail":"GROQ_API_KEY is not set. ..."}
+# with a key present (checked 2026-11-20):
+GET  /api/health                                -> llm.api_key_configured: true
+GET  /api/llm/healthcheck                       -> 503 {"detail":"Groq request failed after 2 attempts: APIConnectionError"}
 POST /api/companies/1/research                  -> 502 {"detail":"... ConnectError: TLS/SSL connection has been closed (EOF)"}
 python scripts/run_three_companies.py --only meetuniversity --yes  -> exit code 1 at research
 ```

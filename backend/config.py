@@ -1,4 +1,13 @@
-"""Configuration loaded from environment (.env in repo root, never committed)."""
+"""Configuration loaded from environment (.env never committed).
+
+Two locations are honoured, in this order, and never override real environment variables:
+
+    ./.env            (repo root — what the README says)
+    ./backend/.env    (what earlier instructions in this repo said)
+
+Order matters: with ``override=False`` the first file to define a key wins, so a repo-root
+``.env`` beats ``backend/.env`` and a real environment variable beats both.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +19,20 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(REPO_ROOT / ".env")
+
+
+def load_env_files(root: Path = REPO_ROOT) -> list[Path]:
+    """Load ``.env`` then ``backend/.env`` under *root*; first definition of a key wins."""
+
+    loaded: list[Path] = []
+    for candidate in (root / ".env", root / "backend" / ".env"):
+        if candidate.is_file():
+            load_dotenv(candidate, override=False)
+            loaded.append(candidate)
+    return loaded
+
+
+load_env_files()
 
 
 def _int(name: str, default: int) -> int:
