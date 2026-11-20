@@ -429,7 +429,7 @@ export default function IntelligencePage() {
                     ) : null}
 
                     <div className="flex flex-wrap items-center gap-4 text-xs text-muted">
-                      <a href={`/api/signals/${signal.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent no-underline hover:underline">
+                      <a href={api.signalUrl(signal.id)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent no-underline hover:underline">
                         <Download size={12} /> Raw signal JSON
                       </a>
                       <span>Source: {signal.source?.name ?? "Unknown"}</span>

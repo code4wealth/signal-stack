@@ -36,7 +36,11 @@ if (-not (Test-Path -LiteralPath $NodeModules)) {
     exit 1
 }
 
-$backendCmd = "Set-Location -LiteralPath '$BackendDir'; & '$VenvPython' -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload"
+# Run uvicorn WITHOUT --reload: SQLite writes to backend/signalstack.db* inside backend/
+# trigger reload mid-request and abort long requests with empty-body 502s.
+# If reload is needed while editing backend code, restrict it:
+#   --reload --reload-dir . --reload-exclude "signalstack.db*" --reload-exclude "exports/*"
+$backendCmd = "Set-Location -LiteralPath '$BackendDir'; & '$VenvPython' -m uvicorn main:app --host 127.0.0.1 --port 8000"
 $frontendCmd = "Set-Location -LiteralPath '$FrontendDir'; `$env:BACKEND_URL = 'http://127.0.0.1:8000'; npm run dev"
 
 Write-Host "==> Starting FastAPI backend on http://127.0.0.1:8000 ..."

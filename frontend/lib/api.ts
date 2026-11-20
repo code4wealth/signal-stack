@@ -1,5 +1,5 @@
 // Thin typed client around the real FastAPI backend.
-// Every call goes to a relative /api path, proxied by Next (see next.config.ts).
+// Every call goes to a relative /api path proxied by Next unless NEXT_PUBLIC_API_URL is set.
 
 export class ApiError extends Error {
   status: number;
@@ -10,28 +10,71 @@ export class ApiError extends Error {
   }
 }
 
+export type JobKind = "research" | "discover" | "crawl" | "analyse" | "competitors";
+
+export type JobStatusResponse<T = Record<string, unknown>> = {
+  job_id: number;
+  company_id: number;
+  job: JobKind;
+  status: "running" | "ok" | "error";
+  at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  result?: T | null;
+  error?: string | null;
+  error_type?: string | null;
+  status_code?: number | null;
+};
+
 // Empty string = same-origin relative calls, proxied by Next's rewrite (default local dev).
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 const BACKEND_DISPLAY_URL = API_BASE || "http://127.0.0.1:8000";
-const START_BACKEND_CMD = "cd backend && uvicorn main:app --host 127.0.0.1 --port 8000 --reload";
+const START_BACKEND_CMD = "cd backend && uvicorn main:app --host 127.0.0.1 --port 8000";
+const JOB_POLL_INTERVAL_MS = 2000;
 
-async function probeBackendHealth(): Promise<boolean> {
+type ProbeResult = {
+  reachable: boolean;
+  summary: string;
+};
+
+async function probeBackendHealth(): Promise<ProbeResult> {
+  const probeUrl = `${API_BASE}/api/health`;
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(`${API_BASE}/api/health`, {
+    const res = await fetch(probeUrl, {
       cache: "no-store",
       signal: controller.signal,
     });
     clearTimeout(timer);
-    return res.ok;
-  } catch {
-    return false;
+    if (!res.ok) {
+      return { reachable: false, summary: `GET ${probeUrl} returned HTTP ${res.status}` };
+    }
+    try {
+      const data = (await res.json()) as {
+        status?: string;
+        database?: { ok?: boolean; dialect?: string };
+        llm?: { api_key_configured?: boolean };
+      };
+      const dbPart = data.database ? `db=${data.database.ok ? "ok" : "error"}` : "db=unknown";
+      const llmPart = data.llm ? `llm=${data.llm.api_key_configured ? "configured" : "no-key"}` : "";
+      return {
+        reachable: true,
+        summary: `GET ${probeUrl} -> HTTP ${res.status} (${[data.status ?? "ok", dbPart, llmPart].filter(Boolean).join(", ")})`,
+      };
+    } catch {
+      return { reachable: true, summary: `GET ${probeUrl} -> HTTP ${res.status}` };
+    }
+  } catch (caught) {
+    const reason = caught instanceof Error ? caught.message : "network error";
+    return { reachable: false, summary: `GET ${probeUrl} failed (${reason})` };
   }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const targetUrl = `${API_BASE}${path}`;
+  const response = await fetch(targetUrl, {
     ...init,
     headers: {
       ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
@@ -41,7 +84,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    let detail = `Request failed with ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`;
+    let detail = `${method} ${path} failed with HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`;
     let parsed = false;
     try {
       const body: unknown = await response.json();
@@ -51,14 +94,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         parsed = true;
       }
     } catch {
-      // non-JSON error body — usually the dev proxy, not FastAPI
+      // non-JSON or empty error body — usually the dev proxy, not FastAPI
     }
     if (!parsed && (response.status === 502 || response.status === 503 || response.status === 504)) {
-      const reachable = path === "/api/health" ? false : await probeBackendHealth();
-      if (!reachable) {
-        detail = `Backend not reachable on ${BACKEND_DISPLAY_URL}. Start it with: ${START_BACKEND_CMD}`;
+      const probe =
+        path === "/api/health"
+          ? { reachable: false, summary: `GET ${targetUrl} returned HTTP ${response.status}` }
+          : await probeBackendHealth();
+      if (!probe.reachable) {
+        detail = `Backend not reachable on ${BACKEND_DISPLAY_URL} during ${method} ${path} (HTTP ${response.status}; probe: ${probe.summary}). Start it with: ${START_BACKEND_CMD}`;
       } else {
-        detail = `Backend up on ${BACKEND_DISPLAY_URL} but this request failed (HTTP ${response.status} with no error body); see the backend terminal.`;
+        detail = `Backend up on ${BACKEND_DISPLAY_URL} (${probe.summary}), but ${method} ${path} failed (HTTP ${response.status} with no error body); see the backend terminal.`;
       }
     } else if (!parsed && response.status >= 500) {
       detail += " — the API returned no error body; see the backend terminal.";
@@ -77,8 +123,39 @@ const patch = <T>(path: string, body: unknown) =>
   request<T>(path, { method: "PATCH", body: JSON.stringify(body) });
 const del = <T>(path: string) => request<T>(path, { method: "DELETE" });
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runJob<T>(
+  companyId: number,
+  kind: JobKind,
+  options?: { limit?: number; onPoll?: (status: JobStatusResponse<T>) => void },
+): Promise<T> {
+  const qs = options?.limit ? `?limit=${options.limit}` : "";
+  const started = await post<JobStatusResponse<T>>(`/api/companies/${companyId}/jobs/${kind}${qs}`);
+  options?.onPoll?.(started);
+
+  while (true) {
+    await sleep(JOB_POLL_INTERVAL_MS);
+    const current = await get<JobStatusResponse<T>>(`/api/jobs/${started.job_id}`);
+    options?.onPoll?.(current);
+    if (current.status === "ok") {
+      return (current.result ?? {}) as T;
+    }
+    if (current.status === "error") {
+      throw new ApiError(current.error || `${kind} job #${started.job_id} failed`, current.status_code ?? 500);
+    }
+  }
+}
+
 export const api = {
+  apiBase: API_BASE,
   health: () => get<{ status: string; tables: string[]; llm: { model: string; api_key_configured: boolean } }>("/api/health"),
+
+  startJob: <T = Record<string, unknown>>(companyId: number, kind: JobKind, limit?: number) =>
+    post<JobStatusResponse<T>>(`/api/companies/${companyId}/jobs/${kind}${limit ? `?limit=${limit}` : ""}`),
+  getJob: <T = Record<string, unknown>>(jobId: number) => get<JobStatusResponse<T>>(`/api/jobs/${jobId}`),
 
   listCompanies: () => get<{ items: import("./types").Company[]; total: number }>("/api/companies?limit=100"),
   createCompany: (payload: { name: string; website: string; context: string }) =>
@@ -90,8 +167,9 @@ export const api = {
     patch<import("./types").Company>(`/api/companies/${id}`, payload),
 
   research: (id: number) =>
-    post<{ company_id: number; profile: import("./types").Profile; pages_fetched: string[]; unverified_count: number }>(
-      `/api/companies/${id}/research`,
+    runJob<{ company_id: number; profile: import("./types").Profile; pages_fetched: string[]; unverified_count: number }>(
+      id,
+      "research",
     ),
   getProfile: (id: number) => get<import("./types").Profile>(`/api/companies/${id}/profile`),
   patchProfile: (
@@ -119,7 +197,7 @@ export const api = {
     get<{ items: import("./types").Source[]; total: number; counts_by_status: Record<string, number> }>(
       `/api/companies/${id}/sources`,
     ),
-  discoverSources: (id: number) => post<import("./types").DiscoveryResult>(`/api/companies/${id}/sources/discover`),
+  discoverSources: (id: number) => runJob<import("./types").DiscoveryResult>(id, "discover"),
   addSource: (
     id: number,
     payload: {
@@ -132,28 +210,26 @@ export const api = {
       update_frequency?: string;
       reliability?: number;
     },
-  ) =>
-    post<import("./types").Source>(`/api/companies/${id}/sources`, payload),
+  ) => post<import("./types").Source>(`/api/companies/${id}/sources`, payload),
   approveSource: (sourceId: number) => post<import("./types").Source>(`/api/sources/${sourceId}/approve`),
   patchSource: (sourceId: number, payload: { status?: string }) =>
     patch<import("./types").Source>(`/api/sources/${sourceId}`, payload),
   deleteSource: (sourceId: number) => del<void>(`/api/sources/${sourceId}`),
 
-  crawl: (id: number) => post<import("./types").CrawlSummary>(`/api/companies/${id}/crawl`),
-  analyse: (id: number, limit?: number) =>
-    post<import("./types").AnalysisResult>(`/api/companies/${id}/analyse${limit ? `?limit=${limit}` : ""}`),
+  crawl: (id: number) => runJob<import("./types").CrawlSummary>(id, "crawl"),
+  analyse: (id: number, limit?: number) => runJob<import("./types").AnalysisResult>(id, "analyse", { limit }),
   crawlHistory: (id: number) =>
     get<{ items: { id: number; job: string; status: string; at: string; detail: string }[] }>(
       `/api/companies/${id}/crawl-history`,
     ),
   crawlDiagnostics: (id: number) => get<import("./types").CrawlDiagnostics>(`/api/companies/${id}/crawl-diagnostics`),
   discoverCompetitors: (id: number) =>
-    post<{
+    runJob<{
       company_id: number;
       competitors: import("./types").CompetitorProfile[];
       fetched_count: number;
       failed: { name: string; url: string; reason: string }[];
-    }>(`/api/companies/${id}/competitors/discover`),
+    }>(id, "competitors"),
   listCompetitors: (id: number) =>
     get<{
       company_id: number;
@@ -194,6 +270,7 @@ export const api = {
     );
   },
   signal: (recordId: number) => get<import("./types").Signal>(`/api/signals/${recordId}`),
+  signalUrl: (recordId: number) => `${API_BASE}/api/signals/${recordId}`,
 
   generateReport: (id: number) => post<import("./types").Report>(`/api/companies/${id}/reports/generate`),
   listReports: (id: number) =>
@@ -204,7 +281,7 @@ export const api = {
       `/api/reports/${reportId}/actions/${index}`,
       { done },
     ),
-  exportUrl: (reportId: number) => `/api/reports/${reportId}/export`,
+  exportUrl: (reportId: number) => `${API_BASE}/api/reports/${reportId}/export`,
 
   runAutomation: (id: number) => post<Record<string, unknown>>(`/api/companies/${id}/automation/run`),
   runAudit: (id: number) => post<Record<string, unknown>>(`/api/companies/${id}/source-audit`),

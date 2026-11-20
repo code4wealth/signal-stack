@@ -916,6 +916,33 @@ def job_logs(
     }
 
 
+@router.post("/companies/{company_id}/jobs/{kind}", status_code=202, tags=["jobs"])
+def start_job_route(
+    company_id: int,
+    kind: str,
+    limit: int | None = Query(default=None, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> dict:
+    import jobs
+
+    try:
+        return jobs.start_company_job(db, company_id, kind, limit=limit)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/jobs/{job_id}", tags=["jobs"])
+def get_job_route(job_id: int, db: Session = Depends(get_db)) -> dict:
+    import jobs
+
+    try:
+        return jobs.get_job_status(db, job_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/companies/{company_id}/context/reassess", tags=["context"])
 def reassess_context(company_id: int, payload: ContextIn, db: Session = Depends(get_db)) -> dict:
     import context as context_module

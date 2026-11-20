@@ -1,6 +1,6 @@
 """FastAPI application entrypoint.
 
-Run from backend/:  uvicorn main:app --reload --port 8000
+Run from backend/:  uvicorn main:app --host 127.0.0.1 --port 8000
 Docs:               http://127.0.0.1:8000/docs
 """
 
