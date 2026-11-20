@@ -1,0 +1,36 @@
+# --- secrets ---
+.env
+.env.*
+!.env.example
+
+# --- databases (never commit) ---
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+backend/*.db
+
+# --- python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- node / next ---
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-error.log*
+*.tsbuildinfo
+
+# --- artefacts ---
+exports/
+*.log
+.DS_Store

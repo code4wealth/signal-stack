@@ -1,0 +1,84 @@
+name: Weekly brief
+
+# Runs the crawl -> analyse -> brief pipeline and logs a monthly source audit.
+# GitHub-hosted runners are ephemeral: there is no persistent SQLite between runs
+# unless you point DATABASE_URL at a real Postgres (e.g. Supabase free tier) and
+# add it as a repository secret. That limitation is documented in
+# docs/limitations.md; job output is uploaded as an artifact either way.
+
+on:
+  schedule:
+    - cron: "30 1 * * 1"  # every Monday 01:30 UTC = 07:00 IST
+    - cron: "30 1 1 * *"  # first of the month 01:30 UTC = 07:30 IST (audit)
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which job to run"
+        type: choice
+        options: [weekly, audit]
+        default: weekly
+
+concurrency:
+  group: signal-stack-jobs
+  cancel-in-progress: false
+
+jobs:
+  weekly:
+    if: github.event.schedule != '30 1 1 * *' && (github.event.inputs.job == '' || github.event.inputs.job == 'weekly' || github.event_name == 'schedule')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Run weekly pipeline for every company
+        working-directory: backend
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GROQ_MODEL: ${{ vars.GROQ_MODEL || 'llama-3.3-70b-versatile' }}
+        run: python run_weekly.py --all 2>&1 | tee weekly_output.json
+      - name: Upload job output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-output
+          path: backend/weekly_output.json
+      - name: Upload database snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-snapshot
+          path: backend/*.db
+          if-no-files-found: ignore
+
+  audit:
+    if: github.event.schedule == '30 1 1 * *' || github.event.inputs.job == 'audit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Audit every source
+        working-directory: backend
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python run_audit.py --all 2>&1 | tee audit_output.json
+      - name: Upload audit output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-output
+          path: backend/audit_output.json

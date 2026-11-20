@@ -1,0 +1,20 @@
+[
+  {
+    "key": "meetuniversity",
+    "name": "MeetUniversity",
+    "website": "https://www.meetuniversity.com",
+    "context": "University discovery and admission assistance"
+  },
+  {
+    "key": "razorpay",
+    "name": "Razorpay",
+    "website": "https://razorpay.com",
+    "context": "Online payments and business banking for Indian merchants"
+  },
+  {
+    "key": "zomato",
+    "name": "Zomato",
+    "website": "https://www.zomato.com",
+    "context": "Food delivery and dining discovery marketplace"
+  }
+]

@@ -1,0 +1,9 @@
+ticket_id,opened,channel,severity,subject,summary
+DEMO-001,2026-10-02,email,high,University shortlist mismatch,Student reported that a shortlisted programme no longer accepted applications for the intake shown
+DEMO-002,2026-10-03,chat,low,Portal login loop,Counsellor account repeatedly returned to the sign-in page after submitting credentials
+DEMO-003,2026-10-05,email,medium,Missing scholarship note,Scholarship eligibility was not displayed on the programme page for international applicants
+DEMO-004,2026-10-09,phone,high,Visa document checklist unclear,Applicant asked which documents were required for the visa step and was told to check the website
+DEMO-005,2026-10-11,email,medium,Duplicate counselling session,Two counsellors contacted the same applicant about the same university on the same day
+DEMO-006,2026-10-14,chat,low,Language test waiver question,Applicant asked whether a waived language test would still need to be uploaded
+DEMO-007,2026-10-18,email,high,Deadline reminder arrived late,Reminder for a university deadline arrived after the stated cut-off time
+DEMO-008,2026-10-21,email,medium,Refund request,Applicant requested a refund after cancelling a booked counselling slot
