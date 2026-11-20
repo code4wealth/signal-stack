@@ -5,41 +5,21 @@ sources in four categories, crawls them, extracts evidence-backed signals, ranks
 executive Monday Morning Brief.
 
 Built for the EDXSO AI Engineer Intern assignment (Assignment 1).
-Demo companies (entered as data, not hardcoded): MeetUniversity, Razorpay, Zomato.
+Demo companies (entered as data in `scripts/demo_companies.json`, not hardcoded): MeetUniversity, Razorpay, Zerodha.
 
-> **Build status.** Built & verified via 117 unit tests. Live pipeline execution is unverified in
-> network-isolated environment; runnable locally via `scripts/run_three_companies.py` with `GROQ_API_KEY`.
-> TypeScript type check is clean and all eight Next.js routes build. No intelligence data has been fabricated —
-> PRD section 12.
+> **Build & verification status.** Backend unit/API suite: **149 passed** (`pytest -q`, mocked HTTP/LLM for external calls), TypeScript clean (`0` errors), ESLint clean (`0` warnings/errors), and all **9** Next.js routes build. Partial live-run output from Windows (`ead1782`) is committed in `run_output.txt`.
 
 ## Results from live runs
 
-> **No live run has completed yet.** Date of last verification attempt: **2026-11-20**.
-> The build environment had no outbound access to company websites (all fetches returned a TLS transport error) and
-> no `GROQ_API_KEY` (`/api/llm/healthcheck` → HTTP 503). The exact failure captured from a real attempt:
->
-> ```
-> POST /api/companies/1/research
-> 502 {"detail": "Could not fetch any page from https://www.meetuniversity.com:
->      homepage: fetch: transport error: ConnectError: TLS/SSL connection has been closed (EOF)"}
->
-> GET /api/llm/healthcheck
-> 503 {"detail": "GROQ_API_KEY is not set. Add it to .env (see .env.example) and restart the server."}
-> ```
->
-> So the counts below are **not measured** and I will not invent them. The pipeline, UI and API were verified
-> against a live server with mocked HTTP/LLM in tests (117 backend tests, TypeScript clean, six routes HTTP 200).
+Captured directly from committed `run_output.txt` (generated via `scripts/run_three_companies.py --skip-interview` on Windows; see `docs/acceptance.md` for what is settled vs still uncaptured):
 
-| Company | Verified sources | Competitors | Collected records | Brief generated |
+| Company | Pages researched | Verified sources stored (dropped) | Crawled records | Analysed / Brief |
 |---|---|---|---|---|
-| MeetUniversity | Not measured — sandbox egress blocked | Not measured | Not measured | no |
-| Razorpay | Not measured — sandbox egress blocked | Not measured | Not measured | no |
-| Zomato | Not measured — sandbox egress blocked | Not measured | Not measured | no |
+| **MeetUniversity** (`https://www.meetuniversity.com`) | 6 pages (3 unverified) | **5** (`competitors: 1, customers: 1, market: 3`; 10 dropped) | 5 new, 0 errors | 5 analysed, 0 flagged · **Brief #1 (3 actions)** |
+| **Razorpay** (`https://razorpay.com`) | 6 pages (0 unverified) | **16** (15 dropped) | 23 new, 1 error | Not captured in `run_output.txt` |
+| **Zerodha** (`https://zerodha.com`) | 6 pages (2 unverified) | Not captured in `run_output.txt` | Not captured in `run_output.txt` | Not captured in `run_output.txt` |
 
-Targets were 20 sources, 5 to 10 competitors and 30 records. Where I fell short: **everywhere, because the run has
-not happened.** Cause: no network egress to the target sites and no Groq key in the build sandbox. To produce the
-real numbers, run `scripts/run_three_companies.py` (see below) on a machine with internet and a key, then replace
-this table with the printed output. Do not copy numbers from anywhere else.
+Targets were 20 sources, 5 to 10 competitors and 30 records. In `run_output.txt`, MeetUniversity completed end-to-end (research → discovery → crawl → analysis → brief #1) with 5 verified sources and 5 records; Razorpay reached 16 verified sources and 23 crawled records; Zerodha completed research; interviews (`--skip-interview`) and `--reassess` output were not captured in `run_output.txt`. To capture the remaining steps cleanly, re-run without `--skip-interview` and with `--reassess` (see below).
 
 ## Features
 
