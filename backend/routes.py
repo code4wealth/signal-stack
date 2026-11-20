@@ -265,6 +265,9 @@ def _source_dict(source: Source) -> dict:
         "url": source.url,
         "feed_url": source.feed_url,
         "category": source.category,
+        "source_type": source.source_type,
+        "description": source.description,
+        "update_frequency": source.update_frequency,
         "status": source.status,
         "health": source.health,
         "reliability": source.reliability,
@@ -304,15 +307,19 @@ def add_source(company_id: int, payload: SourceCreate, db: Session = Depends(get
     if not ok:
         raise HTTPException(status_code=400, detail=f"source could not be fetched: {detail}")
 
+    effective_feed = payload.feed_url or feed_url
     source = Source(
         company_id=company_id,
         name=payload.name,
         url=final_url,
-        feed_url=payload.feed_url or feed_url,
+        feed_url=effective_feed,
         category=payload.category,
+        source_type=payload.source_type or ("rss" if effective_feed else "webpage"),
+        description=payload.description or payload.reason,
         reason=payload.reason,
         expected=payload.expected,
         reliability=payload.reliability,
+        update_frequency=payload.update_frequency or ("daily" if effective_feed else "weekly"),
         status="pending",
         health="ok",
     )

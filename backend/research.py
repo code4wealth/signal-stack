@@ -251,6 +251,8 @@ def validate_profile(profile: Profile, fetched_urls: set[str]) -> Profile:
     profile.customers = keep(profile.customers, "customers")
     profile.geography = keep(profile.geography, "geography")
     profile.differentiators = keep(profile.differentiators, "differentiators")
+    profile.growth_opportunities = keep(profile.growth_opportunities, "growth_opportunities")
+    profile.challenges = keep(profile.challenges, "challenges")
 
     competitors = []
     for hint in profile.likely_competitors:

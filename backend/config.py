@@ -83,8 +83,8 @@ def get_settings() -> Settings:
     default_db = f"sqlite:///{REPO_ROOT / 'backend' / 'signalstack.db'}"
     return Settings(
         groq_api_key=os.getenv("GROQ_API_KEY") or None,
-        groq_model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-        database_url=os.getenv("DATABASE_URL", default_db),
+        groq_model=(os.getenv("GROQ_MODEL") or "").strip() or "llama-3.3-70b-versatile",
+        database_url=(os.getenv("DATABASE_URL") or "").strip() or default_db,
         max_analyses_per_run=_int("MAX_ANALYSES_PER_RUN", 40),
         crawl_concurrency=_int("CRAWL_CONCURRENCY", 4),
         fetch_timeout_seconds=_int("FETCH_TIMEOUT_SECONDS", 15),

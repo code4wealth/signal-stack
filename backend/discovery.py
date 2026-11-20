@@ -179,9 +179,12 @@ def discover(db, company) -> dict:
             url=final_url,
             feed_url=feed_url,
             category=candidate.category,
+            source_type="rss" if feed_url else "webpage",
+            description=candidate.reason[:1000],
             reason=candidate.reason[:1000],
             expected=candidate.expected[:1000],
             reliability=_clamp_reliability(candidate.reliability),
+            update_frequency="daily" if feed_url else "weekly",
             status="pending",
             health="ok",
         )

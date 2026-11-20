@@ -183,6 +183,8 @@ export default function SourcesPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-medium text-slate-100">{source.name}</span>
                         <Badge tone={statusTone(source.status)}>{source.status}</Badge>
+                        {source.source_type ? <Badge tone="info">{source.source_type}</Badge> : null}
+                        {source.update_frequency ? <Badge>{source.update_frequency}</Badge> : null}
                         <Badge tone={source.health === "ok" ? "ok" : source.health === "error" ? "bad" : "neutral"}>
                           health: {source.health}
                         </Badge>
@@ -197,7 +199,12 @@ export default function SourcesPage() {
                       <a href={source.url} target="_blank" rel="noreferrer" className="mt-1 block truncate text-xs text-accent">
                         {source.url}
                       </a>
-                      {source.reason ? <p className="mt-1 text-xs text-slate-500">{source.reason}</p> : null}
+                      {source.description || source.reason ? (
+                        <p className="mt-1 text-xs text-slate-500">{source.description || source.reason}</p>
+                      ) : null}
+                      {source.expected ? (
+                        <p className="mt-0.5 text-xs text-slate-600">expected: {source.expected}</p>
+                      ) : null}
                       {source.relevance_reason ? (
                         <p className="mt-1 text-xs text-slate-500">relevance reason: {source.relevance_reason}</p>
                       ) : null}

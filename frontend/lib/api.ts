@@ -93,6 +93,17 @@ export const api = {
       `/api/companies/${id}/research`,
     ),
   getProfile: (id: number) => get<import("./types").Profile>(`/api/companies/${id}/profile`),
+  patchProfile: (
+    id: number,
+    payload: {
+      summary?: string;
+      industry?: string;
+      business_model?: string;
+      value_proposition?: string;
+      positioning?: string;
+      unverified?: string[];
+    },
+  ) => patch<import("./types").Profile>(`/api/companies/${id}/profile`, payload),
 
   startInterview: (id: number) => post<import("./types").InterviewState>(`/api/companies/${id}/interview/start`),
   getInterview: (id: number) => get<import("./types").InterviewState>(`/api/companies/${id}/interview`),
@@ -110,7 +121,16 @@ export const api = {
   discoverSources: (id: number) => post<import("./types").DiscoveryResult>(`/api/companies/${id}/sources/discover`),
   addSource: (
     id: number,
-    payload: { name: string; url: string; category: string; reason?: string; reliability?: number },
+    payload: {
+      name: string;
+      url: string;
+      category: string;
+      reason?: string;
+      description?: string;
+      expected?: string;
+      update_frequency?: string;
+      reliability?: number;
+    },
   ) =>
     post<import("./types").Source>(`/api/companies/${id}/sources`, payload),
   approveSource: (sourceId: number) => post<import("./types").Source>(`/api/sources/${sourceId}/approve`),

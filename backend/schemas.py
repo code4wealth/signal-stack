@@ -74,10 +74,14 @@ class Profile(BaseModel):
     summary: str = Field(description="3-4 sentence neutral description of what the company does")
     industry: str = Field(default="", description="Short sector label, e.g. 'fintech payments'")
     business_model: str = Field(default="", description="How the company makes money, or 'unclear'")
+    value_proposition: str = Field(default="", description="Core value proposition stated on the site")
+    positioning: str = Field(default="", description="How the company positions itself in the market")
     products: list[Fact] = Field(default_factory=list)
     customers: list[Fact] = Field(default_factory=list)
     geography: list[Fact] = Field(default_factory=list)
     differentiators: list[Fact] = Field(default_factory=list)
+    growth_opportunities: list[Fact] = Field(default_factory=list)
+    challenges: list[Fact] = Field(default_factory=list)
     likely_competitors: list[CompetitorHint] = Field(default_factory=list, max_length=10)
     unverified: list[str] = Field(
         default_factory=list,
@@ -89,6 +93,8 @@ class ProfilePatch(BaseModel):
     summary: str | None = None
     industry: str | None = None
     business_model: str | None = None
+    value_proposition: str | None = None
+    positioning: str | None = None
     unverified: list[str] | None = None
 
 
@@ -139,9 +145,12 @@ class SourceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=300)
     url: str = Field(min_length=4, max_length=1000)
     category: Category
+    source_type: str | None = None
+    description: str = ""
     reason: str = ""
     expected: str = ""
     reliability: float = Field(default=0.5, ge=0.0, le=1.0)
+    update_frequency: str = "weekly"
     feed_url: str | None = None
 
 
@@ -150,7 +159,9 @@ class SourcePatch(BaseModel):
     category: Category | None = None
     relevance: float | None = Field(default=None, ge=0.0, le=1.0)
     name: str | None = None
+    description: str | None = None
     expected: str | None = None
+    update_frequency: str | None = None
 
 
 # --------------------------------------------------------------------------- #

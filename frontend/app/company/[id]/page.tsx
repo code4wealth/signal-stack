@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { RefreshCw, Save } from "lucide-react";
+import { Pencil, RefreshCw, Save, X } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
 import type { Fact, Profile } from "@/lib/types";
@@ -14,10 +14,30 @@ export default function OverviewPage() {
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [context, setContext] = useState("");
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    summary: "",
+    industry: "",
+    business_model: "",
+    value_proposition: "",
+    positioning: "",
+    unverifiedText: "",
+  });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const syncProfileForm = useCallback((p: Profile | null) => {
+    setProfileForm({
+      summary: p?.summary ?? "",
+      industry: p?.industry ?? "",
+      business_model: p?.business_model ?? "",
+      value_proposition: p?.value_proposition ?? "",
+      positioning: p?.positioning ?? "",
+      unverifiedText: (p?.unverified ?? []).join("\n"),
+    });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -25,13 +45,14 @@ export default function OverviewPage() {
     try {
       const company = await api.getCompany(companyId);
       setProfile(company.profile);
+      syncProfileForm(company.profile);
       setContext(company.context);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not load company.");
     } finally {
       setLoading(false);
     }
-  }, [companyId]);
+  }, [companyId, syncProfileForm]);
 
   useEffect(() => {
     if (Number.isFinite(companyId)) void load();
@@ -44,11 +65,41 @@ export default function OverviewPage() {
     try {
       const result = await api.research(companyId);
       setProfile(result.profile);
+      syncProfileForm(result.profile);
       setNotice(
         `Research stored. ${result.pages_fetched.length} pages fetched, ${result.unverified_count} unverified item(s) recorded.`,
       );
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Research failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveProfileEdit(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy("profile");
+    setError(null);
+    setNotice(null);
+    try {
+      const unverified = profileForm.unverifiedText
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const updated = await api.patchProfile(companyId, {
+        summary: profileForm.summary,
+        industry: profileForm.industry,
+        business_model: profileForm.business_model,
+        value_proposition: profileForm.value_proposition,
+        positioning: profileForm.positioning,
+        unverified,
+      });
+      setProfile(updated);
+      syncProfileForm(updated);
+      setEditingProfile(false);
+      setNotice("Profile changes saved.");
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Could not save profile edits.");
     } finally {
       setBusy(null);
     }
@@ -142,16 +193,98 @@ export default function OverviewPage() {
           </div>
 
           <Card>
-            <h3 className="text-base font-semibold text-slate-100">Profile</h3>
-            <p className="prose-body mt-2 text-sm text-slate-300">{profile.summary || "No summary."}</p>
-            {profile.business_model ? (
-              <p className="mt-2 text-sm text-slate-400">Business model: {profile.business_model}</p>
-            ) : null}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-base font-semibold text-slate-100">Profile</h3>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  syncProfileForm(profile);
+                  setEditingProfile((prev) => !prev);
+                }}
+              >
+                {editingProfile ? (
+                  <>
+                    <X size={14} /> Cancel edit
+                  </>
+                ) : (
+                  <>
+                    <Pencil size={14} /> Edit profile
+                  </>
+                )}
+              </Button>
+            </div>
 
-            {renderFacts("Products", profile.products)}
-            {renderFacts("Customers", profile.customers)}
-            {renderFacts("Geography", profile.geography)}
-            {renderFacts("Differentiators", profile.differentiators)}
+            {editingProfile ? (
+              <form onSubmit={saveProfileEdit} className="mt-4 space-y-3">
+                <Field label="Overview / summary">
+                  <textarea
+                    className={`${inputClass} h-24`}
+                    value={profileForm.summary}
+                    onChange={(event) => setProfileForm({ ...profileForm, summary: event.target.value })}
+                  />
+                </Field>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field label="Industry">
+                    <input
+                      className={inputClass}
+                      value={profileForm.industry}
+                      onChange={(event) => setProfileForm({ ...profileForm, industry: event.target.value })}
+                    />
+                  </Field>
+                  <Field label="Business model">
+                    <input
+                      className={inputClass}
+                      value={profileForm.business_model}
+                      onChange={(event) => setProfileForm({ ...profileForm, business_model: event.target.value })}
+                    />
+                  </Field>
+                  <Field label="Value proposition">
+                    <input
+                      className={inputClass}
+                      value={profileForm.value_proposition}
+                      onChange={(event) => setProfileForm({ ...profileForm, value_proposition: event.target.value })}
+                    />
+                  </Field>
+                  <Field label="Market positioning">
+                    <input
+                      className={inputClass}
+                      value={profileForm.positioning}
+                      onChange={(event) => setProfileForm({ ...profileForm, positioning: event.target.value })}
+                    />
+                  </Field>
+                </div>
+                <Field label="Unverified items (one per line)">
+                  <textarea
+                    className={`${inputClass} h-24`}
+                    value={profileForm.unverifiedText}
+                    onChange={(event) => setProfileForm({ ...profileForm, unverifiedText: event.target.value })}
+                  />
+                </Field>
+                <Button type="submit" disabled={busy === "profile"}>
+                  <Save size={14} /> {busy === "profile" ? "Saving…" : "Save profile edits"}
+                </Button>
+              </form>
+            ) : (
+              <>
+                <p className="prose-body mt-2 text-sm text-slate-300">{profile.summary || "No summary."}</p>
+                {profile.business_model ? (
+                  <p className="mt-2 text-sm text-slate-400">Business model: {profile.business_model}</p>
+                ) : null}
+                {profile.value_proposition ? (
+                  <p className="mt-1 text-sm text-slate-400">Value proposition: {profile.value_proposition}</p>
+                ) : null}
+                {profile.positioning ? (
+                  <p className="mt-1 text-sm text-slate-400">Positioning: {profile.positioning}</p>
+                ) : null}
+
+                {renderFacts("Products", profile.products)}
+                {renderFacts("Customers", profile.customers)}
+                {renderFacts("Geography", profile.geography)}
+                {renderFacts("Differentiators", profile.differentiators)}
+                {renderFacts("Growth opportunities", profile.growth_opportunities)}
+                {renderFacts("Challenges", profile.challenges)}
+              </>
+            )}
 
             {profile.likely_competitors && profile.likely_competitors.length > 0 ? (
               <div className="mt-4">

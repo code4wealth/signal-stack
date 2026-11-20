@@ -84,9 +84,13 @@ class Source(Base):
     feed_url: Mapped[str | None] = mapped_column(String(1000), default=None, nullable=True)
     # customers | competitors | market | internal
     category: Mapped[str] = mapped_column(String(32), nullable=False)
+    # webpage | rss | upload
+    source_type: Mapped[str] = mapped_column(String(32), default="webpage", nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     reason: Mapped[str] = mapped_column(Text, default="", nullable=False)
     expected: Mapped[str] = mapped_column(Text, default="", nullable=False)
     reliability: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    update_frequency: Mapped[str] = mapped_column(String(32), default="weekly", nullable=False)
     # pending | approved | rejected | paused
     status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
     health: Mapped[str] = mapped_column(String(16), default="unknown", nullable=False)
@@ -182,8 +186,28 @@ def _sqlite_pragmas(dbapi_connection, _connection_record) -> None:
         cursor.close()
 
 
+def _ensure_sqlite_columns() -> None:
+    """Add new optional columns to existing SQLite databases without Alembic."""
+    if not engine.dialect.name == "sqlite":
+        return
+    migrations = {
+        "sources": {
+            "source_type": "VARCHAR(32) NOT NULL DEFAULT 'webpage'",
+            "description": "TEXT NOT NULL DEFAULT ''",
+            "update_frequency": "VARCHAR(32) NOT NULL DEFAULT 'weekly'",
+        }
+    }
+    with engine.begin() as conn:
+        for table, cols in migrations.items():
+            existing = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()}
+            for col, ddl in cols.items():
+                if col not in existing:
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    _ensure_sqlite_columns()
 
 
 def get_db() -> Iterator[Session]:

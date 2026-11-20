@@ -15,10 +15,14 @@ export type Profile = {
   summary?: string;
   industry?: string;
   business_model?: string;
+  value_proposition?: string;
+  positioning?: string;
   products?: Fact[];
   customers?: Fact[];
   geography?: Fact[];
   differentiators?: Fact[];
+  growth_opportunities?: Fact[];
+  challenges?: Fact[];
   likely_competitors?: CompetitorHint[];
   unverified?: string[];
   intelligence?: {
@@ -60,6 +64,9 @@ export type Source = {
   url: string;
   feed_url: string | null;
   category: SourceCategory;
+  source_type?: string;
+  description?: string;
+  update_frequency?: string;
   status: SourceStatus;
   health: string;
   reliability: number;
