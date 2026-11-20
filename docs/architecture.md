@@ -37,7 +37,7 @@ Two modules own the outside world:
 `records.content_hash` and `records.total`.
 
 JSON columns (`companies.profile`, `records.analysis`, `records.scores`, `reports.content`) are a time-budget
-decision, documented in `docs/limitations.md`. The engine is created from `DATABASE_URL`, so Postgres is a
+decision, documented in `docs/COST_AND_LIMITATIONS.md`. The engine is created from `DATABASE_URL`, so Postgres is a
 configuration change rather than a rewrite; `JSON` maps to `jsonb`-compatible `JSON` on both.
 
 ## Ranking

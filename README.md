@@ -1,121 +1,199 @@
-# Signal Stack
+# Signal Stack: Company Intelligence and Monday Brief Engine
 
-AI company-intelligence engine for the EDXSO AI Engineer Intern assignment (Assignment 1).
+AI-powered pipeline that researches a company, interviews its founder, discovers and verifies public intelligence
+sources in four categories, crawls them, extracts evidence-backed signals, ranks them transparently, and writes an
+executive Monday Morning Brief.
 
-Enter a company name and website. Signal Stack researches the company from its own website, interviews the
-founder with company-specific questions, discovers and *verifies* public sources in four categories
-(customers, competitors, market, internal), crawls them, extracts evidence-backed signals, ranks them with a
-deterministic formula, and writes a Monday Morning Brief.
+Built for the EDXSO AI Engineer Intern assignment (Assignment 1).
+Demo companies (entered as data, not hardcoded): MeetUniversity, Razorpay, Zomato.
 
-Every signal cites a stored URL, a content hash and a verbatim snippet. Nothing in the intelligence is invented:
-if the pipeline cannot verify it, it is dropped or explicitly labelled unverified.
+## Verified results from my runs
 
-> **Honesty status.** The build environment for this repository had no outbound internet access to company
-> websites or to `api.groq.com`, and no `GROQ_API_KEY`. The code, tests and UI were built and verified there
-> (117 backend tests, TypeScript type check, all six UI routes rendered against the live API). The real-data
-> runs required by acceptance criteria AC2–AC6, AC10, AC11 and the count targets have **not** been executed yet.
-> `docs/acceptance.md` marks each criterion PASS / FAIL / **NOT VERIFIED** with the reason. Run
-> `scripts/run_three_companies.py` on a machine with internet + a Groq key, then fill in the counts table below.
+> **No live run has completed yet.** Date of last verification attempt: **2026-11-20**.
+> The build environment had no outbound access to company websites (all fetches returned a TLS transport error) and
+> no `GROQ_API_KEY` (`/api/llm/healthcheck` → HTTP 503). The exact failure captured from a real attempt:
+>
+> ```
+> POST /api/companies/1/research
+> 502 {"detail": "Could not fetch any page from https://www.meetuniversity.com:
+>      homepage: fetch: transport error: ConnectError: TLS/SSL connection has been closed (EOF)"}
+>
+> GET /api/llm/healthcheck
+> 503 {"detail": "GROQ_API_KEY is not set. Add it to .env (see .env.example) and restart the server."}
+> ```
+>
+> So the counts below are **not measured** and I will not invent them. The pipeline, UI and API were verified
+> against a live server with mocked HTTP/LLM in tests (117 backend tests, TypeScript clean, six routes HTTP 200).
 
-## Quick start (from scratch)
+| Company | Verified sources | Competitors | Collected records | Brief generated |
+|---|---|---|---|---|
+| MeetUniversity | not measured — live run blocked | not measured | not measured | no |
+| Razorpay | not measured — live run blocked | not measured | not measured | no |
+| Zomato | not measured — live run blocked | not measured | not measured | no |
 
-Requirements: Python 3.11+ (developed on 3.11.2; 3.12 is the PRD target and works the same), Node 20+.
+Targets were 20 sources, 5 to 10 competitors and 30 records. Where I fell short: **everywhere, because the run has
+not happened.** Cause: no network egress to the target sites and no Groq key in the build sandbox. To produce the
+real numbers, run `scripts/run_three_companies.py` (see below) on a machine with internet and a key, then replace
+this table with the printed output. Do not copy numbers from anywhere else.
+
+## Features
+
+Implemented and tested:
+- Company research from the public website, with verified vs unverified facts and evidence URLs
+  (`research.py`; a fact whose `evidence_url` was not actually fetched is demoted to `unverified` — asserted in tests)
+- Adaptive 10-question founder interview with follow-ups (vague answers only, max 3, duplicates rejected), skip, edit and resume
+- Source discovery in four categories (Customers, Competitors, Market, Internal) with real URL verification; unreachable candidates are dropped and reported
+- Crawler: RSS and pages, ETag and Last-Modified, retries with backoff, robots.txt, per-host rate limit, SSRF protection
+- Content hashing, duplicate detection (URL + hash) and change detection (`[UPDATED]` records)
+- Per-record analysis with a verbatim evidence check (mismatch caps evidence strength at 0.2 and flags it)
+- Transparent ranking with stored components, weights and a per-record explanation string
+- Monday Brief saved to the database, history, Markdown export, copy, action tracking (checkbox persisted in the report)
+- Source management (approve, reject, pause, add, remove)
+- Context reassessment (relevance re-scoring with reasons; below 0.4 is a recommendation only, never a delete)
+- TXT and CSV internal document upload (2 MB cap, parsed, labelled user-provided)
+- Weekly brief and monthly source audit via GitHub Actions plus a manual trigger and an in-app "Run now" button
+- Job logs for every pipeline stage, surfaced in the Automation page
+
+Not implemented (see `docs/COST_AND_LIMITATIONS.md`):
+- PDF export and PDF/XLSX upload (only TXT and CSV uploads exist)
+- JavaScript rendering of client-side sites
+- Alembic migrations, the full normalised 18-table schema, multi-user auth, billing, multi-tenancy
+- Sentence-level entailment for brief prose (only citation ids are validated, not whether each sentence follows from its record)
+- Near-duplicate (syndicated) text detection — dedup is exact hash equality after whitespace normalisation
+- Hosting/deployment of either service; action text editing (the `done` flag is editable, the label is not)
+- Regenerating interview questions once an interview exists (deliberate: it would discard answers)
+
+## Architecture
+```
+Next.js UI  ->  FastAPI  ->  SQLite (SQLAlchemy)
+                  |
+   safe_fetch (SSRF, robots, rate limit)  ->  public web
+                  |
+   llm.py (Groq, Pydantic-validated JSON)
+```
+Pipeline: research, interview, discovery, crawl (no LLM), analyse, rank, brief.
+
+Key decisions:
+- Crawling is separate from AI analysis, so crawling works if the LLM is down.
+- Every outbound request goes through one safe module (`backend/safe_fetch.py`).
+- LLM output is always schema-validated. Scraped text is passed only as tagged untrusted data (`<untrusted_source>`).
+- Ranking is deterministic code over stored components, not an LLM score.
+- Report citations are validated against real database records; invented ids are stripped and empty sections fall
+  back to the exact sentence required by the PRD.
+
+More detail: [`docs/architecture.md`](docs/architecture.md).
+
+## Prerequisites
+
+Python 3.11+ (developed and tested on 3.11.2; the PRD asks for 3.12, which was not installable here and is
+supported by the same code), Node 20+, and a free Groq API key.
+
+## Setup
+
+These are the exact commands used to verify this repository.
 
 ```bash
-git clone <this repo> && cd signal-stack
+git clone <repo-url> && cd signal-stack
 
-# 1. secrets
-cp .env.example .env
-#    then edit .env and set GROQ_API_KEY=...
-#    free key: https://console.groq.com/keys   (model default: llama-3.3-70b-versatile)
-
-# 2. backend
+# backend
 python3 -m venv .venv
 ./.venv/bin/pip install -r backend/requirements.txt
+cp .env.example .env          # then add GROQ_API_KEY
 cd backend
 ../.venv/bin/uvicorn main:app --reload --port 8000
-#    API docs: http://127.0.0.1:8000/docs
-#    health:   http://127.0.0.1:8000/api/health
+# API docs: http://127.0.0.1:8000/docs   health: http://127.0.0.1:8000/api/health
 
-# 3. frontend (second terminal)
+# frontend (new terminal)
 cd frontend
 npm install
-npm run dev          # http://localhost:3000  (proxies /api to the backend)
-
-# 4. tests
-cd backend && ../.venv/bin/pytest -q
-cd frontend && npx tsc --noEmit
+npm run dev                   # http://localhost:3000
 ```
 
-Optional: `ENABLE_SCHEDULER=1` in `.env` makes the backend run APScheduler (weekly brief Monday 06:00 UTC,
-source audit on the 1st). CI uses `.github/workflows/weekly.yml` instead.
+Windows: use `.venv\Scripts\activate` and then `uvicorn main:app --reload --port 8000`; the venv path differs.
+A venv inside `backend/` works equally well — `requirements.txt` lives there.
 
-### Run the three demo companies
+### Produce the real numbers
 
 ```bash
-# backend running, .env has a key
 ./.venv/bin/python scripts/run_three_companies.py --yes
-# single company, skipping the interactive interview
+# one company, skipping the interactive interview
 ./.venv/bin/python scripts/run_three_companies.py --only meetuniversity --skip-interview --yes
-# the MeetUniversity context change from the PRD
+# the PRD context change
 ./.venv/bin/python scripts/run_three_companies.py --only meetuniversity --skip-interview --yes \
   --reassess meetuniversity \
   --context "International student recruitment and overseas education consultancy"
 ```
+The companies live in `scripts/demo_companies.json` as data. No company name appears in backend logic (checked by grep).
 
-The demo companies live in `scripts/demo_companies.json` **as data**. No company name, competitor or source URL
-appears in application logic — that is what AC1 checks.
+## Environment variables
 
-## What the pipeline does
+| Name | Purpose |
+|---|---|
+| `GROQ_API_KEY` | Groq API access (required for every LLM step) |
+| `GROQ_MODEL` | Model name. Default `llama-3.3-70b-versatile`. **Check Groq's current free list** — see the warning below |
+| `DATABASE_URL` | Optional. Defaults to `sqlite:///backend/signalstack.db`; any SQLAlchemy URL works |
+| `BACKEND_URL` | Used by the Next.js dev server rewrite; defaults to `http://127.0.0.1:8000` |
+| `NEXT_PUBLIC_API_URL` | Optional absolute API base for a split deployment (empty = use the Next proxy) |
+| `ENABLE_SCHEDULER` | `1` starts APScheduler in-process (default `0`, so `--reload` cannot double-schedule) |
+| `MAX_ANALYSES_PER_RUN` | Groq budget guard, default 40 |
+| `CRAWL_CONCURRENCY` | Fetches in flight, capped at 4 |
+| `FETCH_TIMEOUT_SECONDS` / `FETCH_MAX_BYTES` / `FETCH_REQUESTS_PER_SECOND` | Fetcher limits, defaults 15 s / 3 MB / 1 per host-second |
 
-| Step | Module | Calls LLM? | What it guarantees |
-|---|---|---|---|
-| Research | `backend/research.py` | yes | Homepage + up to 5 internal pages fetched; facts citing an unfetched URL are demoted to `unverified` |
-| Interview | `backend/interview.py` | yes | 10 questions from the profile; follow-up only after a vague answer (max 3, never a repeat); skip/edit/resume/complete |
-| Discovery | `backend/discovery.py` | yes | Every candidate URL is fetched; unreachable/blocked/duplicate candidates are dropped with a reason; RSS autodiscovery |
-| Crawl | `backend/crawler.py` | **no** | Approved sources only, conditional GET, 3 MB cap, 1 req/s/host, hash dedup, `[UPDATED]` records, per-source error state |
-| Analyse | `backend/analysis.py` | yes | Evidence snippet must appear verbatim in the text, otherwise strength is capped at 0.2 and flagged |
-| Rank | `backend/ranking.py` | **no** | 100 × Σ(weight × component); components and an explanation string are stored |
-| Brief | `backend/brief.py` | yes | 11 fixed sections; every citation id validated against the DB; actions without evidence dropped |
-| Reassess | `backend/context.py` | yes | Relevance re-scored against the new context; < 0.4 only *recommends* removal, never deletes |
+> **Model warning (unverified here, 2026-11-20).** Published free-tier reports disagree about
+> `llama-3.3-70b-versatile`: some list it as free with ~1,000 requests/day, at least one 2026 source says Llama 3.3
+> moved to Enterprise and that the current free chat models are `openai/gpt-oss-120b`, `openai/gpt-oss-20b` and a
+> Qwen model. I could not check `console.groq.com` from this environment. If your first LLM call returns a 404/403
+> model error, set `GROQ_MODEL` to a model listed on Groq's models page and restart. Nothing else needs to change.
 
-## API (prefix `/api`, 30 paths, all live in `/docs`)
+## Database
 
-Companies: `POST/GET /companies`, `GET/PATCH /companies/{id}`, `POST /companies/{id}/research`
-Profile: `GET|PATCH /companies/{id}/profile`
-Interview: `POST .../interview/start`, `GET .../interview`, `POST .../interview/answer`, `PATCH /interview/answers/{id}`, `POST .../interview/complete`
-Sources: `GET .../sources`, `POST .../sources/discover`, `POST .../sources`, `PATCH /sources/{id}`, `DELETE /sources/{id}`, `POST /sources/{id}/approve`
-Crawl: `POST .../crawl`, `POST .../analyse`, `GET .../crawl-history`, `GET .../intelligence`, `GET /signals/{id}`
-Documents: `POST|GET .../documents`
-Reports: `POST .../reports/generate`, `GET .../reports`, `GET /reports/{id}`, `GET /reports/{id}/export`, `PATCH /reports/{id}/actions/{index}`
-Automation: `POST .../automation/run`, `POST .../source-audit`, `GET .../job-logs`
-Context: `POST .../context/reassess`
-System: `GET /health`, `GET /llm/healthcheck`
+Six tables (`companies`, `qa`, `sources`, `records`, `reports`, `job_logs`) are created automatically on startup via
+`create_all` with `ON DELETE CASCADE` foreign keys and indexes on `company_id`, `records.content_hash` and
+`records.total`. Alembic is not used in this build; the migration story is "delete the SQLite file, or point
+`DATABASE_URL` at Postgres, and let `create_all` rebuild".
 
-All list endpoints take `limit` and `offset`. All errors return JSON `{"detail": ...}`.
+## Tests
 
-## Actual counts
+```bash
+cd backend && ../.venv/bin/pytest -q     # 117 passed
+cd frontend && npx tsc --noEmit          # clean
+cd frontend && npm run build             # all 8 routes built
+```
 
-Fill this in after your run; the PRD targets are 20 approved sources for MeetUniversity, 5–10 competitors and
-30 records across the three demos. Do not inflate.
+LLM calls and HTTP are mocked in tests. Fixtures are labelled `TEST_` and are never stored as intelligence records.
 
-| Company | Sources stored (approved) | by category (cust/comp/market/internal) | Records analysed | Briefs |
-|---|---|---|---|---|
-| MeetUniversity | not run yet | — | — | — |
-| Razorpay | not run yet | — | — | — |
-| Zomato | not run yet | — | — | — |
+## Scheduler
 
-## Non-goals (deliberately out of scope)
+- Weekly brief: `.github/workflows/weekly.yml`, Monday **07:00 IST (01:30 UTC)**, also runnable via
+  `workflow_dispatch` and via `python backend/run_weekly.py --all`.
+- Monthly audit: same workflow, `cron: 30 1 1 * *` (1st of the month, 07:30 IST), or `python backend/run_audit.py --all`,
+  or `POST /api/companies/{id}/source-audit` from the UI's Automation page.
+- Local: `ENABLE_SCHEDULER=1` registers both jobs with APScheduler while the server runs.
+- Persistence caveat: GitHub-hosted runners are ephemeral, so each scheduled run starts from an empty SQLite unless
+  `DATABASE_URL` points at a real Postgres (a Supabase free-tier database works) and is stored as a repository
+  secret. The workflow uploads the database file and job output as artifacts either way. **The scheduled run itself
+  is not verified** — it needs a repository with secrets configured.
+- Failures are written to `job_logs` and shown on the Automation page. Verified locally: running the weekly job and
+  the audit through the API produced four `job_logs` rows (`crawl: skipped`, `analyse: ok`, `weekly: partial`,
+  `source_audit: ok`).
 
-Multi-user auth, billing, multi-tenant isolation. Browser rendering of JavaScript-heavy sites. PDF export,
-Alembic migrations, the full normalised 18-table schema. Bypassing paywalls, logins, CAPTCHAs or robots.txt.
-Full limitations are in [`docs/limitations.md`](docs/limitations.md).
+## Deployment
 
-## Docs
+Not deployed. Both services were run locally only: uvicorn on :8000 and `next dev` on :3000. For a split deployment,
+set `NEXT_PUBLIC_API_URL` to the backend origin and add that origin to the backend's CORS allow-list
+(`CORS_EXTRA_ORIGINS`). Check each platform's current free-tier limits before relying on them; none were used.
 
-- [`docs/PRD.md`](docs/PRD.md) — binding scope
-- [`docs/architecture.md`](docs/architecture.md) — modules, data model, request flows
-- [`docs/limitations.md`](docs/limitations.md) — every known gap, honestly
-- [`docs/demo-script.md`](docs/demo-script.md) — 5–10 minute walkthrough
-- [`docs/acceptance.md`](docs/acceptance.md) — AC1–AC12 with evidence and current status
-- [`CLAUDE.md`](CLAUDE.md) / [`AGENTS.md`](AGENTS.md) — the rules this repo was built under
+## Security
+
+SSRF blocking (private, loopback, link-local, reserved and cloud-metadata IPs, plus literal hostnames like
+`metadata.google.internal`), per-hop redirect re-validation, robots.txt compliance, 1 req/s per host, size and
+timeout caps, upload validation (extension, size, decodability, NUL bytes), secrets only in environment variables,
+and prompt-injection mitigation by tagging crawled content as untrusted data that never enters a system prompt.
+
+Known gap: DNS rebinding between the resolution check and the TCP connect. Full list in
+[`docs/COST_AND_LIMITATIONS.md`](docs/COST_AND_LIMITATIONS.md).
+
+## Documentation
+
+`docs/PRD.md`, `docs/architecture.md`, `docs/DEMO_SCRIPT.md`, `docs/COST_AND_LIMITATIONS.md`,
+`docs/acceptance.md` (AC1–AC12 with evidence and current status).

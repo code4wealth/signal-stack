@@ -34,6 +34,7 @@ class Settings:
     fetch_max_bytes: int
     fetch_requests_per_second: int
     user_agent: str
+    cors_extra_origins: tuple[str, ...] = ()
 
     @property
     def has_groq_key(self) -> bool:
@@ -53,4 +54,9 @@ def get_settings() -> Settings:
         fetch_max_bytes=_int("FETCH_MAX_BYTES", 3 * 1024 * 1024),
         fetch_requests_per_second=_int("FETCH_REQUESTS_PER_SECOND", 1),
         user_agent=os.getenv("USER_AGENT", "SignalStackBot/0.1 (+research; see README)"),
+        cors_extra_origins=tuple(
+            origin.strip()
+            for origin in os.getenv("CORS_EXTRA_ORIGINS", "").split(",")
+            if origin.strip()
+        ),
     )

@@ -3,7 +3,7 @@
 Six tables per PRD section 6. SQLite by default; the engine is created from a
 SQLAlchemy URL so Postgres is a config change (DATABASE_URL), not a rewrite.
 JSON columns are used for profile/analysis/scores/report content because of the
-time budget - see docs/limitations.md.
+time budget - see docs/COST_AND_LIMITATIONS.md.
 """
 
 from __future__ import annotations

@@ -10,8 +10,11 @@ export class ApiError extends Error {
   }
 }
 
+// Empty string = same-origin relative calls, proxied by Next's rewrite (default local dev).
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
@@ -117,7 +120,7 @@ export const api = {
   uploadDocument: async (id: number, file: File) => {
     const form = new FormData();
     form.append("file", file);
-    const response = await fetch(`/api/companies/${id}/documents`, { method: "POST", body: form });
+    const response = await fetch(`${API_BASE}/api/companies/${id}/documents`, { method: "POST", body: form });
     if (!response.ok) {
       const body = (await response.json().catch(() => ({}))) as { detail?: string };
       throw new ApiError(body.detail ?? "upload failed", response.status);
