@@ -1,245 +1,401 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import { CheckCircle2, Pencil, Play, Send, SkipForward, X } from "lucide-react";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { Lock, RefreshCw, WifiOff } from "lucide-react";
 
-import { api, ApiError } from "@/lib/api";
-import type { InterviewState } from "@/lib/types";
-import { Badge, Button, Card, Empty, ErrorNote, Loading, Notice, Stat, inputClass } from "@/components/ui";
+import { ApiError, getCompany } from "@/lib/api";
+import { adaptCompanyDetail, buildDevMockCompany } from "@/lib/company-adapter";
+import { useDraftAnswer } from "@/hooks/useDraftAnswer";
+import { useInterview } from "@/hooks/useInterview";
+import { useTextSelection } from "@/hooks/useTextSelection";
+import type { CompanyRecord } from "@/lib/types";
+import {
+  EmptyState,
+  PageContainer,
+  SkeletonBlock,
+  StatusPill,
+  Toast,
+} from "@/components/ui-shared";
+import {
+  ChatThread,
+  Composer,
+  InterviewHeader,
+  InterviewProgress,
+  LearnedPanel,
+  SelectionReplyButton,
+  StartCard,
+  SuggestionList,
+} from "@/components/interview";
+
+const CONTEXT_STORAGE_KEY = "signalstack:interview-use-context";
+
+function InterviewSkeleton() {
+  return (
+    <div className="flex h-[calc(100vh-3.5rem)]">
+      <div className="mx-auto flex w-full max-w-[760px] flex-1 flex-col gap-4 p-4 sm:p-6">
+        <SkeletonBlock className="h-12 w-full rounded-2xl" />
+        <SkeletonBlock className="h-6 w-full rounded-xl" />
+        <SkeletonBlock className="h-36 w-full rounded-2xl" />
+        <div className="mt-auto">
+          <SkeletonBlock className="h-28 w-full rounded-[28px]" />
+        </div>
+      </div>
+      <div className="hidden w-[320px] border-l border-white/60 p-5 xl:block">
+        <SkeletonBlock className="h-6 w-32" />
+        <SkeletonBlock className="mt-4 h-64 w-full rounded-2xl" />
+      </div>
+    </div>
+  );
+}
 
 export default function InterviewPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const companyId = Number(params?.id);
+  const useMocks = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
 
-  const [state, setState] = useState<InterviewState | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [answer, setAnswer] = useState("");
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editText, setEditText] = useState("");
+  const [useContext, setUseContext] = useState<boolean>(true);
+  const [learnedOpen, setLearnedOpen] = useState<boolean>(false);
+  const [quotedText, setQuotedText] = useState<string | null>(null);
+  const [suggestionsDismissedForTurn, setSuggestionsDismissedForTurn] = useState<number | null>(null);
+  const [editingTurnIndex, setEditingTurnIndex] = useState<number | null>(null);
+  const [focusTrigger, setFocusTrigger] = useState(0);
+  const [toast, setToast] = useState<{ message: string; tone: "ok" | "error" } | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setState(await api.getInterview(companyId));
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Could not load the interview.");
-    } finally {
-      setLoading(false);
-    }
-  }, [companyId]);
-
+  // Restore persisted "Use research context" toggle + open Learned panel by default on >=1280px
   useEffect(() => {
-    if (Number.isFinite(companyId)) void load();
-  }, [companyId, load]);
-
-  async function start() {
-    setBusy("start");
-    setError(null);
     try {
-      setState(await api.startInterview(companyId));
-      setNotice(null);
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Could not start the interview.");
-    } finally {
-      setBusy(null);
+      const saved = window.localStorage.getItem(CONTEXT_STORAGE_KEY);
+      if (saved !== null) {
+        setUseContext(saved === "true");
+      }
+    } catch {
+      /* ignore */
+    }
+    if (typeof window !== "undefined" && window.innerWidth >= 1280) {
+      setLearnedOpen(true);
+    }
+  }, []);
+
+  function handleToggleContext() {
+    setUseContext((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(CONTEXT_STORAGE_KEY, String(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
+
+  const companyQuery = useQuery<CompanyRecord>({
+    queryKey: ["company", companyId],
+    queryFn: async () => {
+      if (useMocks) return buildDevMockCompany(companyId);
+      const raw = await getCompany(companyId);
+      return adaptCompanyDetail(raw);
+    },
+    enabled: Number.isFinite(companyId) && companyId > 0,
+    retry: 1,
+  });
+
+  const company = companyQuery.data ?? null;
+  const isLocked = Boolean(
+    company && !useMocks && company.workflowStatus.interview === "locked",
+  );
+
+  const interviewHook = useInterview(
+    companyId,
+    Boolean(company) && !isLocked,
+  );
+  const interview = interviewHook.interview;
+
+  const activeTurnIndex = interview?.currentIndex ?? 0;
+  const currentTurn =
+    interview?.turns.find((t) => t.index === activeTurnIndex && !t.answer) ?? null;
+
+  const { draft, setDraft, clearDraft } = useDraftAnswer(companyId, activeTurnIndex);
+
+  const handleReplyWithQuote = useCallback((text: string) => {
+    setQuotedText(text);
+    setFocusTrigger((prev) => prev + 1);
+  }, []);
+
+  const { selection, buttonRef, clearSelection } = useTextSelection({
+    onTriggerReply: handleReplyWithQuote,
+  });
+
+  // Focus composer whenever a new active question appears
+  useEffect(() => {
+    if (currentTurn && !interviewHook.isSubmitting && !interviewHook.isSkipping) {
+      setFocusTrigger((prev) => prev + 1);
+      setQuotedText(null);
+    }
+  }, [currentTurn?.index, interviewHook.isSubmitting, interviewHook.isSkipping, currentTurn]);
+
+  // Surface transient notices from edits/restarts in Toast
+  useEffect(() => {
+    if (interviewHook.notice) {
+      setToast({ message: interviewHook.notice, tone: "ok" });
+      interviewHook.clearNotice();
+    }
+  }, [interviewHook]);
+
+  async function handleSubmit() {
+    if (!currentTurn || draft.trim().length === 0) return;
+    const textToSend = draft.trim();
+    const quoteToSend = quotedText ?? undefined;
+    try {
+      await interviewHook.submit({
+        turnIndex: currentTurn.index,
+        text: textToSend,
+        quotedText: quoteToSend,
+      });
+      clearDraft();
+      setQuotedText(null);
+    } catch {
+      // Keep draft and quote intact so user text is never lost
     }
   }
 
-  async function submit(skip: boolean) {
-    if (!state || state.current_idx === null) return;
-    setBusy(skip ? "skip" : "answer");
-    setError(null);
+  async function handleSkip() {
+    if (!currentTurn) return;
     try {
-      const next = await api.answer(companyId, skip ? { idx: state.current_idx, skip: true } : { idx: state.current_idx, answer });
-      setState(next);
-      setAnswer("");
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Could not save the answer.");
-    } finally {
-      setBusy(null);
+      await interviewHook.skip(currentTurn.index);
+      clearDraft();
+      setQuotedText(null);
+    } catch {
+      /* error shown in composer */
     }
   }
 
-  async function saveEdit(qaId: number) {
-    setBusy(`edit-${qaId}`);
-    setError(null);
-    try {
-      setState(await api.editAnswer(qaId, editText));
-      setEditingId(null);
-      setEditText("");
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Could not edit the answer.");
-    } finally {
-      setBusy(null);
+  async function handleBuildSignalStack() {
+    if (!interview) return;
+    if (interview.status !== "completed") {
+      await interviewHook.complete();
+    }
+    router.push(`/company/${companyId}/signal-stack`);
+  }
+
+  function handleJumpToTurn(turnIndex: number) {
+    const el = document.getElementById(`interview-turn-${turnIndex}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function handleEditFromPanel(turnIndex: number) {
+    setEditingTurnIndex(turnIndex);
+    handleJumpToTurn(turnIndex);
+    if (typeof window !== "undefined" && window.innerWidth < 1280) {
+      setLearnedOpen(false);
     }
   }
 
-  async function complete() {
-    setBusy("complete");
-    setError(null);
-    try {
-      await api.completeInterview(companyId);
-      setState(await api.getInterview(companyId));
-      setNotice("Interview complete. Answers are merged into the profile as founder intelligence.");
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Could not complete the interview.");
-    } finally {
-      setBusy(null);
-    }
+  if (companyQuery.isLoading || (!isLocked && interviewHook.isLoading && !interview)) {
+    return <InterviewSkeleton />;
   }
 
-  const current = state?.questions.find((question) => question.idx === state.current_idx) ?? null;
-  const progress = state ? Math.round(((state.answered + state.skipped) / Math.max(state.questions.length, 1)) * 100) : 0;
+  if (companyQuery.isError || interviewHook.isError) {
+    const err = companyQuery.error ?? interviewHook.error;
+    const isOffline =
+      err instanceof ApiError &&
+      (err.status === 0 || err.status >= 500 || err.message.includes("Failed to fetch"));
+    return (
+      <div className="mx-auto max-w-2xl p-6 sm:p-10">
+        <EmptyState
+          tone="error"
+          icon={<WifiOff size={24} />}
+          title={
+            isOffline
+              ? "Backend not reachable. Check that the API is running."
+              : "Could not load founder interview"
+          }
+          description={err instanceof Error ? err.message : "An unexpected error occurred."}
+          action={
+            <button
+              type="button"
+              onClick={() => {
+                void companyQuery.refetch();
+                void interviewHook.refetch();
+              }}
+              className="focus-ring inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#1C1D21] px-4 text-xs font-medium text-white"
+            >
+              <RefreshCw size={13} /> Retry
+            </button>
+          }
+        />
+      </div>
+    );
+  }
+
+  if (!company) {
+    return null;
+  }
+
+  if (isLocked) {
+    return (
+      <div className="mx-auto max-w-xl p-6 sm:p-10">
+        <EmptyState
+          icon={<Lock size={24} className="text-[#4F46E5]" />}
+          title="Confirm company profile first"
+          description="Complete live company research and review the company profile before starting the 10-question founder interview."
+          action={
+            <Link
+              href={`/company/${companyId}`}
+              className="focus-ring inline-flex h-10 items-center gap-2 rounded-xl bg-[#1C1D21] px-4 text-xs font-medium text-white no-underline hover:bg-[#2a2c32]"
+            >
+              Review company profile
+            </Link>
+          }
+        />
+      </div>
+    );
+  }
+
+  const isThinking = interviewHook.isSubmitting || interviewHook.isSkipping;
+  const allDone = Boolean(
+    interview && interview.turns.length > 0 && interview.turns.every((t) => Boolean(t.answer)),
+  );
+  const suggestions =
+    currentTurn &&
+    !isThinking &&
+    suggestionsDismissedForTurn !== currentTurn.index &&
+    currentTurn.suggestedAnswers &&
+    currentTurn.suggestedAnswers.length > 0
+      ? currentTurn.suggestedAnswers
+      : [];
 
   return (
-    <div className="space-y-6">
-      {loading ? <Loading label="Loading interview…" /> : null}
-      {error ? <ErrorNote message={error} onRetry={load} /> : null}
-      {notice ? <Notice>{notice}</Notice> : null}
+    <PageContainer className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
+      {/* Center Chat Column */}
+      <div className="flex min-w-0 flex-1 flex-col px-3 sm:px-6">
+        <div className="mx-auto flex h-full w-full max-w-[760px] flex-col">
+          <InterviewHeader
+            companyName={company.name}
+            interview={interview}
+            useContext={useContext}
+            onToggleContext={handleToggleContext}
+            learnedOpen={learnedOpen}
+            onToggleLearned={() => setLearnedOpen((prev) => !prev)}
+            onRestart={async () => {
+              await interviewHook.reset();
+            }}
+            isResetting={interviewHook.isResetting}
+          />
 
-      {!loading && state && !state.started ? (
-        <Card>
-          <h2 className="text-lg font-semibold tracking-[-0.02em] text-ink">Adaptive founder interview</h2>
-          <p className="mt-2 max-w-[62ch] text-sm leading-relaxed text-muted">
-            Ten company-specific questions generated from the stored profile. A follow-up is asked only when an answer is
-            vague (maximum three). Every answer commits to SQLite immediately so a restart loses nothing.
-          </p>
-          <div className="mt-5">
-            <Button onClick={start} disabled={busy === "start"}>
-              <Play size={15} /> {busy === "start" ? "Generating questions…" : "Start interview"}
-            </Button>
-          </div>
-        </Card>
-      ) : null}
-
-      {state && state.started ? (
-        <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label="Questions" value={state.questions.length} />
-            <Stat label="Answered" value={state.answered} />
-            <Stat label="Skipped" value={state.skipped} />
-            <Stat label="Follow-ups" value={`${state.followups_used}/${state.max_followups}`} />
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs text-muted">
-              <span>Interview progress</span>
-              <span className="tabular font-medium text-ink">{progress}%</span>
+          {company.isMock ? (
+            <div className="mt-2 flex items-center justify-center">
+              <StatusPill tone="warning">MOCK DATA</StatusPill>
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-surface">
-              <div className="h-full bg-accent transition-all duration-300" style={{ width: `${progress}%` }} />
-            </div>
-          </div>
+          ) : null}
 
-          {state.completed ? (
-            <Card>
-              <div className="flex items-center gap-2.5 text-success">
-                <CheckCircle2 size={18} />
-                <span className="text-base font-semibold">Interview completed</span>
-              </div>
-              <p className="mt-2 max-w-[62ch] text-sm leading-relaxed text-muted">
-                Answers are stored verbatim in the profile under <code className="font-mono text-ink/90">intelligence.founder_answers</code> and
-                guide signal relevance and the Monday Morning Brief.
-              </p>
-            </Card>
-          ) : current ? (
-            <Card>
-              <div className="flex items-center justify-between gap-3">
-                <span className="tabular text-xs font-medium text-muted">
-                  Question {state.answered + state.skipped + 1} of {state.questions.length}
-                </span>
-                {current.is_followup ? <Badge tone="info">Follow-up</Badge> : null}
-              </div>
-              <h3 className="mt-3 max-w-[54ch] text-lg font-medium leading-snug text-ink">{current.question}</h3>
-              <textarea
-                className={`${inputClass} mt-4 h-28`}
-                placeholder="Answer in your own words — concrete specifics sharpen downstream analysis."
-                value={answer}
-                onChange={(event) => setAnswer(event.target.value)}
+          {interview && interview.status === "not_started" ? (
+            <StartCard
+              companyName={company.name}
+              servicesCount={company.services.length}
+              competitorsCount={company.competitors.length}
+              isStarting={interviewHook.isStarting}
+              error={interviewHook.submitError}
+              onStart={async () => {
+                await interviewHook.start();
+              }}
+            />
+          ) : interview ? (
+            <>
+              <InterviewProgress
+                turns={interview.turns}
+                currentIndex={interview.currentIndex}
+                totalQuestions={interview.totalQuestions}
+                onJumpToTurn={handleJumpToTurn}
               />
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Button onClick={() => void submit(false)} disabled={busy !== null || answer.trim().length === 0}>
-                  <Send size={15} /> {busy === "answer" ? "Saving…" : "Save answer"}
-                </Button>
-                <Button variant="ghost" onClick={() => void submit(true)} disabled={busy !== null}>
-                  <SkipForward size={15} /> Skip question
-                </Button>
-              </div>
-            </Card>
-          ) : (
-            <Card>
-              <p className="text-sm text-ink">Every question has been answered or skipped.</p>
-              <div className="mt-4">
-                <Button variant="success" onClick={complete} disabled={busy === "complete" || state.completed}>
-                  <CheckCircle2 size={15} /> {busy === "complete" ? "Completing…" : "Complete interview"}
-                </Button>
-              </div>
-            </Card>
-          )}
 
-          <Card>
-            <h3 className="mb-4 text-base font-semibold tracking-[-0.015em] text-ink">Transcript</h3>
-            <ul className="space-y-4">
-              {state.questions.map((item) => (
-                <li
-                  key={item.id}
-                  className="border-l-2 border-[rgba(31,33,37,0.10)] pl-4"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-medium text-ink">
-                      <span className="tabular text-muted">{item.idx + 1}.</span> {item.question}
-                    </p>
-                    {item.is_followup ? <Badge tone="info">Follow-up</Badge> : null}
-                  </div>
-                  {item.skipped ? (
-                    <p className="mt-1.5 text-xs font-medium text-warning">Skipped</p>
-                  ) : editingId === item.id ? (
-                    <div className="mt-2.5 space-y-2">
-                      <textarea
-                        className={`${inputClass} h-20`}
-                        value={editText}
-                        onChange={(event) => setEditText(event.target.value)}
-                      />
-                      <div className="flex gap-2">
-                        <Button onClick={() => void saveEdit(item.id)} disabled={busy !== null}>
-                          Save edit
-                        </Button>
-                        <Button variant="ghost" onClick={() => setEditingId(null)}>
-                          <X size={14} /> Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  ) : item.answer ? (
-                    <div className="mt-1.5 flex flex-wrap items-baseline gap-2 text-sm text-muted">
-                      <span>{item.answer}</span>
-                      <button
-                        className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
-                        onClick={() => {
-                          setEditingId(item.id);
-                          setEditText(item.answer ?? "");
-                        }}
-                      >
-                        <Pencil size={11} /> Edit
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="mt-1.5 text-xs text-muted/70">Awaiting answer</p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </Card>
-        </>
+              <ChatThread
+                company={company}
+                interview={interview}
+                useContext={useContext}
+                isThinking={isThinking}
+                thinkingStatus={interviewHook.thinkingStatus}
+                activeQuote={quotedText}
+                editingTurnIndex={editingTurnIndex}
+                onClearForceEdit={() => setEditingTurnIndex(null)}
+                onSaveEdit={async (idx, text) => {
+                  await interviewHook.edit(idx, text);
+                }}
+                isEditing={interviewHook.isEditing}
+                onBuildSignalStack={() => void handleBuildSignalStack()}
+                isCompleting={interviewHook.isCompleting}
+                onEditTurn={handleEditFromPanel}
+              />
+
+              {!allDone ? (
+                <div className="pt-2">
+                  {suggestions.length > 0 ? (
+                    <SuggestionList
+                      suggestions={suggestions}
+                      onSelect={(text) => {
+                        setDraft(text);
+                        setFocusTrigger((prev) => prev + 1);
+                      }}
+                      onClose={() => {
+                        if (currentTurn) setSuggestionsDismissedForTurn(currentTurn.index);
+                      }}
+                    />
+                  ) : null}
+
+                  <Composer
+                    value={draft}
+                    onChange={setDraft}
+                    quotedText={quotedText}
+                    onClearQuote={() => setQuotedText(null)}
+                    model={interview.model}
+                    disabled={isThinking || !currentTurn}
+                    disabledReason={isThinking ? "Preparing the next question…" : "Interview complete"}
+                    isSubmitting={interviewHook.isSubmitting}
+                    isSkipping={interviewHook.isSkipping}
+                    focusTrigger={focusTrigger}
+                    error={interviewHook.submitError}
+                    onRetry={() => void handleSubmit()}
+                    onSubmit={() => void handleSubmit()}
+                    onSkip={() => void handleSkip()}
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Right Panel: What I've learned */}
+      {interview && interview.status !== "not_started" ? (
+        <LearnedPanel
+          open={learnedOpen}
+          onClose={() => setLearnedOpen(false)}
+          learned={interview.learned}
+          newlyLearnedId={interviewHook.newlyLearnedId}
+          answeredCount={interview.turns.filter((t) => Boolean(t.answer && !t.answer.skipped)).length}
+          skippedCount={interview.turns.filter((t) => Boolean(t.answer?.skipped)).length}
+          onEditTurn={handleEditFromPanel}
+        />
       ) : null}
 
-      {!loading && state && state.started === false && !error ? (
-        <Empty title="Not started" hint="Start the interview to generate ten questions from the profile." />
-      ) : null}
-    </div>
+      <SelectionReplyButton
+        selection={selection}
+        buttonRef={buttonRef}
+        onReply={(text) => {
+          handleReplyWithQuote(text);
+          window.getSelection()?.removeAllRanges();
+          clearSelection();
+        }}
+      />
+
+      <Toast
+        message={toast?.message ?? null}
+        tone={toast?.tone ?? "ok"}
+        onDismiss={() => setToast(null)}
+      />
+    </PageContainer>
   );
 }

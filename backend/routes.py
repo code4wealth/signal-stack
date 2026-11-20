@@ -41,13 +41,22 @@ class CompanyResearchIn(BaseModel):
 
 
 class AnswerIn(BaseModel):
-    idx: int = Field(ge=0)
+    idx: int | None = Field(default=None, ge=0)
+    turnIndex: int | None = Field(default=None, ge=0)
     answer: str | None = None
+    text: str | None = None
     skip: bool = False
+    quotedText: str | None = None
+
+
+class SkipIn(BaseModel):
+    turnIndex: int | None = Field(default=None, ge=0)
+    idx: int | None = Field(default=None, ge=0)
 
 
 class AnswerEdit(BaseModel):
-    answer: str = Field(min_length=1, max_length=8000)
+    answer: str | None = Field(default=None, min_length=1, max_length=8000)
+    text: str | None = Field(default=None, min_length=1, max_length=8000)
 
 
 class ActionToggle(BaseModel):
@@ -467,8 +476,51 @@ def answer_question(
     company_id: int, payload: AnswerIn, db: Session = Depends(get_db)
 ) -> dict:
     company = get_company_or_404(db, company_id)
+    target_idx = payload.turnIndex if payload.turnIndex is not None else payload.idx
+    if target_idx is None:
+        raise HTTPException(status_code=400, detail="idx or turnIndex is required")
+    answer_text = payload.text if payload.text is not None else payload.answer
     try:
-        return interview.answer(db, company, payload.idx, payload.answer, payload.skip)
+        return interview.answer(
+            db,
+            company,
+            target_idx,
+            answer_text,
+            payload.skip,
+            quoted_text=payload.quotedText,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except interview.InterviewError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/interview/skip", tags=["interview"])
+def skip_question_endpoint(
+    company_id: int, payload: SkipIn, db: Session = Depends(get_db)
+) -> dict:
+    company = get_company_or_404(db, company_id)
+    target_idx = payload.turnIndex if payload.turnIndex is not None else payload.idx
+    if target_idx is None:
+        raise HTTPException(status_code=400, detail="turnIndex is required")
+    try:
+        return interview.answer(db, company, target_idx, None, skip=True)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except interview.InterviewError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/companies/{company_id}/interview/answers/{turn_index}", tags=["interview"])
+def edit_answer_by_turn_endpoint(
+    company_id: int, turn_index: int, payload: AnswerEdit, db: Session = Depends(get_db)
+) -> dict:
+    company = get_company_or_404(db, company_id)
+    new_text = payload.text if payload.text is not None else payload.answer
+    if not new_text or not new_text.strip():
+        raise HTTPException(status_code=400, detail="answer text is required")
+    try:
+        return interview.edit_answer_by_turn(db, company, turn_index, new_text)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except interview.InterviewError as exc:
@@ -481,10 +533,21 @@ def edit_answer(qa_id: int, payload: AnswerEdit, db: Session = Depends(get_db)) 
     if row is None:
         raise HTTPException(status_code=404, detail=f"answer {qa_id} not found")
     company = get_company_or_404(db, row.company_id)
+    new_text = payload.text if payload.text is not None else payload.answer
+    if not new_text or not new_text.strip():
+        raise HTTPException(status_code=400, detail="answer text is required")
     try:
-        return interview.edit_answer(db, company, qa_id, payload.answer)
+        return interview.edit_answer(db, company, qa_id, new_text)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except interview.InterviewError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/interview/reset", tags=["interview"])
+def reset_interview_endpoint(company_id: int, db: Session = Depends(get_db)) -> dict:
+    company = get_company_or_404(db, company_id)
+    return interview.reset(db, company)
 
 
 @router.post("/companies/{company_id}/interview/complete", tags=["interview"])

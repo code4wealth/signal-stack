@@ -60,3 +60,40 @@ export const cardHoverMotion = (reduced = false) =>
         y: -2,
         transition: FAST_TRANSITION,
       };
+
+export const founderPillEnter = (reduced = false): Variants => ({
+  hidden: { opacity: 0, x: reduced ? 0 : 12 },
+  visible: {
+    opacity: 1,
+    x: 0,
+    transition: BASE_TRANSITION,
+  },
+});
+
+export const floatingReplyMotion = (reduced = false): Variants => ({
+  hidden: { opacity: 0, scale: reduced ? 1 : 0.96 },
+  visible: {
+    opacity: 1,
+    scale: 1,
+    transition: FAST_TRANSITION,
+  },
+  exit: {
+    opacity: 0,
+    scale: reduced ? 1 : 0.96,
+    transition: { duration: 0.12 },
+  },
+});
+
+export const sidePanelSlide = (reduced = false): Variants => ({
+  hidden: { opacity: 0, x: reduced ? 0 : 16 },
+  visible: {
+    opacity: 1,
+    x: 0,
+    transition: BASE_TRANSITION,
+  },
+  exit: {
+    opacity: 0,
+    x: reduced ? 0 : 16,
+    transition: FAST_TRANSITION,
+  },
+});

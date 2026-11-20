@@ -7,9 +7,9 @@ export default function CompanyLayout({ children }: { children: ReactNode }) {
   const params = useParams<{ id: string }>();
   const pathname = usePathname();
   const base = `/company/${params?.id ?? ""}`;
-  const isProfileRoot = pathname === base;
+  const isFullBleed = pathname === base || pathname === `${base}/interview`;
 
-  if (isProfileRoot) {
+  if (isFullBleed) {
     return <>{children}</>;
   }
 

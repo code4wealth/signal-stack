@@ -402,3 +402,54 @@ export function buildDevMockCompany(id: number): CompanyRecord {
     isMock: true,
   };
 }
+
+export function buildDevMockInterview(companyId: number): import("@/lib/types").Interview {
+  const now = new Date().toISOString();
+  return {
+    id: companyId,
+    companyId,
+    status: "in_progress",
+    totalQuestions: 10,
+    currentIndex: 1,
+    model: "MOCK MODEL",
+    turns: [
+      {
+        id: 1,
+        index: 0,
+        question: "MOCK DATA — Which customer segment closes fastest for you today?",
+        topic: "Customers",
+        whyAsking: "Your public site highlights two distinct buyer personas.",
+        evidenceIds: ["https://example.com/about"],
+        suggestedAnswers: [
+          "Mid-market operations teams (50–250 employees) close in under 3 weeks.",
+          "Self-serve teams convert on the starter tier before upgrading.",
+        ],
+        answer: {
+          text: "Mid-market operations teams close fastest because they already track competitors manually.",
+          skipped: false,
+          answeredAt: now,
+        },
+      },
+      {
+        id: 2,
+        index: 1,
+        question: "MOCK DATA — What is the main bottleneck slowing down pipeline growth this quarter?",
+        topic: "Growth",
+        whyAsking: "Public pages show heavy outbound positioning without self-serve pricing.",
+        evidenceIds: ["https://example.com/about"],
+        suggestedAnswers: [
+          "Long security and procurement reviews on enterprise deals.",
+          "Outbound reply rates in new verticals outside our core ICP.",
+        ],
+      },
+    ],
+    learned: [
+      {
+        id: "mock-learned-1",
+        topic: "Customers",
+        text: "Mid-market operations teams close fastest because they already track competitors manually.",
+        sourceTurnIndex: 0,
+      },
+    ],
+  };
+}

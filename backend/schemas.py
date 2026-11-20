@@ -118,6 +118,22 @@ class ProfilePatch(BaseModel):
 # --------------------------------------------------------------------------- #
 class InterviewQuestion(BaseModel):
     question: str = Field(description="One specific question, max 220 chars")
+    topic: str = Field(
+        default="",
+        description="One of: Customers, Growth, Competitors, Market, Operations, Goals",
+    )
+    why_asking: str = Field(
+        default="",
+        description="One short sentence explaining which company research finding triggered this question",
+    )
+    evidence_urls: list[str] = Field(
+        default_factory=list,
+        description="1-2 exact URLs from pages_fetched that support why_asking",
+    )
+    suggested_answers: list[str] = Field(
+        default_factory=list,
+        description="Optional 0-3 short factual draft answers grounded in research; empty if unsure",
+    )
 
 
 class QuestionBatch(BaseModel):
@@ -127,6 +143,8 @@ class QuestionBatch(BaseModel):
 class FollowUpDecision(BaseModel):
     followup: bool = Field(description="True only if the answer was too vague to be useful")
     question: str = Field(default="", description="The follow-up question if followup is true")
+    topic: str = Field(default="", description="Topic label for the follow-up")
+    why_asking: str = Field(default="", description="Short reason for asking the follow-up")
 
 
 class QAOut(BaseModel):

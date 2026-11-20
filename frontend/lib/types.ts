@@ -181,6 +181,49 @@ export type Profile = {
   _meta?: { pages_fetched?: string[]; fetch_failures?: string[]; model?: string };
 };
 
+export type InterviewStatus = "not_started" | "in_progress" | "completed";
+
+export type TurnAnswer = {
+  text?: string;
+  skipped: boolean;
+  quotedText?: string;
+  editedAt?: string;
+  answeredAt: string;
+};
+
+export type Turn = {
+  id?: number;
+  index: number;
+  question: string;
+  topic: string;
+  whyAsking?: string;
+  evidenceIds: string[];
+  suggestedAnswers?: string[];
+  isFollowup?: boolean;
+  answer?: TurnAnswer;
+  updatedAfterEdit?: boolean;
+};
+
+export type LearnedItem = {
+  id: string;
+  topic: string;
+  text: string;
+  sourceTurnIndex: number;
+  skipped?: boolean;
+};
+
+export type Interview = {
+  id: number;
+  companyId: number;
+  status: InterviewStatus;
+  totalQuestions: number;
+  currentIndex: number;
+  model?: string;
+  turns: Turn[];
+  learned: LearnedItem[];
+  regeneratedFrom?: number | null;
+};
+
 export type QAItem = {
   id: number;
   idx: number;
@@ -200,6 +243,15 @@ export type InterviewState = {
   followups_used: number;
   max_followups: number;
   completed: boolean;
+  id?: number;
+  companyId?: number;
+  status?: InterviewStatus;
+  totalQuestions?: number;
+  currentIndex?: number;
+  model?: string | null;
+  turns?: Turn[];
+  learned?: LearnedItem[];
+  regeneratedFrom?: number | null;
 };
 
 export type SourceCategory = "customers" | "competitors" | "market" | "internal";

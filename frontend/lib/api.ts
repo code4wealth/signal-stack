@@ -257,6 +257,192 @@ export async function confirmProfile(id: number) {
   }>(`/api/companies/${id}/confirm`);
 }
 
+function normalizeInterview(raw: import("./types").InterviewState): import("./types").Interview {
+  const turns: import("./types").Turn[] =
+    raw.turns && raw.turns.length > 0
+      ? raw.turns.map((t) => ({
+          id: t.id,
+          index: t.index,
+          question: t.question,
+          topic: t.topic || "Goals",
+          whyAsking: t.whyAsking,
+          evidenceIds: t.evidenceIds ?? [],
+          suggestedAnswers: t.suggestedAnswers ?? [],
+          isFollowup: t.isFollowup,
+          answer: t.answer,
+          updatedAfterEdit: t.updatedAfterEdit,
+        }))
+      : raw.questions.map((q) => ({
+          id: q.id,
+          index: q.idx,
+          question: q.question,
+          topic: "Goals",
+          evidenceIds: [],
+          isFollowup: q.is_followup,
+          answer:
+            q.skipped || q.answer !== null
+              ? {
+                  text: q.answer ?? undefined,
+                  skipped: q.skipped,
+                  answeredAt: new Date().toISOString(),
+                }
+              : undefined,
+        }));
+
+  const learned: import("./types").LearnedItem[] =
+    raw.learned ??
+    turns
+      .filter((t) => t.answer)
+      .map((t) => ({
+        id: `learned-${t.id ?? t.index}`,
+        topic: t.topic,
+        text: t.answer?.skipped ? "Skipped (confidential)" : (t.answer?.text ?? ""),
+        sourceTurnIndex: t.index,
+        skipped: t.answer?.skipped,
+      }));
+
+  const status: import("./types").InterviewStatus =
+    raw.status ??
+    (raw.completed ? "completed" : raw.started ? "in_progress" : "not_started");
+
+  return {
+    id: raw.id ?? raw.company_id,
+    companyId: raw.companyId ?? raw.company_id,
+    status,
+    totalQuestions: raw.totalQuestions ?? Math.max(turns.length, 10),
+    currentIndex: raw.currentIndex ?? raw.current_idx ?? 0,
+    model: raw.model ?? undefined,
+    turns,
+    learned,
+    regeneratedFrom: raw.regeneratedFrom ?? null,
+  };
+}
+
+export async function getInterview(companyId: number): Promise<import("./types").Interview> {
+  const raw = await get<import("./types").InterviewState>(`/api/companies/${companyId}/interview`);
+  return normalizeInterview(raw);
+}
+
+export async function startInterview(companyId: number): Promise<import("./types").Interview> {
+  const raw = await post<import("./types").InterviewState>(`/api/companies/${companyId}/interview/start`);
+  return normalizeInterview(raw);
+}
+
+export async function submitAnswer(
+  companyId: number,
+  body: { turnIndex: number; text: string; quotedText?: string },
+  onThinkingStatus?: (statusText: string) => void,
+): Promise<import("./types").Interview> {
+  const targetUrl = `${API_BASE}/api/companies/${companyId}/interview/answer`;
+  let response: Response;
+  try {
+    response = await fetch(targetUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        idx: body.turnIndex,
+        turnIndex: body.turnIndex,
+        answer: body.text,
+        text: body.text,
+        quotedText: body.quotedText,
+      }),
+    });
+  } catch {
+    throw new ApiError("Backend not reachable. Check that the API is running.", 0);
+  }
+
+  if (!response.ok) {
+    let detail = `POST /api/companies/${companyId}/interview/answer failed with HTTP ${response.status}`;
+    try {
+      const errBody = (await response.json()) as { detail?: unknown };
+      if (errBody.detail) {
+        detail = typeof errBody.detail === "string" ? errBody.detail : JSON.stringify(errBody.detail);
+      }
+    } catch {
+      /* empty */
+    }
+    throw new ApiError(detail, response.status);
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("text/event-stream") && response.body) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalState: import("./types").InterviewState | null = null;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        const dataLines = block
+          .split("\n")
+          .filter((l) => l.startsWith("data:"))
+          .map((l) => l.slice(5).trim());
+        if (dataLines.length === 0) continue;
+        const payload = dataLines.join("\n");
+        try {
+          const parsed = JSON.parse(payload) as {
+            status?: string;
+            interview?: import("./types").InterviewState;
+          };
+          if (parsed.status && onThinkingStatus) onThinkingStatus(parsed.status);
+          if (parsed.interview) finalState = parsed.interview;
+          else if ("questions" in parsed || "turns" in parsed) {
+            finalState = parsed as unknown as import("./types").InterviewState;
+          }
+        } catch {
+          if (onThinkingStatus) onThinkingStatus(payload);
+        }
+      }
+    }
+    if (finalState) return normalizeInterview(finalState);
+  }
+
+  const raw = (await response.json()) as import("./types").InterviewState;
+  return normalizeInterview(raw);
+}
+
+export async function skipQuestion(
+  companyId: number,
+  turnIndex: number,
+): Promise<import("./types").Interview> {
+  const raw = await post<import("./types").InterviewState>(
+    `/api/companies/${companyId}/interview/skip`,
+    { turnIndex, idx: turnIndex },
+  );
+  return normalizeInterview(raw);
+}
+
+export async function editAnswer(
+  companyId: number,
+  turnIndex: number,
+  text: string,
+): Promise<import("./types").Interview> {
+  const raw = await patch<import("./types").InterviewState>(
+    `/api/companies/${companyId}/interview/answers/${turnIndex}`,
+    { text, answer: text },
+  );
+  return normalizeInterview(raw);
+}
+
+export async function completeInterview(companyId: number) {
+  return post<{ company_id: number; intelligence: Record<string, unknown> }>(
+    `/api/companies/${companyId}/interview/complete`,
+  );
+}
+
+export async function resetInterview(companyId: number): Promise<import("./types").Interview> {
+  const raw = await post<import("./types").InterviewState>(
+    `/api/companies/${companyId}/interview/reset`,
+  );
+  return normalizeInterview(raw);
+}
+
 export const api = {
   apiBase: API_BASE,
   health: () => get<{ status: string; tables: string[]; llm: { model: string; api_key_configured: boolean } }>("/api/health"),
