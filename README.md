@@ -172,6 +172,11 @@ cd frontend && npm run build             # all 8 routes built
 
 LLM calls and HTTP are mocked in tests. Fixtures are labelled `TEST_` and are never stored as intelligence records.
 
+**Do not run `npm run build` while `npm run dev` is serving.** Both write to `frontend/.next`, and the build replaces
+the dev server's chunks — every page then fails with `Cannot find module './<hash>.js'` (HTTP 500) until you
+`rm -rf frontend/.next` and restart `npm run dev`. Order the checks as: dev-server demo first, `npm run build` last,
+then delete `.next` and restart dev if you need the UI again.
+
 CI: `.github/workflows/tests.yml` (pytest on Python 3.11 **and** 3.12, then `tsc --noEmit` and `npm run build`).
 Status: **not run yet** — the workflow exists and is valid YAML, but no Actions run has executed it.
 

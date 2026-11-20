@@ -29,7 +29,9 @@ export default function HomePage() {
       setHealth(healthResult);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not reach the API.");
-      setCompanies([]);
+      // Leave the list in its "unknown" state: showing "No companies yet" here would
+      // claim the database is empty when the API was simply unreachable.
+      setCompanies(null);
     }
   }, []);
 
