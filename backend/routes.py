@@ -476,15 +476,76 @@ def list_competitors_route(company_id: int, db: Session = Depends(get_db)) -> di
     return competitors.list_competitors(db, company)
 
 
+_CORROBORATION_STOPWORDS = frozenset(
+    {
+        "this", "that", "with", "from", "have", "were", "been", "they", "their", "about",
+        "which", "when", "where", "there", "these", "those", "into", "over", "after", "under",
+        "company", "companies", "market", "industry", "report", "news", "update", "updated",
+    }
+)
+
+
+def _signal_tokens(record: Record) -> set[str]:
+    import re as _re
+
+    analysis_data = record.analysis or {}
+    text = f"{record.title or ''} {analysis_data.get('summary') or ''}".lower()
+    return {
+        tok
+        for tok in _re.findall(r"[a-z0-9]{4,}", text)
+        if tok not in _CORROBORATION_STOPWORDS
+    }
+
+
+def _related_records_map(rows: list[tuple[Record, Source | None]]) -> dict[int, list[dict]]:
+    token_by_id = {record.id: _signal_tokens(record) for record, _ in rows}
+    result: dict[int, list[dict]] = {record.id: [] for record, _ in rows}
+    for idx, (rec_a, _src_a) in enumerate(rows):
+        toks_a = token_by_id[rec_a.id]
+        if len(toks_a) < 3:
+            continue
+        matches: list[tuple[int, Record, Source | None]] = []
+        for rec_b, src_b in rows:
+            if rec_b.id == rec_a.id or rec_b.source_id == rec_a.source_id:
+                continue
+            overlap = len(toks_a & token_by_id[rec_b.id])
+            if overlap >= 3:
+                matches.append((overlap, rec_b, src_b))
+        matches.sort(key=lambda item: (-item[0], -item[1].total))
+        result[rec_a.id] = [
+            {
+                "id": rec_b.id,
+                "title": rec_b.title,
+                "source_id": rec_b.source_id,
+                "source_name": src_b.name if src_b else "unknown",
+                "total": rec_b.total,
+                "overlap_terms": overlap,
+            }
+            for overlap, rec_b, src_b in matches[:3]
+        ]
+    return result
+
+
 @router.get("/companies/{company_id}/intelligence", tags=["crawl"])
 def intelligence(
     company_id: int,
     category: str | None = Query(default=None),
+    source_id: int | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
     min_score: float = Query(default=0.0, ge=0.0, le=100.0),
+    min_relevance: float | None = Query(default=None, ge=0.0, le=1.0),
+    min_impact: float | None = Query(default=None, ge=0.0, le=1.0),
+    verified_only: bool | None = Query(default=None),
+    priority_band: str | None = Query(default=None),
+    classification: str | None = Query(default=None),
+    q: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> dict:
+    from datetime import datetime as _dt, timezone as _tz
+
     company = get_company_or_404(db, company_id)
     query = (
         select(Record, Source)
@@ -493,19 +554,76 @@ def intelligence(
     )
     if category:
         query = query.where(Source.category == category)
-    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
-    rows = db.execute(query.order_by(Record.total.desc(), Record.id.desc()).limit(limit).offset(offset)).all()
+    if source_id is not None:
+        query = query.where(Record.source_id == source_id)
+    if priority_band == "high":
+        query = query.where(Record.total >= 70.0)
+    elif priority_band == "medium":
+        query = query.where(Record.total >= 40.0, Record.total < 70.0)
+    elif priority_band == "low":
+        query = query.where(Record.total < 40.0)
+
+    all_company_rows = db.execute(
+        select(Record, Source)
+        .join(Source, Record.source_id == Source.id, isouter=True)
+        .where(Record.company_id == company_id, Record.analysis.is_not(None))
+    ).all()
+    related_map = _related_records_map(all_company_rows)
+
+    rows = db.execute(query.order_by(Record.total.desc(), Record.id.desc())).all()
+
+    from_dt = _dt.fromisoformat(date_from).replace(tzinfo=_tz.utc) if date_from else None
+    to_dt = (
+        _dt.fromisoformat(date_to).replace(hour=23, minute=59, second=59, tzinfo=_tz.utc)
+        if date_to
+        else None
+    )
+    needle = (q or "").strip().lower()
+
+    filtered: list[tuple[Record, Source | None]] = []
+    for record, source in rows:
+        a = record.analysis or {}
+        s = record.scores or {}
+        if classification and (a.get("classification") or "neutral") != classification:
+            continue
+        if verified_only is True and a.get("evidence_verbatim") is not True:
+            continue
+        if verified_only is False and a.get("evidence_verbatim") is not False:
+            continue
+        rel = a.get("relevance") if a.get("relevance") is not None else s.get("relevance")
+        if min_relevance is not None and (rel is None or float(rel) < min_relevance):
+            continue
+        imp = a.get("impact") if a.get("impact") is not None else s.get("impact")
+        if min_impact is not None and (imp is None or float(imp) < min_impact):
+            continue
+        if from_dt is not None and record.discovered:
+            disc = record.discovered if record.discovered.tzinfo else record.discovered.replace(tzinfo=_tz.utc)
+            if disc < from_dt:
+                continue
+        if to_dt is not None and record.discovered:
+            disc = record.discovered if record.discovered.tzinfo else record.discovered.replace(tzinfo=_tz.utc)
+            if disc > to_dt:
+                continue
+        if needle:
+            hay = f"{record.title} {a.get('summary', '')} {record.text[:1000]}".lower()
+            if needle not in hay:
+                continue
+        filtered.append((record, source))
+
+    total = len(filtered)
+    page_rows = filtered[offset : offset + limit]
     return {
         "company_id": company.id,
-        "items": [_record_dict(record, source) for record, source in rows],
+        "items": [_record_dict(record, source, related=related_map.get(record.id, [])) for record, source in page_rows],
         "total": total,
         "limit": limit,
         "offset": offset,
     }
 
 
-def _record_dict(record: Record, source: Source | None) -> dict:
+def _record_dict(record: Record, source: Source | None, *, related: list[dict] | None = None) -> dict:
     analysis_data = record.analysis or {}
+    rel_list = related if related is not None else []
     return {
         "id": record.id,
         "url": record.url,
@@ -525,6 +643,8 @@ def _record_dict(record: Record, source: Source | None) -> dict:
         "source_reliability": analysis_data.get("source_reliability"),
         "strategic_relevance": analysis_data.get("strategic_relevance"),
         "classification": analysis_data.get("classification", "neutral"),
+        "corroborated": len(rel_list) > 0,
+        "related_records": rel_list,
         "source": {"id": source.id, "name": source.name, "category": source.category} if source else None,
         "text_preview": record.text[:600],
     }

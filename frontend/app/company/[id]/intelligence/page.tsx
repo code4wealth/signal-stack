@@ -5,8 +5,8 @@ import { useParams } from "next/navigation";
 import { BarChart3, Download, RefreshCw } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
-import type { Signal } from "@/lib/types";
-import { Badge, BusyProgress, Button, Card, Empty, ErrorNote, Loading, Stat, formatDate } from "@/components/ui";
+import type { Signal, Source } from "@/lib/types";
+import { Badge, BusyProgress, Button, Card, Empty, ErrorNote, Loading, Stat, formatDate, inputClass } from "@/components/ui";
 import { ScoreChart } from "@/components/score-chart";
 
 const FILTERS = ["all", "customers", "competitors", "market", "internal"] as const;
@@ -16,7 +16,17 @@ export default function IntelligencePage() {
   const companyId = Number(params?.id);
 
   const [signals, setSignals] = useState<Signal[] | null>(null);
+  const [sources, setSources] = useState<Source[]>([]);
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
+  const [sourceId, setSourceId] = useState("");
+  const [classification, setClassification] = useState("");
+  const [priorityBand, setPriorityBand] = useState("");
+  const [verifiedFilter, setVerifiedFilter] = useState("");
+  const [minRelevance, setMinRelevance] = useState("");
+  const [minImpact, setMinImpact] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [searchText, setSearchText] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -27,15 +37,42 @@ export default function IntelligencePage() {
     setLoading(true);
     setError(null);
     try {
-      const result = await api.intelligence(companyId, filter === "all" ? undefined : filter);
+      const [result, srcResult] = await Promise.all([
+        api.intelligence(companyId, {
+          category: filter === "all" ? undefined : filter,
+          source_id: sourceId ? Number(sourceId) : undefined,
+          classification: classification || undefined,
+          priority_band: priorityBand || undefined,
+          verified_only: verifiedFilter === "verified" ? true : verifiedFilter === "unverified" ? false : undefined,
+          min_relevance: minRelevance ? Number(minRelevance) : undefined,
+          min_impact: minImpact ? Number(minImpact) : undefined,
+          date_from: dateFrom || undefined,
+          date_to: dateTo || undefined,
+          q: searchText.trim() || undefined,
+        }),
+        api.listSources(companyId),
+      ]);
       setSignals(result.items);
+      setSources(srcResult.items);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not load intelligence.");
       setSignals([]);
     } finally {
       setLoading(false);
     }
-  }, [companyId, filter]);
+  }, [
+    companyId,
+    filter,
+    sourceId,
+    classification,
+    priorityBand,
+    verifiedFilter,
+    minRelevance,
+    minImpact,
+    dateFrom,
+    dateTo,
+    searchText,
+  ]);
 
   useEffect(() => {
     if (Number.isFinite(companyId)) void load();
@@ -120,18 +157,109 @@ export default function IntelligencePage() {
         <Stat label="Updates" value={stats.updates} hint="Same URL, changed content" />
       </div>
 
-      <div className="flex flex-wrap gap-1">
-        {FILTERS.map((option) => (
-          <button
-            key={option}
-            onClick={() => setFilter(option)}
-            className={`rounded-lg px-3 py-1.5 text-xs ${
-              filter === option ? "bg-primary text-white" : "border border-white/10 text-slate-300 hover:text-accent"
-            }`}
+      <div className="space-y-3 rounded-xl border border-white/5 bg-secondary/40 p-3">
+        <div className="flex flex-wrap items-center gap-1">
+          {FILTERS.map((option) => (
+            <button
+              key={option}
+              onClick={() => setFilter(option)}
+              className={`rounded-lg px-3 py-1.5 text-xs ${
+                filter === option ? "bg-primary text-white" : "border border-white/10 text-slate-300 hover:text-accent"
+              }`}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+        <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+          <input
+            type="search"
+            aria-label="Search signals"
+            placeholder="Search title or summary…"
+            className={inputClass}
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+          />
+          <select aria-label="Filter by source" className={inputClass} value={sourceId} onChange={(e) => setSourceId(e.target.value)}>
+            <option value="">All sources</option>
+            {sources.map((s) => (
+              <option key={s.id} value={String(s.id)}>
+                {s.name} ({s.category})
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Filter by classification"
+            className={inputClass}
+            value={classification}
+            onChange={(e) => setClassification(e.target.value)}
           >
-            {option}
-          </button>
-        ))}
+            <option value="">All classifications</option>
+            <option value="opportunity">Opportunity</option>
+            <option value="threat">Threat</option>
+            <option value="neutral">Neutral</option>
+            <option value="uncertain">Uncertain</option>
+          </select>
+          <select
+            aria-label="Filter by priority band"
+            className={inputClass}
+            value={priorityBand}
+            onChange={(e) => setPriorityBand(e.target.value)}
+          >
+            <option value="">All priority bands</option>
+            <option value="high">High (70–100)</option>
+            <option value="medium">Medium (40–69)</option>
+            <option value="low">Low (&lt;40)</option>
+          </select>
+          <select
+            aria-label="Filter by verification"
+            className={inputClass}
+            value={verifiedFilter}
+            onChange={(e) => setVerifiedFilter(e.target.value)}
+          >
+            <option value="">All verification states</option>
+            <option value="verified">Verbatim verified only</option>
+            <option value="unverified">Unverified quote only</option>
+          </select>
+          <select
+            aria-label="Filter by minimum relevance"
+            className={inputClass}
+            value={minRelevance}
+            onChange={(e) => setMinRelevance(e.target.value)}
+          >
+            <option value="">Any relevance</option>
+            <option value="0.5">Relevance &gt;= 0.5</option>
+            <option value="0.7">Relevance &gt;= 0.7</option>
+            <option value="0.85">Relevance &gt;= 0.85</option>
+          </select>
+          <select
+            aria-label="Filter by minimum impact"
+            className={inputClass}
+            value={minImpact}
+            onChange={(e) => setMinImpact(e.target.value)}
+          >
+            <option value="">Any impact</option>
+            <option value="0.5">Impact &gt;= 0.5</option>
+            <option value="0.7">Impact &gt;= 0.7</option>
+            <option value="0.85">Impact &gt;= 0.85</option>
+          </select>
+          <div className="flex items-center gap-1">
+            <input
+              type="date"
+              aria-label="Date from"
+              className={inputClass}
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+            />
+            <input
+              type="date"
+              aria-label="Date to"
+              className={inputClass}
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+            />
+          </div>
+        </div>
       </div>
 
       {loading ? <Loading label="Loading signals…" /> : null}
@@ -169,6 +297,9 @@ export default function IntelligencePage() {
                         >
                           {signal.classification}
                         </Badge>
+                      ) : null}
+                      {signal.corroborated ? (
+                        <Badge tone="ok">corroborated ({signal.related_records?.length ?? 1})</Badge>
                       ) : null}
                       {signal.evidence_verbatim === false ? <Badge tone="bad">evidence unverified</Badge> : null}
                     </div>
@@ -222,6 +353,18 @@ export default function IntelligencePage() {
                       </a>
                       <span className="text-xs text-slate-600">source: {signal.source?.name ?? "unknown"}</span>
                     </div>
+                    {signal.related_records && signal.related_records.length > 0 ? (
+                      <div className="rounded-lg border border-success/20 bg-success/5 p-3 text-xs">
+                        <p className="font-semibold text-success">Cross-source corroboration</p>
+                        <ul className="mt-1 space-y-1 text-slate-300">
+                          {signal.related_records.map((rel) => (
+                            <li key={rel.id}>
+                              Record #{rel.id} ({rel.source_name}) — {rel.title} · score {rel.total.toFixed(1)}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </Card>

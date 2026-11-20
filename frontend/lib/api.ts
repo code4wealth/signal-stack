@@ -161,10 +161,37 @@ export const api = {
       meta: { updated_at?: string; fetched_count?: number; failed?: { name: string; url: string; reason: string }[] };
       monitored_sources: { id: number; name: string; url: string; status: string; health: string }[];
     }>(`/api/companies/${id}/competitors`),
-  intelligence: (id: number, category?: string) =>
-    get<{ items: import("./types").Signal[]; total: number }>(
-      `/api/companies/${id}/intelligence${category ? `?category=${category}` : ""}`,
-    ),
+  intelligence: (
+    id: number,
+    filters?: {
+      category?: string;
+      source_id?: number;
+      date_from?: string;
+      date_to?: string;
+      min_relevance?: number;
+      min_impact?: number;
+      verified_only?: boolean;
+      priority_band?: string;
+      classification?: string;
+      q?: string;
+    },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.category) params.set("category", filters.category);
+    if (filters?.source_id !== undefined) params.set("source_id", String(filters.source_id));
+    if (filters?.date_from) params.set("date_from", filters.date_from);
+    if (filters?.date_to) params.set("date_to", filters.date_to);
+    if (filters?.min_relevance !== undefined) params.set("min_relevance", String(filters.min_relevance));
+    if (filters?.min_impact !== undefined) params.set("min_impact", String(filters.min_impact));
+    if (filters?.verified_only !== undefined) params.set("verified_only", String(filters.verified_only));
+    if (filters?.priority_band) params.set("priority_band", filters.priority_band);
+    if (filters?.classification) params.set("classification", filters.classification);
+    if (filters?.q) params.set("q", filters.q);
+    const qs = params.toString();
+    return get<{ items: import("./types").Signal[]; total: number }>(
+      `/api/companies/${id}/intelligence${qs ? `?${qs}` : ""}`,
+    );
+  },
   signal: (recordId: number) => get<import("./types").Signal>(`/api/signals/${recordId}`),
 
   generateReport: (id: number) => post<import("./types").Report>(`/api/companies/${id}/reports/generate`),

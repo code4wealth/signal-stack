@@ -110,6 +110,15 @@ export type Signal = {
   source_reliability: number | null;
   strategic_relevance: number | null;
   classification?: "opportunity" | "threat" | "neutral" | "uncertain";
+  corroborated?: boolean;
+  related_records?: {
+    id: number;
+    title: string;
+    source_id: number | null;
+    source_name: string;
+    total: number;
+    overlap_terms: number;
+  }[];
   source: { id: number; name: string; category: string } | null;
   text_preview: string;
 };
