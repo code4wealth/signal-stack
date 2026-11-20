@@ -1,0 +1,205 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import { RefreshCw, Save } from "lucide-react";
+
+import { api, ApiError } from "@/lib/api";
+import type { Fact, Profile } from "@/lib/types";
+import { Badge, Button, Card, Empty, ErrorNote, Field, Loading, Stat, inputClass } from "@/components/ui";
+
+export default function OverviewPage() {
+  const params = useParams<{ id: string }>();
+  const companyId = Number(params?.id);
+
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [context, setContext] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const company = await api.getCompany(companyId);
+      setProfile(company.profile);
+      setContext(company.context);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Could not load company.");
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId]);
+
+  useEffect(() => {
+    if (Number.isFinite(companyId)) void load();
+  }, [companyId, load]);
+
+  async function runResearch() {
+    setBusy("research");
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.research(companyId);
+      setProfile(result.profile);
+      setNotice(
+        `Research stored. ${result.pages_fetched.length} pages fetched, ${result.unverified_count} unverified item(s) recorded.`,
+      );
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Research failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveContext() {
+    setBusy("context");
+    setError(null);
+    setNotice(null);
+    try {
+      await api.updateCompany(companyId, { context });
+      setNotice("Founder context saved. Use Automation → context reassessment to re-score sources.");
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Could not save context.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function renderFacts(label: string, facts: Fact[] | undefined) {
+    if (!facts || facts.length === 0) return null;
+    return (
+      <div className="mt-4">
+        <h4 className="text-xs uppercase tracking-wide text-slate-500">{label}</h4>
+        <ul className="mt-2 space-y-2">
+          {facts.map((fact, index) => (
+            <li key={`${label}-${index}`} className="text-sm text-slate-300">
+              {fact.text}{" "}
+              <a href={fact.evidence_url} target="_blank" rel="noreferrer" className="text-xs text-accent">
+                source
+              </a>{" "}
+              <Badge tone={fact.verified ? "ok" : "warn"}>{fact.verified ? "verified" : "unverified"}</Badge>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {loading ? <Loading label="Loading profile…" /> : null}
+      {error ? <ErrorNote message={error} onRetry={load} /> : null}
+      {notice ? (
+        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">{notice}</div>
+      ) : null}
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Company research</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Fetches the homepage plus up to five internal pages, then extracts a profile. Facts without page
+              evidence are demoted to the unverified list.
+            </p>
+          </div>
+          <Button onClick={runResearch} disabled={busy === "research"}>
+            <RefreshCw size={16} /> {busy === "research" ? "Researching…" : profile ? "Re-run research" : "Run research"}
+          </Button>
+        </div>
+
+        <div className="mt-4">
+          <Field label="Founder context" hint="Used for question generation, analysis relevance and context reassessment.">
+            <textarea className={`${inputClass} h-20`} value={context} onChange={(event) => setContext(event.target.value)} />
+          </Field>
+          <div className="mt-3">
+            <Button variant="ghost" onClick={saveContext} disabled={busy === "context"}>
+              <Save size={16} /> {busy === "context" ? "Saving…" : "Save context"}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {!loading && !profile ? (
+        <Empty title="No profile stored yet" hint="Run research to fetch the website and build the profile." />
+      ) : null}
+
+      {profile ? (
+        <>
+          <div className="grid gap-4 md:grid-cols-3">
+            <Stat label="Industry" value={profile.industry || "unclear"} />
+            <Stat
+              label="Pages fetched"
+              value={profile._meta?.pages_fetched?.length ?? 0}
+              hint={profile._meta?.model ? `model: ${profile._meta.model}` : undefined}
+            />
+            <Stat label="Unverified items" value={profile.unverified?.length ?? 0} hint="Hypotheses, never counted as facts" />
+          </div>
+
+          <Card>
+            <h3 className="text-base font-semibold text-slate-100">Profile</h3>
+            <p className="prose-body mt-2 text-sm text-slate-300">{profile.summary || "No summary."}</p>
+            {profile.business_model ? (
+              <p className="mt-2 text-sm text-slate-400">Business model: {profile.business_model}</p>
+            ) : null}
+
+            {renderFacts("Products", profile.products)}
+            {renderFacts("Customers", profile.customers)}
+            {renderFacts("Geography", profile.geography)}
+            {renderFacts("Differentiators", profile.differentiators)}
+
+            {profile.likely_competitors && profile.likely_competitors.length > 0 ? (
+              <div className="mt-4">
+                <h4 className="text-xs uppercase tracking-wide text-slate-500">Likely competitors</h4>
+                <ul className="mt-2 space-y-1 text-sm text-slate-300">
+                  {profile.likely_competitors.map((competitor) => (
+                    <li key={competitor.website}>
+                      <a href={competitor.website} target="_blank" rel="noreferrer">
+                        {competitor.name}
+                      </a>
+                      {competitor.reason ? <span className="text-xs text-slate-500"> — {competitor.reason}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {profile.unverified && profile.unverified.length > 0 ? (
+              <div className="mt-4 rounded-lg border border-warning/30 bg-warning/5 p-3">
+                <h4 className="text-xs uppercase tracking-wide text-warning">Unverified (not facts)</h4>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-300">
+                  {profile.unverified.map((item, index) => (
+                    <li key={index}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {profile._meta?.fetch_failures && profile._meta.fetch_failures.length > 0 ? (
+              <details className="mt-4 text-xs text-slate-500">
+                <summary className="cursor-pointer">Fetch failures ({profile._meta.fetch_failures.length})</summary>
+                <ul className="mt-2 space-y-1">
+                  {profile._meta.fetch_failures.map((failure, index) => (
+                    <li key={index}>{failure}</li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+
+            {profile.intelligence?.completed_at ? (
+              <div className="mt-4 rounded-lg border border-success/30 bg-success/5 p-3">
+                <h4 className="text-xs uppercase tracking-wide text-success">Interview intelligence captured</h4>
+                <p className="mt-1 text-sm text-slate-300">
+                  {profile.intelligence.answered ?? 0} answers, {profile.intelligence.skipped ?? 0} skipped. Merged into the
+                  profile on {new Date(profile.intelligence.completed_at).toLocaleString()}.
+                </p>
+              </div>
+            ) : null}
+          </Card>
+        </>
+      ) : null}
+    </div>
+  );
+}

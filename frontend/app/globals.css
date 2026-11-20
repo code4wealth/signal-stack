@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #06111d;
+  color: #e2e8f0;
+}
+
+::selection {
+  background: #1d4ed8;
+  color: #f8fafc;
+}
+
+a {
+  color: #7dd3fc;
+}
+
+a:hover {
+  color: #38bdf8;
+}
+
+.prose-body {
+  white-space: pre-wrap;
+  line-height: 1.65;
+}
