@@ -120,8 +120,33 @@ npm install
 npm run dev                   # http://localhost:3000
 ```
 
-Windows: use `.venv\Scripts\activate` and then `uvicorn main:app --reload --port 8000`; the venv path differs.
-A venv inside `backend/` works equally well — `requirements.txt` lives there.
+### Windows setup
+
+Requires **Python 3.11+** (the setup script checks `py -0p` and exits if none is installed).
+
+**Full-`C:`-drive pitfall.** Both `py -m venv` (`ensurepip` unpacking bundled wheels) and `pip` write temporary
+files to `%TEMP%` on `C:`. If `C:` is full, venv creation fails with exit status 1 and `pip` fails with
+`OSError: [Errno 28] No space left on device`.
+
+Run from the repository root (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
+# Optional custom paths (defaults shown):
+powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1 -TempDir D:\Temp -CacheDir D:\pip-cache
+```
+
+`scripts\setup_windows.ps1` creates `TempDir`/`CacheDir`, sets `TEMP` and `TMP` for the session before creating
+`backend\.venv`, falls back to `py -m venv --without-pip` plus `get-pip.py` if `ensurepip` fails, installs
+`backend\requirements.txt` with `--cache-dir`, and copies `.env.example` to `.env` only when `.env` does not
+exist. `setup_windows.ps1` is code-reviewed but not yet executed on Windows — first run is the verification.
+
+To start the backend afterwards:
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
+```
 
 ### Produce the real numbers
 
@@ -167,7 +192,7 @@ Six tables (`companies`, `qa`, `sources`, `records`, `reports`, `job_logs`) are 
 ## Tests
 
 ```bash
-cd backend && ../.venv/bin/pytest -q     # 117 passed
+cd backend && ../.venv/bin/pytest -q     # 133 passed
 cd frontend && npx tsc --noEmit          # clean
 cd frontend && npm run build             # all 8 routes built
 ```

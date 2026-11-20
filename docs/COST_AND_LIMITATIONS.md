@@ -135,3 +135,5 @@ that output.
 
 Nothing in this table is estimated. To fill it, run `scripts/run_three_companies.py --yes` on a machine with
 internet and a Groq key; it prints sources per category, record counts, top signals and the brief id.
+
+Demo hygiene: the `discont` test company (and leftover UI test entry) were removed via `scripts/reset_demo.py` and the local SQLite database was reset to 0 rows across all six tables for demo.
