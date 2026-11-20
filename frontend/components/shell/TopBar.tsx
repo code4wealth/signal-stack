@@ -14,9 +14,8 @@ function resolveStepLabel(pathname: string, companyId: number): string {
     return "Step 3 of 6: Build your Signal Stack";
   }
   if (pathname === `${base}/competitors`) return "Step 4 of 6: Competitor discovery";
-  if (pathname === `${base}/intelligence` || pathname === `${base}/crawler`) {
-    return "Step 4 of 6: Crawl & rank intelligence";
-  }
+  if (pathname === `${base}/crawler`) return "Step 4 of 6: Monitor sources";
+  if (pathname === `${base}/intelligence`) return "Step 5 of 6: Analyse signals";
   if (pathname === `${base}/briefs`) return "Step 6 of 6: Monday Morning Brief";
   if (pathname === `${base}/automation`) return "Operations: Automation & documents";
   return "Signal Stack workspace";

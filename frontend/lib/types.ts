@@ -4,6 +4,7 @@ export type WorkflowStatus = {
   company: WorkflowStepState;
   interview: WorkflowStepState;
   sources: WorkflowStepState;
+  crawler?: WorkflowStepState;
   signals: WorkflowStepState;
   briefs: WorkflowStepState;
 };
@@ -632,3 +633,157 @@ export type CrawlDiagnostics = {
     errors: number;
   }[];
 };
+
+// ---------------------------------------------------------------------------
+// Crawler Monitor (Step 4)
+// ---------------------------------------------------------------------------
+
+export type CrawlRange = "7d" | "30d" | "90d";
+
+export type CrawlRunStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "partial"
+  | "failed"
+  | "cancelled";
+
+export type SourceCrawlResultStatus =
+  | "success"
+  | "not_modified"
+  | "partial"
+  | "failed"
+  | "blocked";
+
+export type SourceCrawlResult = {
+  sourceId: number;
+  sourceName: string;
+  domain: string;
+  category: SourceCategory;
+  status: SourceCrawlResultStatus;
+  httpStatus?: number | null;
+  itemsNew: number;
+  itemsChanged: number;
+  durationMs: number;
+  error?: string | null;
+};
+
+export type CrawlRun = {
+  id: number;
+  companyId: number;
+  trigger: "manual" | "scheduled";
+  status: CrawlRunStatus;
+  startedAt: string;
+  finishedAt?: string | null;
+  durationMs?: number | null;
+  sourcesTotal: number;
+  sourcesDone: number;
+  currentSourceDomain?: string | null;
+  counts: {
+    new: number;
+    changed: number;
+    unchanged: number;
+    failed: number;
+    blocked: number;
+  };
+  perSource?: SourceCrawlResult[];
+};
+
+export type CrawlLogLine = {
+  id: number;
+  runId: number;
+  ts: string;
+  level: "info" | "warn" | "error" | "success";
+  sourceDomain?: string | null;
+  message: string;
+};
+
+export type CollectedItem = {
+  id: number;
+  sourceId: number;
+  sourceName?: string;
+  domain?: string;
+  category: SourceCategory;
+  title: string;
+  url: string;
+  publishedAt?: string | null;
+  publishedAtMethod?: "metadata" | "rss" | "heuristic" | null;
+  fetchedAt: string;
+  change: "new" | "changed" | "unchanged";
+  contentHash: string;
+  excerpt?: string;
+  diff?: {
+    before: string;
+    after: string;
+  };
+};
+
+export type CrawlerCoverageRow = {
+  category: SourceCategory;
+  approved: number;
+  checked: number;
+  newItems: number;
+};
+
+export type CrawlerOverview = {
+  range: CrawlRange;
+  totals: {
+    new: number;
+    changed: number;
+    failed: number;
+    deltaPct: {
+      new: number | null;
+      changed: number | null;
+      failed: number | null;
+    };
+  };
+  daily: {
+    date: string;
+    new: number;
+    changed: number;
+    failed: number;
+    sourcesChecked: number;
+  }[];
+  activeRun?: CrawlRun | null;
+  lastRun?: CrawlRun | null;
+  recentRuns?: CrawlRun[];
+  runsCount?: number;
+  nextRunAt?: string | null;
+  budget?: {
+    pagesUsed: number;
+    pagesLimit: number;
+    period: string;
+  } | null;
+  etiquette: {
+    respectsRobots: boolean;
+    delaySeconds: number;
+    userAgent: string;
+    blockedByRobots: number;
+  };
+  health: {
+    healthyPct: number;
+    failing: number;
+    stale: number;
+    windowCrawls: number;
+  };
+  coverage: CrawlerCoverageRow[];
+  allTimeCoverage?: CrawlerCoverageRow[];
+  quickRecheck: {
+    sourceId: string;
+    name: string;
+    domain: string;
+    lastCheckedAt?: string | null;
+    status: string;
+  }[];
+  isMock?: boolean;
+};
+
+export type CollectedItemsFilters = {
+  category?: SourceCategory | "all";
+  change?: "new" | "changed" | "unchanged" | "all";
+  sourceId?: number;
+  q?: string;
+  dateFrom?: string;
+  dateTo?: string;
+};
+

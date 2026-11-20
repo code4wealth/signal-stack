@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -18,6 +18,8 @@ from schemas import (
     CompanyCreate,
     CompanyOut,
     CompanyUpdate,
+    CrawlRunStartIn,
+    CrawlerSettingsPatchIn,
     ProfilePatch,
     SourceBulkPatch,
     SourceCreate,
@@ -168,6 +170,17 @@ def _compute_workflow_status(db: Session, company: Company) -> dict:
     reports_count = (
         db.scalar(select(func.count(Report.id)).where(Report.company_id == company.id)) or 0
     )
+    crawl_runs_done = (
+        db.scalar(
+            select(func.count(JobLog.id)).where(
+                JobLog.company_id == company.id,
+                JobLog.job == "crawl_run",
+                JobLog.status.in_(["completed", "partial", "failed"]),
+            )
+        )
+        or 0
+    )
+    signal_stack_confirmed = bool(meta.get("signal_stack_confirmed_at")) or crawl_runs_done > 0
 
     return {
         "company": "done" if confirmed else "current",
@@ -175,11 +188,14 @@ def _compute_workflow_status(db: Session, company: Company) -> dict:
         if interview_done
         else ("current" if (confirmed or has_profile or qa_count > 0) else "locked"),
         "sources": "done"
-        if approved_sources > 0
+        if signal_stack_confirmed
         else ("current" if (interview_done or total_sources > 0) else "locked"),
+        "crawler": "done"
+        if crawl_runs_done > 0
+        else ("current" if signal_stack_confirmed else "locked"),
         "signals": "done"
         if analysed_records > 0
-        else ("current" if approved_sources > 0 else "locked"),
+        else ("current" if (crawl_runs_done > 0 or approved_sources > 0) else "locked"),
         "briefs": "done"
         if reports_count > 0
         else ("current" if analysed_records > 0 else "locked"),
@@ -1716,3 +1732,774 @@ def delete_internal_file_route(
             db.delete(source)
     db.commit()
     return Response(status_code=204)
+
+
+# --------------------------------------------------------------------------- #
+# Crawler Monitor (Step 4) — backed by JobLog ("crawl_run" & "crawl_log:{id}")
+# --------------------------------------------------------------------------- #
+def _domain_of(url: str) -> str:
+    try:
+        return (urlparse(url).hostname or url).replace("www.", "")
+    except Exception:
+        return url
+
+
+def _parse_job_json(raw: str | None) -> dict:
+    import json as _json
+
+    try:
+        data = _json.loads(raw) if raw else {}
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _serialize_crawl_run(row: JobLog, *, include_per_source: bool = False) -> dict:
+    data = _parse_job_json(row.detail)
+    counts = data.get("counts") or {}
+    payload: dict = {
+        "id": row.id,
+        "companyId": row.company_id or 0,
+        "trigger": data.get("trigger") or "manual",
+        "status": row.status,
+        "startedAt": data.get("startedAt") or (row.at.isoformat() if row.at else None),
+        "finishedAt": data.get("finishedAt"),
+        "durationMs": data.get("durationMs"),
+        "sourcesTotal": int(data.get("sourcesTotal", 0)),
+        "sourcesDone": int(data.get("sourcesDone", 0)),
+        "currentSourceDomain": data.get("currentSourceDomain"),
+        "counts": {
+            "new": int(counts.get("new", 0)),
+            "changed": int(counts.get("changed", 0)),
+            "unchanged": int(counts.get("unchanged", 0)),
+            "failed": int(counts.get("failed", 0)),
+            "blocked": int(counts.get("blocked", 0)),
+        },
+    }
+    if include_per_source:
+        payload["perSource"] = list(data.get("perSource") or [])
+    return payload
+
+
+def _serialize_log_line(row: JobLog) -> dict:
+    data = _parse_job_json(row.detail)
+    run_id = data.get("runId")
+    if run_id is None and row.job.startswith("crawl_log:"):
+        try:
+            run_id = int(row.job.split(":", 1)[1])
+        except ValueError:
+            run_id = 0
+    return {
+        "id": row.id,
+        "runId": int(run_id or 0),
+        "ts": row.at.isoformat() if row.at else None,
+        "level": row.status,
+        "sourceDomain": data.get("sourceDomain"),
+        "message": data.get("message") or row.detail,
+    }
+
+
+def _serialize_collected_item(
+    record: Record,
+    source: Source | None,
+    *,
+    excerpt_len: int = 240,
+    diff: dict | None = None,
+) -> dict:
+    domain = _domain_of(source.url if source else record.url)
+    change = "changed" if record.is_update else "new"
+    method = (
+        "rss"
+        if (source and source.source_type == "rss" and record.published)
+        else ("metadata" if record.published else None)
+    )
+    clean_title = record.title
+    if clean_title.startswith("[UPDATED] "):
+        clean_title = clean_title[len("[UPDATED] "):]
+    out: dict = {
+        "id": record.id,
+        "sourceId": record.source_id or 0,
+        "sourceName": source.name if source else domain,
+        "domain": domain,
+        "category": source.category if source else "market",
+        "title": clean_title or record.url,
+        "url": record.url,
+        "publishedAt": record.published.isoformat() if record.published else None,
+        "publishedAtMethod": method,
+        "fetchedAt": record.discovered.isoformat() if record.discovered else None,
+        "change": change,
+        "contentHash": record.content_hash,
+        "excerpt": (record.text or "")[:excerpt_len],
+    }
+    if diff is not None:
+        out["diff"] = diff
+    return out
+
+
+def _range_days(range_key: str) -> int:
+    return {"7d": 7, "30d": 30, "90d": 90}.get(range_key, 7)
+
+
+def _compute_delta_pct(cur: int, prev: int) -> float | None:
+    if prev <= 0:
+        return None
+    return round(((cur - prev) / prev) * 100.0, 1)
+
+
+@router.get("/companies/{company_id}/crawler/overview", tags=["crawler"])
+def get_crawler_overview(
+    company_id: int,
+    range_key: str = Query(default="7d", alias="range", pattern="^(7d|30d|90d)$"),
+    db: Session = Depends(get_db),
+) -> dict:
+    from datetime import datetime, timedelta, timezone
+    from config import get_settings
+    import documents
+
+    company = get_company_or_404(db, company_id)
+    settings = get_settings()
+    days = _range_days(range_key)
+    now = datetime.now(timezone.utc)
+    today_date = now.date()
+    start_date = today_date - timedelta(days=days - 1)
+    prev_start_date = start_date - timedelta(days=days)
+
+    runs = list(
+        db.scalars(
+            select(JobLog)
+            .where(JobLog.company_id == company_id, JobLog.job == "crawl_run")
+            .order_by(JobLog.id.desc())
+        ).all()
+    )
+
+    active_run = next((r for r in runs if r.status in ("queued", "running")), None)
+    last_run = next((r for r in runs if r.status not in ("queued", "running")), None)
+
+    daily_map: dict[str, dict] = {}
+    for i in range(days):
+        d = (start_date + timedelta(days=i)).isoformat()
+        daily_map[d] = {
+            "date": d,
+            "new": 0,
+            "changed": 0,
+            "failed": 0,
+            "sourcesChecked": 0,
+        }
+
+    cur_totals = {"new": 0, "changed": 0, "failed": 0}
+    prev_totals = {"new": 0, "changed": 0, "failed": 0}
+    has_prev_data = False
+
+    for r in runs:
+        if not r.at:
+            continue
+        r_dt = r.at if r.at.tzinfo else r.at.replace(tzinfo=timezone.utc)
+        r_day = r_dt.date()
+        data = _parse_job_json(r.detail)
+        c = data.get("counts") or {}
+        n_val = int(c.get("new", 0))
+        ch_val = int(c.get("changed", 0))
+        f_val = int(c.get("failed", 0)) + int(c.get("blocked", 0))
+        done_val = int(data.get("sourcesDone", 0))
+        if start_date <= r_day <= today_date:
+            key = r_day.isoformat()
+            if key in daily_map:
+                daily_map[key]["new"] += n_val
+                daily_map[key]["changed"] += ch_val
+                daily_map[key]["failed"] += f_val
+                daily_map[key]["sourcesChecked"] += done_val
+            cur_totals["new"] += n_val
+            cur_totals["changed"] += ch_val
+            cur_totals["failed"] += f_val
+        elif prev_start_date <= r_day < start_date:
+            has_prev_data = True
+            prev_totals["new"] += n_val
+            prev_totals["changed"] += ch_val
+            prev_totals["failed"] += f_val
+
+    approved_sources = list(
+        db.scalars(
+            select(Source)
+            .where(
+                Source.company_id == company_id,
+                Source.status == "approved",
+                Source.category != "internal",
+            )
+            .order_by(Source.id)
+        ).all()
+    )
+
+    all_public_sources = list(
+        db.scalars(
+            select(Source).where(Source.company_id == company_id, Source.category != "internal")
+        ).all()
+    )
+    blocked_robots_count = sum(
+        1
+        for s in all_public_sources
+        if s.health == "blocked" or "robots" in (s.last_error or "").lower()
+    )
+
+    failing_count = 0
+    stale_count = 0
+    healthy_count = 0
+    stale_cutoff = now - timedelta(hours=48)
+    for s in approved_sources:
+        if s.health in ("error", "blocked"):
+            failing_count += 1
+        else:
+            healthy_count += 1
+        if s.last_checked is None:
+            stale_count += 1
+        else:
+            lc = s.last_checked if s.last_checked.tzinfo else s.last_checked.replace(tzinfo=timezone.utc)
+            if lc < stale_cutoff:
+                stale_count += 1
+
+    healthy_pct = (
+        round((healthy_count / len(approved_sources)) * 100)
+        if approved_sources
+        else 0
+    )
+
+    last_run_data = _parse_job_json(last_run.detail) if last_run else {}
+    last_per_source = {
+        int(row["sourceId"]): row
+        for row in (last_run_data.get("perSource") or [])
+        if row.get("sourceId") is not None
+    }
+    crawled_records_by_source: dict[int, int] = {}
+    for rec_sid, cnt in db.execute(
+        select(Record.source_id, func.count(Record.id))
+        .where(Record.company_id == company_id, Record.source_id.is_not(None))
+        .group_by(Record.source_id)
+    ).all():
+        if rec_sid is not None:
+            crawled_records_by_source[int(rec_sid)] = int(cnt)
+
+    internal_docs = documents.list_documents(db, company)
+    internal_analysed = sum(1 for d in internal_docs if d.get("analysed"))
+    internal_signals = sum(
+        sum((d.get("insights") or {}).get("counts", {}).values()) for d in internal_docs
+    )
+
+    coverage = []
+    all_time_coverage = []
+    for cat in ("customers", "competitors", "market", "internal"):
+        if cat == "internal":
+            entry = {
+                "category": "internal",
+                "approved": len(internal_docs),
+                "checked": internal_analysed,
+                "newItems": internal_signals,
+            }
+            coverage.append(entry)
+            all_time_coverage.append(dict(entry))
+            continue
+        cat_sources = [s for s in approved_sources if s.category == cat]
+        checked_last = sum(1 for s in cat_sources if s.id in last_per_source)
+        new_last = sum(
+            int(last_per_source[s.id].get("itemsNew", 0))
+            + int(last_per_source[s.id].get("itemsChanged", 0))
+            for s in cat_sources
+            if s.id in last_per_source
+        )
+        checked_all = sum(1 for s in cat_sources if s.last_checked is not None)
+        new_all = sum(crawled_records_by_source.get(s.id, 0) for s in cat_sources)
+        coverage.append(
+            {
+                "category": cat,
+                "approved": len(cat_sources),
+                "checked": checked_last,
+                "newItems": new_last,
+            }
+        )
+        all_time_coverage.append(
+            {
+                "category": cat,
+                "approved": len(cat_sources),
+                "checked": checked_all,
+                "newItems": new_all,
+            }
+        )
+
+    def _recheck_sort_key(s: Source):
+        is_err = 0 if s.health in ("error", "blocked") else 1
+        ts = s.last_checked.timestamp() if s.last_checked else 0.0
+        return (is_err, ts, s.id)
+
+    quick_recheck = [
+        {
+            "sourceId": str(s.id),
+            "name": s.name,
+            "domain": _domain_of(s.url),
+            "lastCheckedAt": s.last_checked.isoformat() if s.last_checked else None,
+            "status": "blocked" if s.health == "blocked" else ("failing" if s.health == "error" else "ok"),
+        }
+        for s in sorted(approved_sources, key=_recheck_sort_key)[:6]
+    ]
+
+    profile_meta = (company.profile or {}).get("_meta") or {}
+    crawler_cfg = profile_meta.get("crawler_settings") or {}
+    max_pages_limit = crawler_cfg.get("maxPagesPerRun") or max(10, len(approved_sources) * 8)
+    pages_used = 0
+    budget_run = active_run or last_run
+    if budget_run:
+        b_data = _parse_job_json(budget_run.detail)
+        bc = b_data.get("counts") or {}
+        pages_used = (
+            int(bc.get("new", 0))
+            + int(bc.get("changed", 0))
+            + int(bc.get("unchanged", 0))
+            + int(b_data.get("sourcesDone", 0))
+        )
+
+    return {
+        "range": range_key,
+        "totals": {
+            "new": cur_totals["new"],
+            "changed": cur_totals["changed"],
+            "failed": cur_totals["failed"],
+            "deltaPct": {
+                "new": _compute_delta_pct(cur_totals["new"], prev_totals["new"]) if has_prev_data else None,
+                "changed": _compute_delta_pct(cur_totals["changed"], prev_totals["changed"]) if has_prev_data else None,
+                "failed": _compute_delta_pct(cur_totals["failed"], prev_totals["failed"]) if has_prev_data else None,
+            },
+        },
+        "daily": [daily_map[k] for k in sorted(daily_map.keys())],
+        "activeRun": _serialize_crawl_run(active_run, include_per_source=True) if active_run else None,
+        "lastRun": _serialize_crawl_run(last_run, include_per_source=True) if last_run else None,
+        "recentRuns": [_serialize_crawl_run(r, include_per_source=True) for r in runs[:10]],
+        "runsCount": len(runs),
+        "nextRunAt": profile_meta.get("next_run_at"),
+        "budget": {
+            "pagesUsed": pages_used,
+            "pagesLimit": int(max_pages_limit),
+            "period": "run",
+        },
+        "etiquette": {
+            "respectsRobots": True,
+            "delaySeconds": round(1.0 / max(1, settings.fetch_requests_per_second), 2),
+            "userAgent": settings.user_agent,
+            "blockedByRobots": blocked_robots_count,
+        },
+        "health": {
+            "healthyPct": healthy_pct,
+            "failing": failing_count,
+            "stale": stale_count,
+            "windowCrawls": 5,
+        },
+        "coverage": coverage,
+        "allTimeCoverage": all_time_coverage,
+        "quickRecheck": quick_recheck,
+    }
+
+
+def _crawl_run_worker(company_id: int, run_id: int, source_ids: list[int] | None) -> None:
+    from datetime import datetime, timezone
+    import json as _json
+    import crawler
+    import db as db_mod
+
+    session = db_mod.SessionLocal()
+    try:
+        company = session.get(Company, company_id)
+        if company is None:
+            return
+        crawler.crawl_company_run(session, company, run_id, source_ids=source_ids)
+    except Exception as exc:
+        session.rollback()
+        run = session.get(JobLog, run_id)
+        if run is not None:
+            run.status = "failed"
+            data = _parse_job_json(run.detail)
+            data["finishedAt"] = datetime.now(timezone.utc).isoformat()
+            run.detail = _json.dumps(data, default=str)
+            session.commit()
+            crawler.append_crawl_log(session, company_id, run_id, "error", f"Crawl aborted: {exc}")
+    finally:
+        session.close()
+
+
+@router.post("/companies/{company_id}/crawler/run", status_code=202, tags=["crawler"])
+def start_crawler_run(
+    company_id: int,
+    payload: CrawlRunStartIn | None = None,
+    db: Session = Depends(get_db),
+) -> dict:
+    from datetime import datetime, timezone
+    import json as _json
+    import threading
+
+    get_company_or_404(db, company_id)
+    existing_active = db.scalar(
+        select(JobLog)
+        .where(
+            JobLog.company_id == company_id,
+            JobLog.job == "crawl_run",
+            JobLog.status.in_(["queued", "running"]),
+        )
+        .order_by(JobLog.id.desc())
+        .limit(1)
+    )
+    if existing_active is not None:
+        return _serialize_crawl_run(existing_active, include_per_source=True)
+
+    source_ids = payload.sourceIds if payload and payload.sourceIds else None
+    src_query = select(func.count(Source.id)).where(
+        Source.company_id == company_id,
+        Source.status == "approved",
+        Source.category != "internal",
+    )
+    if source_ids:
+        src_query = src_query.where(Source.id.in_(source_ids))
+    sources_total = db.scalar(src_query) or 0
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    run = JobLog(
+        company_id=company_id,
+        job="crawl_run",
+        status="queued",
+        detail=_json.dumps(
+            {
+                "trigger": "manual",
+                "startedAt": now_iso,
+                "sourcesTotal": sources_total,
+                "sourcesDone": 0,
+                "sourceIds": source_ids,
+                "counts": {"new": 0, "changed": 0, "unchanged": 0, "failed": 0, "blocked": 0},
+                "perSource": [],
+                "cancelRequested": False,
+            }
+        ),
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    worker = threading.Thread(
+        target=_crawl_run_worker,
+        args=(company_id, run.id, source_ids),
+        daemon=True,
+    )
+    worker.start()
+    return _serialize_crawl_run(run, include_per_source=True)
+
+
+@router.post("/companies/{company_id}/crawler/runs/{run_id}/cancel", tags=["crawler"])
+def cancel_crawler_run(company_id: int, run_id: int, db: Session = Depends(get_db)) -> dict:
+    from datetime import datetime, timezone
+    import json as _json
+
+    get_company_or_404(db, company_id)
+    run = db.get(JobLog, run_id)
+    if run is None or run.company_id != company_id or run.job != "crawl_run":
+        raise HTTPException(status_code=404, detail=f"crawl run {run_id} not found")
+    data = _parse_job_json(run.detail)
+    data["cancelRequested"] = True
+    if run.status == "queued":
+        run.status = "cancelled"
+        data["finishedAt"] = datetime.now(timezone.utc).isoformat()
+    run.detail = _json.dumps(data, default=str)
+    db.commit()
+    db.refresh(run)
+    return _serialize_crawl_run(run, include_per_source=True)
+
+
+@router.get("/companies/{company_id}/crawler/runs", tags=["crawler"])
+def list_crawler_runs(
+    company_id: int,
+    cursor: int | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    range_key: str | None = Query(default=None, alias="range", pattern="^(7d|30d|90d)$"),
+    db: Session = Depends(get_db),
+) -> dict:
+    from datetime import datetime, timedelta, timezone
+
+    get_company_or_404(db, company_id)
+    query = select(JobLog).where(JobLog.company_id == company_id, JobLog.job == "crawl_run")
+    if range_key:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=_range_days(range_key))
+        query = query.where(JobLog.at >= cutoff)
+    if cursor is not None:
+        query = query.where(JobLog.id < cursor)
+    rows = list(db.scalars(query.order_by(JobLog.id.desc()).limit(limit + 1)).all())
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    total = (
+        db.scalar(
+            select(func.count(JobLog.id)).where(
+                JobLog.company_id == company_id, JobLog.job == "crawl_run"
+            )
+        )
+        or 0
+    )
+    return {
+        "items": [_serialize_crawl_run(r, include_per_source=True) for r in page],
+        "nextCursor": str(page[-1].id) if has_more and page else None,
+        "total": total,
+    }
+
+
+@router.get("/companies/{company_id}/crawler/runs/{run_id}", tags=["crawler"])
+def get_crawler_run(company_id: int, run_id: int, db: Session = Depends(get_db)) -> dict:
+    get_company_or_404(db, company_id)
+    run = db.get(JobLog, run_id)
+    if run is None or run.company_id != company_id or run.job != "crawl_run":
+        raise HTTPException(status_code=404, detail=f"crawl run {run_id} not found")
+    data = _parse_job_json(run.detail)
+    return {
+        "run": _serialize_crawl_run(run, include_per_source=True),
+        "results": list(data.get("perSource") or []),
+    }
+
+
+@router.get("/companies/{company_id}/crawler/runs/{run_id}/logs", tags=["crawler"])
+def get_crawler_run_logs(
+    company_id: int,
+    run_id: int,
+    cursor: int | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+) -> dict:
+    get_company_or_404(db, company_id)
+    run = db.get(JobLog, run_id)
+    if run is None or run.company_id != company_id or run.job != "crawl_run":
+        raise HTTPException(status_code=404, detail=f"crawl run {run_id} not found")
+    query = select(JobLog).where(
+        JobLog.company_id == company_id,
+        JobLog.job == f"crawl_log:{run_id}",
+    )
+    if cursor is not None:
+        query = query.where(JobLog.id > cursor)
+    rows = list(db.scalars(query.order_by(JobLog.id.asc()).limit(limit + 1)).all())
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    return {
+        "items": [_serialize_log_line(line) for line in page],
+        "nextCursor": str(page[-1].id) if has_more and page else None,
+    }
+
+
+@router.get("/companies/{company_id}/crawler/runs/{run_id}/logs/stream", tags=["crawler"])
+def stream_crawler_run_logs(
+    company_id: int,
+    run_id: int,
+    request: Request,
+    afterId: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    import json as _json
+    import time as _time
+    import db as db_mod
+
+    get_company_or_404(db, company_id)
+    run = db.get(JobLog, run_id)
+    if run is None or run.company_id != company_id or run.job != "crawl_run":
+        raise HTTPException(status_code=404, detail=f"crawl run {run_id} not found")
+
+    last_id_hdr = request.headers.get("last-event-id")
+    start_after = int(last_id_hdr) if (last_id_hdr and last_id_hdr.isdigit()) else afterId
+
+    def event_stream():
+        cursor_id = start_after
+        ticks = 0
+        max_ticks = 300
+        while ticks < max_ticks:
+            with db_mod.SessionLocal() as s:
+                rows = list(
+                    s.scalars(
+                        select(JobLog)
+                        .where(
+                            JobLog.company_id == company_id,
+                            JobLog.job == f"crawl_log:{run_id}",
+                            JobLog.id > cursor_id,
+                        )
+                        .order_by(JobLog.id.asc())
+                        .limit(100)
+                    ).all()
+                )
+                for row in rows:
+                    cursor_id = row.id
+                    payload = _json.dumps(_serialize_log_line(row))
+                    yield f"id: {row.id}\nevent: log\ndata: {payload}\n\n"
+
+                run_row = s.get(JobLog, run_id)
+                if run_row is None or run_row.status not in ("queued", "running"):
+                    done_payload = _json.dumps({"status": run_row.status if run_row else "unknown"})
+                    yield f"event: done\ndata: {done_payload}\n\n"
+                    return
+            ticks += 1
+            if ticks % 15 == 0:
+                yield ": keepalive\n\n"
+            _time.sleep(0.35)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/companies/{company_id}/crawler/items", tags=["crawler"])
+def list_crawler_items(
+    company_id: int,
+    category: str | None = Query(default=None),
+    change: str | None = Query(default=None),
+    sourceId: int | None = Query(default=None),
+    q: str | None = Query(default=None),
+    dateFrom: str | None = Query(default=None),
+    dateTo: str | None = Query(default=None),
+    cursor: int | None = Query(default=None),
+    limit: int = Query(default=25, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> dict:
+    from datetime import datetime, timezone
+
+    get_company_or_404(db, company_id)
+    query = (
+        select(Record, Source)
+        .outerjoin(Source, Record.source_id == Source.id)
+        .where(
+            Record.company_id == company_id,
+            (Source.category.is_(None)) | (Source.category != "internal"),
+        )
+        .order_by(Record.id.desc())
+    )
+    rows = db.execute(query).all()
+    from_dt = datetime.fromisoformat(dateFrom).replace(tzinfo=timezone.utc) if dateFrom else None
+    to_dt = (
+        datetime.fromisoformat(dateTo).replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+        if dateTo
+        else None
+    )
+    needle = (q or "").strip().lower()
+
+    filtered: list[tuple[Record, Source | None]] = []
+    for rec, src in rows:
+        cat = src.category if src else "market"
+        ch = "changed" if rec.is_update else "new"
+        if category and cat != category:
+            continue
+        if change and ch != change:
+            continue
+        if sourceId is not None and rec.source_id != sourceId:
+            continue
+        if from_dt and rec.discovered:
+            disc = rec.discovered if rec.discovered.tzinfo else rec.discovered.replace(tzinfo=timezone.utc)
+            if disc < from_dt:
+                continue
+        if to_dt and rec.discovered:
+            disc = rec.discovered if rec.discovered.tzinfo else rec.discovered.replace(tzinfo=timezone.utc)
+            if disc > to_dt:
+                continue
+        if needle:
+            hay = f"{rec.title} {rec.url} {rec.text[:600]}".lower()
+            if needle not in hay:
+                continue
+        filtered.append((rec, src))
+
+    total = len(filtered)
+    if cursor is not None:
+        filtered = [pair for pair in filtered if pair[0].id < cursor]
+    page = filtered[:limit]
+    has_more = len(filtered) > limit
+    return {
+        "items": [_serialize_collected_item(rec, src) for rec, src in page],
+        "nextCursor": str(page[-1][0].id) if has_more and page else None,
+        "total": total,
+    }
+
+
+@router.get("/companies/{company_id}/crawler/items/{item_id}", tags=["crawler"])
+def get_crawler_item(company_id: int, item_id: int, db: Session = Depends(get_db)) -> dict:
+    from research import normalise_url
+
+    get_company_or_404(db, company_id)
+    record = db.get(Record, item_id)
+    if record is None or record.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"item {item_id} not found")
+    source = db.get(Source, record.source_id) if record.source_id else None
+
+    diff: dict | None = None
+    if record.is_update:
+        target_key = normalise_url(record.url)
+        prior_rows = list(
+            db.scalars(
+                select(Record)
+                .where(Record.company_id == company_id, Record.id < record.id)
+                .order_by(Record.id.desc())
+            ).all()
+        )
+        prev = next((r for r in prior_rows if normalise_url(r.url) == target_key), None)
+        if prev is not None:
+            diff = {"before": (prev.text or "")[:500], "after": (record.text or "")[:500]}
+
+    return _serialize_collected_item(record, source, excerpt_len=1000, diff=diff)
+
+
+@router.get("/companies/{company_id}/crawler/logs/export", tags=["crawler"])
+def export_crawler_logs_csv(
+    company_id: int,
+    range_key: str = Query(default="7d", alias="range", pattern="^(7d|30d|90d)$"),
+    db: Session = Depends(get_db),
+) -> Response:
+    import csv
+    import io
+    from datetime import datetime, timedelta, timezone
+
+    get_company_or_404(db, company_id)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_range_days(range_key))
+    lines = list(
+        db.scalars(
+            select(JobLog)
+            .where(
+                JobLog.company_id == company_id,
+                JobLog.job.like("crawl_log:%"),
+                JobLog.at >= cutoff,
+            )
+            .order_by(JobLog.id.asc())
+        ).all()
+    )
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["id", "run_id", "timestamp", "level", "source_domain", "message"])
+    for ln in lines:
+        item = _serialize_log_line(ln)
+        writer.writerow(
+            [
+                item["id"],
+                item["runId"],
+                item["ts"] or "",
+                item["level"],
+                item["sourceDomain"] or "",
+                item["message"],
+            ]
+        )
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="crawler-logs-company-{company_id}-{range_key}.csv"'
+        },
+    )
+
+
+@router.patch("/companies/{company_id}/crawler/settings", tags=["crawler"])
+def patch_crawler_settings(
+    company_id: int,
+    payload: CrawlerSettingsPatchIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    company = get_company_or_404(db, company_id)
+    profile = dict(company.profile or {})
+    meta = dict(profile.get("_meta") or {})
+    cfg = dict(meta.get("crawler_settings") or {})
+    if payload.maxPagesPerRun is not None:
+        cfg["maxPagesPerRun"] = payload.maxPagesPerRun
+    meta["crawler_settings"] = cfg
+    profile["_meta"] = meta
+    company.profile = profile
+    db.commit()
+    return {"maxPagesPerRun": cfg.get("maxPagesPerRun")}
+

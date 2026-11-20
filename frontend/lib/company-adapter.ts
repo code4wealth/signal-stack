@@ -548,3 +548,132 @@ export function buildDevMockSignalStack(companyId: number): import("@/lib/types"
     ],
   };
 }
+
+export function formatDurationMs(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const sec = ms / 1000;
+  if (sec < 60) return `${sec.toFixed(1)}s`;
+  const mins = Math.floor(sec / 60);
+  const rem = Math.round(sec % 60);
+  return `${mins}m ${rem}s`;
+}
+
+export function buildDevMockCrawlerOverview(
+  companyId: number,
+  range: import("@/lib/types").CrawlRange = "7d",
+): import("@/lib/types").CrawlerOverview {
+  const days = range === "90d" ? 90 : range === "30d" ? 30 : 7;
+  const now = Date.now();
+  const daily = Array.from({ length: days }).map((_, idx) => {
+    const d = new Date(now - (days - 1 - idx) * 86400_000).toISOString().slice(0, 10);
+    return {
+      date: d,
+      new: idx % 2 === 0 ? 4 : 2,
+      changed: idx % 3 === 0 ? 1 : 0,
+      failed: idx === days - 2 ? 1 : 0,
+      sourcesChecked: 4,
+    };
+  });
+  const sampleRun: import("@/lib/types").CrawlRun = {
+    id: 901,
+    companyId,
+    trigger: "manual",
+    status: "completed",
+    startedAt: new Date(now - 3600_000).toISOString(),
+    finishedAt: new Date(now - 3580_000).toISOString(),
+    durationMs: 18400,
+    sourcesTotal: 4,
+    sourcesDone: 4,
+    counts: { new: 6, changed: 2, unchanged: 4, failed: 0, blocked: 1 },
+    perSource: [
+      {
+        sourceId: 101,
+        sourceName: "MOCK DATA — Industry Forum",
+        domain: "example.com",
+        category: "customers",
+        status: "success",
+        httpStatus: 200,
+        itemsNew: 3,
+        itemsChanged: 1,
+        durationMs: 4120,
+      },
+      {
+        sourceId: 102,
+        sourceName: "MOCK DATA — Sample Rival Changelog",
+        domain: "example.org",
+        category: "competitors",
+        status: "success",
+        httpStatus: 200,
+        itemsNew: 2,
+        itemsChanged: 1,
+        durationMs: 5200,
+      },
+      {
+        sourceId: 103,
+        sourceName: "MOCK DATA — Market Standards Body",
+        domain: "example.net",
+        category: "market",
+        status: "not_modified",
+        httpStatus: 304,
+        itemsNew: 0,
+        itemsChanged: 0,
+        durationMs: 1950,
+      },
+    ],
+  };
+
+  return {
+    range,
+    totals: {
+      new: daily.reduce((s, d) => s + d.new, 0),
+      changed: daily.reduce((s, d) => s + d.changed, 0),
+      failed: daily.reduce((s, d) => s + d.failed, 0),
+      deltaPct: { new: 14.2, changed: 8.5, failed: -25.0 },
+    },
+    daily,
+    activeRun: null,
+    lastRun: sampleRun,
+    recentRuns: [sampleRun],
+    runsCount: 1,
+    nextRunAt: null,
+    budget: { pagesUsed: 16, pagesLimit: 40, period: "run" },
+    etiquette: {
+      respectsRobots: true,
+      delaySeconds: 1.0,
+      userAgent: "SignalStack/0.1 (MOCK)",
+      blockedByRobots: 1,
+    },
+    health: { healthyPct: 92, failing: 0, stale: 0, windowCrawls: 5 },
+    coverage: [
+      { category: "customers", approved: 2, checked: 2, newItems: 3 },
+      { category: "competitors", approved: 1, checked: 1, newItems: 2 },
+      { category: "market", approved: 1, checked: 1, newItems: 1 },
+      { category: "internal", approved: 0, checked: 0, newItems: 0 },
+    ],
+    allTimeCoverage: [
+      { category: "customers", approved: 2, checked: 2, newItems: 11 },
+      { category: "competitors", approved: 1, checked: 1, newItems: 7 },
+      { category: "market", approved: 1, checked: 1, newItems: 4 },
+      { category: "internal", approved: 0, checked: 0, newItems: 0 },
+    ],
+    quickRecheck: [
+      {
+        sourceId: "101",
+        name: "MOCK DATA — Industry Forum",
+        domain: "example.com",
+        lastCheckedAt: new Date(now - 3600_000).toISOString(),
+        status: "ok",
+      },
+      {
+        sourceId: "102",
+        name: "MOCK DATA — Sample Rival Changelog",
+        domain: "example.org",
+        lastCheckedAt: new Date(now - 7200_000).toISOString(),
+        status: "ok",
+      },
+    ],
+    isMock: true,
+  };
+}
+

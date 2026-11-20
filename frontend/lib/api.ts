@@ -765,3 +765,145 @@ export const api = {
   reassessContext: (id: number, context: string) =>
     post<import("./types").ReassessResult>(`/api/companies/${id}/context/reassess`, { context }),
 };
+
+// ---------------------------------------------------------------------------
+// Crawler Monitor (Step 4)
+// ---------------------------------------------------------------------------
+
+export async function getCrawlerOverview(
+  companyId: number,
+  range: import("./types").CrawlRange = "7d",
+): Promise<import("./types").CrawlerOverview> {
+  return get<import("./types").CrawlerOverview>(
+    `/api/companies/${companyId}/crawler/overview?range=${encodeURIComponent(range)}`,
+  );
+}
+
+export async function startCrawl(
+  companyId: number,
+  sourceIds?: number[],
+): Promise<import("./types").CrawlRun> {
+  return post<import("./types").CrawlRun>(
+    `/api/companies/${companyId}/crawler/run`,
+    sourceIds && sourceIds.length > 0 ? { sourceIds } : {},
+  );
+}
+
+export async function cancelCrawl(
+  companyId: number,
+  runId: number,
+): Promise<import("./types").CrawlRun> {
+  return post<import("./types").CrawlRun>(
+    `/api/companies/${companyId}/crawler/runs/${runId}/cancel`,
+  );
+}
+
+export async function listRuns(
+  companyId: number,
+  cursor?: string | null,
+  range?: import("./types").CrawlRange,
+): Promise<{ items: import("./types").CrawlRun[]; nextCursor: string | null; total: number }> {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  if (range) params.set("range", range);
+  const qs = params.toString();
+  return get<{ items: import("./types").CrawlRun[]; nextCursor: string | null; total: number }>(
+    `/api/companies/${companyId}/crawler/runs${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export async function getRun(
+  companyId: number,
+  runId: number,
+): Promise<{
+  run: import("./types").CrawlRun;
+  results: import("./types").SourceCrawlResult[];
+}> {
+  return get<{
+    run: import("./types").CrawlRun;
+    results: import("./types").SourceCrawlResult[];
+  }>(`/api/companies/${companyId}/crawler/runs/${runId}`);
+}
+
+export async function getRunLogs(
+  companyId: number,
+  runId: number,
+  cursor?: string | null,
+): Promise<{ items: import("./types").CrawlLogLine[]; nextCursor: string | null }> {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  const qs = params.toString();
+  return get<{ items: import("./types").CrawlLogLine[]; nextCursor: string | null }>(
+    `/api/companies/${companyId}/crawler/runs/${runId}/logs${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export function streamRunLogs(
+  companyId: number,
+  runId: number,
+  afterId = 0,
+): EventSource {
+  const qs = afterId > 0 ? `?afterId=${afterId}` : "";
+  return new EventSource(
+    `${API_BASE}/api/companies/${companyId}/crawler/runs/${runId}/logs/stream${qs}`,
+  );
+}
+
+export async function listItems(
+  companyId: number,
+  filters: import("./types").CollectedItemsFilters = {},
+  cursor?: string | null,
+): Promise<{ items: import("./types").CollectedItem[]; nextCursor: string | null; total: number }> {
+  const params = new URLSearchParams();
+  if (filters.category && filters.category !== "all") params.set("category", filters.category);
+  if (filters.change && filters.change !== "all") params.set("change", filters.change);
+  if (filters.sourceId !== undefined) params.set("sourceId", String(filters.sourceId));
+  if (filters.q) params.set("q", filters.q);
+  if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
+  if (filters.dateTo) params.set("dateTo", filters.dateTo);
+  if (cursor) params.set("cursor", cursor);
+  const qs = params.toString();
+  return get<{
+    items: import("./types").CollectedItem[];
+    nextCursor: string | null;
+    total: number;
+  }>(`/api/companies/${companyId}/crawler/items${qs ? `?${qs}` : ""}`);
+}
+
+export async function getItem(
+  companyId: number,
+  itemId: number,
+): Promise<import("./types").CollectedItem> {
+  return get<import("./types").CollectedItem>(
+    `/api/companies/${companyId}/crawler/items/${itemId}`,
+  );
+}
+
+export function exportLogsCsvUrl(
+  companyId: number,
+  range: import("./types").CrawlRange = "7d",
+): string {
+  return `${API_BASE}/api/companies/${companyId}/crawler/logs/export?range=${encodeURIComponent(range)}`;
+}
+
+export async function exportLogsCsv(
+  companyId: number,
+  range: import("./types").CrawlRange = "7d",
+): Promise<string> {
+  const res = await fetch(exportLogsCsvUrl(companyId, range), { cache: "no-store" });
+  if (!res.ok) {
+    throw new ApiError(`Failed to export CSV (HTTP ${res.status})`, res.status);
+  }
+  return res.text();
+}
+
+export async function updateCrawlerSettings(
+  companyId: number,
+  body: { maxPagesPerRun: number },
+): Promise<{ maxPagesPerRun: number }> {
+  return patch<{ maxPagesPerRun: number }>(
+    `/api/companies/${companyId}/crawler/settings`,
+    body,
+  );
+}
+

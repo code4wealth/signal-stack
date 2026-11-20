@@ -319,3 +319,12 @@ class CompetitorProfile(BaseModel):
 
 class CompetitorProfileBatch(BaseModel):
     profiles: list[CompetitorProfile] = Field(default_factory=list, max_length=12)
+
+
+class CrawlRunStartIn(BaseModel):
+    sourceIds: list[int] | None = None
+
+
+class CrawlerSettingsPatchIn(BaseModel):
+    maxPagesPerRun: int | None = Field(default=None, ge=1, le=500)
+

@@ -3,12 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   Activity,
   Bot,
   Building2,
   Check,
+  ChevronDown,
   ChevronsUpDown,
   FileSpreadsheet,
   FileText,
@@ -27,6 +29,7 @@ import {
   X,
 } from "lucide-react";
 
+import { getCrawlerOverview } from "@/lib/api";
 import type { Company, CompanyRecord, WorkflowStepState } from "@/lib/types";
 import { extractDomain } from "@/lib/company-adapter";
 import { FAST_TRANSITION } from "@/lib/motion";
@@ -99,12 +102,29 @@ export function Sidebar({
   const pathname = usePathname();
   const reduced = Boolean(useReducedMotion());
   const [switcherOpen, setSwitcherOpen] = useState(false);
-
   const base = `/company/${companyId}`;
+  const isCrawlerRoute = pathname === `${base}/crawler`;
+  const [crawlerOpen, setCrawlerOpen] = useState<boolean>(isCrawlerRoute);
+  const [crawlerHash, setCrawlerHash] = useState<string>("");
+
+  const crawlerOverviewQuery = useQuery({
+    queryKey: ["crawler-overview", companyId, "7d"],
+    queryFn: () => getCrawlerOverview(companyId, "7d"),
+    enabled:
+      Number.isFinite(companyId) &&
+      companyId > 0 &&
+      process.env.NEXT_PUBLIC_USE_MOCKS !== "true",
+    staleTime: 30_000,
+    retry: 0,
+  });
+
+  const runsCount = crawlerOverviewQuery.data?.runsCount ?? 0;
+
   const workflow = company?.workflowStatus ?? {
     company: "current",
     interview: "locked",
     sources: "locked",
+    crawler: "locked",
     signals: "locked",
     briefs: "locked",
   };
@@ -197,9 +217,15 @@ export function Sidebar({
     },
   ];
 
+  const crawlerChildren = [
+    { key: "overview", label: "Overview", href: `${base}/crawler`, count: null as number | null },
+    { key: "runs", label: "Runs", href: `${base}/crawler#runs`, count: runsCount },
+    { key: "sources", label: "Sources", href: `${base}/signal-stack`, count: null as number | null },
+    { key: "logs", label: "Logs", href: `${base}/crawler#logs`, count: null as number | null },
+  ];
+
   const operationsItems = [
     { label: "Internal Data", href: `${base}/automation`, Icon: FileSpreadsheet },
-    { label: "Crawler", href: `${base}/sources`, Icon: Bot },
     { label: "Automation", href: `${base}/automation`, Icon: Activity },
   ];
 
@@ -386,6 +412,84 @@ export function Sidebar({
             Operations
           </p>
           <ul className="space-y-0.5">
+            {/* Collapsible Crawler group */}
+            <li>
+              <div className="relative">
+                {isCrawlerRoute && !crawlerOpen ? (
+                  <motion.span
+                    layoutId={reduced ? undefined : "sidebar-active-pill"}
+                    transition={FAST_TRANSITION}
+                    className="absolute inset-0 rounded-xl border border-white/80 bg-white shadow-[0_4px_14px_rgba(31,33,37,0.06)]"
+                  />
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setCrawlerOpen((prev) => !prev)}
+                  aria-expanded={crawlerOpen}
+                  title="Crawler"
+                  className={`focus-ring relative z-10 flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-[13px] font-medium transition-colors md:justify-center xl:justify-between ${
+                    isCrawlerRoute
+                      ? "text-[#1F2125]"
+                      : "text-[#4B5058] hover:bg-white/50 hover:text-[#1F2125]"
+                  }`}
+                >
+                  <span className="flex items-center gap-2.5">
+                    <Bot size={16} strokeWidth={1.75} aria-hidden="true" />
+                    <span className="md:hidden xl:inline">Crawler</span>
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    className={`shrink-0 text-[#9AA0AA] transition-transform md:hidden xl:block ${
+                      crawlerOpen ? "rotate-180" : ""
+                    }`}
+                    aria-hidden="true"
+                  />
+                </button>
+              </div>
+
+              {crawlerOpen ? (
+                <ul className="mt-0.5 space-y-0.5 pl-6 md:hidden xl:block">
+                  {crawlerChildren.map((child) => {
+                    const isChildActive =
+                      (child.key === "overview" && isCrawlerRoute && crawlerHash === "") ||
+                      (child.key === "runs" && isCrawlerRoute && crawlerHash === "#runs") ||
+                      (child.key === "logs" && isCrawlerRoute && crawlerHash === "#logs");
+                    return (
+                      <li key={child.key} className="relative">
+                        {isChildActive ? (
+                          <motion.span
+                            layoutId={reduced ? undefined : "sidebar-crawler-pill"}
+                            transition={FAST_TRANSITION}
+                            className="absolute inset-0 rounded-xl border border-white/80 bg-white shadow-[0_4px_14px_rgba(31,33,37,0.06)]"
+                          />
+                        ) : null}
+                        <Link
+                          href={child.href}
+                          onClick={() => {
+                            const hashIdx = child.href.indexOf("#");
+                            setCrawlerHash(hashIdx >= 0 ? child.href.slice(hashIdx) : "");
+                            onCloseMobile();
+                          }}
+                          className={`focus-ring relative z-10 flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-[12.5px] font-medium no-underline transition-colors ${
+                            isChildActive
+                              ? "text-[#1F2125]"
+                              : "text-[#4B5058] hover:bg-white/50 hover:text-[#1F2125]"
+                          }`}
+                        >
+                          <span>{child.label}</span>
+                          {child.count !== null && child.count > 0 ? (
+                            <span className="tabular rounded-full bg-[#EEF2FF] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#4F46E5]">
+                              {child.count}
+                            </span>
+                          ) : null}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+            </li>
+
             {operationsItems.map((item) => {
               const Icon = item.Icon;
               return (
