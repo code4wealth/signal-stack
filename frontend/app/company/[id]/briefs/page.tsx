@@ -137,7 +137,7 @@ export default function BriefsPage() {
           <div className="space-y-4 lg:col-span-4">
             <Card>
               <h3 className="text-sm font-semibold text-ink">Brief history</h3>
-              <ul className="mt-3 divide-y divide-[rgba(233,237,243,0.07)]">
+              <ul className="mt-3 divide-y divide-[rgba(31,33,37,0.07)]">
                 {history.map((item) => {
                   const active = report?.id === item.id;
                   return (
@@ -184,7 +184,7 @@ export default function BriefsPage() {
                 </div>
 
                 <Card>
-                  <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[rgba(233,237,243,0.08)] pb-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[rgba(31,33,37,0.08)] pb-5">
                     <div>
                       <h3 className="text-xl font-semibold tracking-[-0.025em] text-ink">
                         Monday Morning Brief — {report.content.company.name}
@@ -199,7 +199,7 @@ export default function BriefsPage() {
                       </Button>
                       <a
                         href={api.exportUrl(report.id)}
-                        className="btn-motion inline-flex min-h-[40px] items-center gap-2 rounded-[10px] border border-[rgba(233,237,243,0.14)] bg-surface/60 px-4 py-2 text-sm font-medium text-ink no-underline hover:border-accent/45 hover:text-accent"
+                        className="btn-motion inline-flex min-h-[40px] items-center gap-2 rounded-[10px] border border-[rgba(31,33,37,0.12)] bg-surface/60 px-4 py-2 text-sm font-medium text-ink no-underline hover:border-accent/45 hover:text-accent"
                       >
                         <Download size={14} /> Export .md
                       </a>
@@ -208,7 +208,7 @@ export default function BriefsPage() {
 
                   <div className="mt-6 max-w-[72ch] space-y-6">
                     {report.content.sections.map((section) => (
-                      <section key={section.key} className="space-y-2.5 border-b border-[rgba(233,237,243,0.06)] pb-5 last:border-b-0 last:pb-0">
+                      <section key={section.key} className="space-y-2.5 border-b border-[rgba(31,33,37,0.06)] pb-5 last:border-b-0 last:pb-0">
                         <h4 className="text-sm font-semibold text-accent">{section.heading}</h4>
 
                         {section.key === "actions" && report.content.actions.length > 0 ? (
@@ -216,14 +216,14 @@ export default function BriefsPage() {
                             {report.content.actions.map((action, index) => (
                               <li
                                 key={`${action.action}-${index}`}
-                                className="flex items-start gap-3 rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-3.5"
+                                className="flex items-start gap-3 rounded-[10px] border border-[rgba(31,33,37,0.08)] bg-secondary/70 p-3.5"
                               >
                                 <input
                                   type="checkbox"
                                   checked={action.done}
                                   disabled={busy !== null}
                                   onChange={(event) => void toggleAction(index, event.target.checked)}
-                                  className="mt-1 h-4 w-4 accent-[#5ab9fc]"
+                                  className="mt-1 h-4 w-4 accent-[#4F46E5]"
                                   aria-label={`Mark action done: ${action.action}`}
                                 />
                                 <div className="space-y-1">
@@ -260,7 +260,7 @@ export default function BriefsPage() {
                               {report.content.opportunities.map((opp, idx) => (
                                 <div
                                   key={`${opp.opportunity}-${idx}`}
-                                  className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-3.5"
+                                  className="rounded-[10px] border border-[rgba(31,33,37,0.08)] bg-secondary/70 p-3.5"
                                 >
                                   <div className="flex items-start justify-between gap-2">
                                     <span className="text-sm font-semibold text-ink">{opp.opportunity}</span>
@@ -287,7 +287,7 @@ export default function BriefsPage() {
                               {report.content.risks.map((item, idx) => (
                                 <li
                                   key={`${item.risk}-${idx}`}
-                                  className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-3.5 text-sm"
+                                  className="rounded-[10px] border border-[rgba(31,33,37,0.08)] bg-secondary/70 p-3.5 text-sm"
                                 >
                                   <p className="font-medium text-ink">{item.risk}</p>
                                   {item.mitigation ? (

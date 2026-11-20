@@ -12,11 +12,22 @@ export class ApiError extends Error {
 
 export type JobKind = "research" | "discover" | "crawl" | "analyse" | "competitors";
 
+export type ResearchStatus =
+  | "idle"
+  | "submitting"
+  | "reading_website"
+  | "identifying_services"
+  | "finding_competitors"
+  | "building_profile"
+  | "completed"
+  | "error";
+
 export type JobStatusResponse<T = Record<string, unknown>> = {
   job_id: number;
   company_id: number;
   job: JobKind;
   status: "running" | "ok" | "error";
+  stage?: ResearchStatus | string;
   at: string;
   started_at?: string | null;
   finished_at?: string | null;
@@ -74,14 +85,20 @@ async function probeBackendHealth(): Promise<ProbeResult> {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const targetUrl = `${API_BASE}${path}`;
-  const response = await fetch(targetUrl, {
-    ...init,
-    headers: {
-      ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+
+  let response: Response;
+  try {
+    response = await fetch(targetUrl, {
+      ...init,
+      headers: {
+        ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+        ...(init?.headers ?? {}),
+      },
+      cache: "no-store",
+    });
+  } catch {
+    throw new ApiError("Backend not reachable. Check that the API is running.", 0);
+  }
 
   if (!response.ok) {
     let detail = `${method} ${path} failed with HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`;
@@ -127,6 +144,24 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function pollJob<T>(
+  jobId: number,
+  kind: JobKind,
+  onPoll?: (status: JobStatusResponse<T>) => void,
+): Promise<T> {
+  while (true) {
+    await sleep(JOB_POLL_INTERVAL_MS);
+    const current = await get<JobStatusResponse<T>>(`/api/jobs/${jobId}`);
+    onPoll?.(current);
+    if (current.status === "ok") {
+      return (current.result ?? {}) as T;
+    }
+    if (current.status === "error") {
+      throw new ApiError(current.error || `${kind} job #${jobId} failed`, current.status_code ?? 500);
+    }
+  }
+}
+
 async function runJob<T>(
   companyId: number,
   kind: JobKind,
@@ -135,17 +170,66 @@ async function runJob<T>(
   const qs = options?.limit ? `?limit=${options.limit}` : "";
   const started = await post<JobStatusResponse<T>>(`/api/companies/${companyId}/jobs/${kind}${qs}`);
   options?.onPoll?.(started);
+  return pollJob<T>(started.job_id, kind, options?.onPoll);
+}
 
-  while (true) {
-    await sleep(JOB_POLL_INTERVAL_MS);
-    const current = await get<JobStatusResponse<T>>(`/api/jobs/${started.job_id}`);
-    options?.onPoll?.(current);
-    if (current.status === "ok") {
-      return (current.result ?? {}) as T;
+export async function startResearch(params: {
+  companyName: string;
+  websiteUrl: string;
+  onStatus?: (status: ResearchStatus) => void;
+}): Promise<{
+  companyId: number;
+  jobId: number;
+  profile: import("./types").Profile;
+  pagesFetched: string[];
+  unverifiedCount: number;
+}> {
+  params.onStatus?.("submitting");
+  let started: JobStatusResponse<{
+    company_id: number;
+    profile: import("./types").Profile;
+    pages_fetched: string[];
+    unverified_count: number;
+  }>;
+  try {
+    started = await post("/api/companies/research", {
+      companyName: params.companyName,
+      websiteUrl: params.websiteUrl,
+    });
+  } catch (caught) {
+    params.onStatus?.("error");
+    if (caught instanceof ApiError && (caught.status === 0 || caught.message.includes("not reachable"))) {
+      throw new ApiError("Backend not reachable. Check that the API is running.", caught.status);
     }
-    if (current.status === "error") {
-      throw new ApiError(current.error || `${kind} job #${started.job_id} failed`, current.status_code ?? 500);
-    }
+    throw caught;
+  }
+
+  const initialStage = (started.stage as ResearchStatus | undefined) ?? "reading_website";
+  params.onStatus?.(initialStage);
+
+  try {
+    const result = await pollJob<{
+      company_id: number;
+      profile: import("./types").Profile;
+      pages_fetched: string[];
+      unverified_count: number;
+    }>(started.job_id, "research", (jobState) => {
+      if (jobState.status === "running") {
+        const nextStage = (jobState.stage as ResearchStatus | undefined) ?? "reading_website";
+        params.onStatus?.(nextStage);
+      }
+    });
+    params.onStatus?.("completed");
+    return {
+      companyId: started.company_id,
+      jobId: started.job_id,
+      profile: result.profile,
+      pagesFetched: result.pages_fetched ?? [],
+      unverifiedCount: result.unverified_count ?? 0,
+    };
+  } catch (caught) {
+    params.onStatus?.("error");
+    throw caught;
   }
 }
 

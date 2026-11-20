@@ -174,7 +174,7 @@ export default function AutomationPage() {
           </div>
 
           <div className="mt-4 space-y-3">
-            <label className="btn-motion inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-[10px] border border-[rgba(233,237,243,0.14)] bg-surface/60 px-4 py-2 text-sm font-medium text-ink hover:border-accent/45 hover:text-accent">
+            <label className="btn-motion inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-[10px] border border-[rgba(31,33,37,0.12)] bg-surface/60 px-4 py-2 text-sm font-medium text-ink hover:border-accent/45 hover:text-accent">
               <Database size={15} />
               {busy === "upload" ? "Uploading…" : "Choose TXT or CSV"}
               <input
@@ -187,7 +187,7 @@ export default function AutomationPage() {
             {documents.length > 0 ? (
               <ul className="space-y-2 text-xs text-muted">
                 {documents.map((doc) => (
-                  <li key={doc.record_id} className="rounded-[8px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-2.5">
+                  <li key={doc.record_id} className="rounded-[8px] border border-[rgba(31,33,37,0.08)] bg-secondary/70 p-2.5">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="font-medium text-ink">{doc.filename}</span>
                       {doc.document_type ? <Badge tone="info">{doc.document_type}</Badge> : null}
@@ -241,7 +241,7 @@ export default function AutomationPage() {
             )}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="border-b border-[rgba(233,237,243,0.08)] text-muted">
+                <thead className="border-b border-[rgba(31,33,37,0.08)] text-muted">
                   <tr>
                     <th className="py-2.5 pr-3 font-medium">Source</th>
                     <th className="py-2.5 pr-3 font-medium">Category</th>
@@ -250,7 +250,7 @@ export default function AutomationPage() {
                     <th className="py-2.5 font-medium">Reason</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[rgba(233,237,243,0.06)]">
+                <tbody className="divide-y divide-[rgba(31,33,37,0.06)]">
                   {reassessment.updated.map((item) => (
                     <tr key={item.source_id} className={item.relevance < 0.4 ? "text-warning" : "text-ink/90"}>
                       <td className="max-w-[220px] truncate py-2.5 pr-3 font-medium">{item.name}</td>
@@ -286,7 +286,7 @@ export default function AutomationPage() {
         {logs && logs.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="border-b border-[rgba(233,237,243,0.08)] text-muted">
+              <thead className="border-b border-[rgba(31,33,37,0.08)] text-muted">
                 <tr>
                   <th className="py-2.5 pr-3 font-medium">When</th>
                   <th className="py-2.5 pr-3 font-medium">Job</th>
@@ -294,7 +294,7 @@ export default function AutomationPage() {
                   <th className="py-2.5 font-medium">Detail</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[rgba(233,237,243,0.06)]">
+              <tbody className="divide-y divide-[rgba(31,33,37,0.06)]">
                 {logs.map((log) => (
                   <tr key={log.id} className="align-top text-ink/90">
                     <td className="tabular whitespace-nowrap py-2.5 pr-3 text-muted">{formatDate(log.at)}</td>

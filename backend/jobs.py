@@ -163,6 +163,7 @@ def start_company_job(
         "company_id": company_id,
         "job": kind,
         "status": row.status,
+        "stage": "reading_website" if kind == "research" else "running",
         "at": row.at.isoformat(),
     }
 
@@ -179,11 +180,20 @@ def get_job_status(session: Session, job_id: int) -> dict[str, Any]:
     except json.JSONDecodeError:
         parsed = {}
 
+    default_stage = (
+        "completed"
+        if row.status == "ok"
+        else "error"
+        if row.status == "error"
+        else ("reading_website" if kind == "research" else "running")
+    )
+
     return {
         "job_id": row.id,
         "company_id": row.company_id,
         "job": kind,
         "status": row.status,
+        "stage": parsed.get("stage") or default_stage,
         "at": row.at.isoformat(),
         "started_at": parsed.get("started_at"),
         "finished_at": parsed.get("finished_at"),

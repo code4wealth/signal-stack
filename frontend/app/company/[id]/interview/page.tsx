@@ -188,7 +188,7 @@ export default function InterviewPage() {
               {state.questions.map((item) => (
                 <li
                   key={item.id}
-                  className="border-l-2 border-[rgba(233,237,243,0.12)] pl-4"
+                  className="border-l-2 border-[rgba(31,33,37,0.10)] pl-4"
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-sm font-medium text-ink">

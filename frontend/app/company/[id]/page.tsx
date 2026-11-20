@@ -138,7 +138,7 @@ export default function OverviewPage() {
   function renderFacts(label: string, facts: Fact[] | undefined) {
     if (!facts || facts.length === 0) return null;
     return (
-      <div className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-4">
+      <div className="rounded-[10px] border border-[rgba(31,33,37,0.08)] bg-secondary/70 p-4">
         <h4 className="text-[13px] font-semibold text-ink">{label}</h4>
         <ul className="mt-2.5 space-y-2.5">
           {facts.map((fact, index) => (
@@ -208,7 +208,7 @@ export default function OverviewPage() {
             {Object.entries(overview.sources_by_category).map(([cat, counts]) => (
               <div
                 key={cat}
-                className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-surface px-4 py-3"
+                className="rounded-[10px] border border-[rgba(31,33,37,0.08)] bg-surface px-4 py-3"
               >
                 <div className="flex items-center justify-between">
                   <span className="text-[13px] font-medium capitalize text-ink">{cat} sources</span>
@@ -224,7 +224,7 @@ export default function OverviewPage() {
       ) : null}
 
       <Card>
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[rgba(233,237,243,0.08)] pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[rgba(31,33,37,0.08)] pb-4">
           <div>
             <h2 className="text-base font-semibold tracking-[-0.015em] text-ink">Company research &amp; founder context</h2>
             <p className="mt-1 text-sm text-muted">
@@ -265,7 +265,7 @@ export default function OverviewPage() {
           </div>
 
           <Card>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[rgba(233,237,243,0.08)] pb-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[rgba(31,33,37,0.08)] pb-4">
               <h3 className="text-lg font-semibold tracking-[-0.02em] text-ink">Verified company profile</h3>
               <Button
                 variant="ghost"
@@ -343,19 +343,19 @@ export default function OverviewPage() {
                 {(profile.business_model || profile.value_proposition || profile.positioning) ? (
                   <div className="grid gap-3 md:grid-cols-3">
                     {profile.business_model ? (
-                      <div className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-3.5">
+                      <div className="rounded-[10px] border border-[rgba(31,33,37,0.08)] bg-secondary/70 p-3.5">
                         <p className="text-xs font-medium text-muted">Business model</p>
                         <p className="mt-1 text-sm text-ink">{profile.business_model}</p>
                       </div>
                     ) : null}
                     {profile.value_proposition ? (
-                      <div className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-3.5">
+                      <div className="rounded-[10px] border border-[rgba(31,33,37,0.08)] bg-secondary/70 p-3.5">
                         <p className="text-xs font-medium text-muted">Value proposition</p>
                         <p className="mt-1 text-sm text-ink">{profile.value_proposition}</p>
                       </div>
                     ) : null}
                     {profile.positioning ? (
-                      <div className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-3.5">
+                      <div className="rounded-[10px] border border-[rgba(31,33,37,0.08)] bg-secondary/70 p-3.5">
                         <p className="text-xs font-medium text-muted">Market positioning</p>
                         <p className="mt-1 text-sm text-ink">{profile.positioning}</p>
                       </div>
@@ -375,13 +375,13 @@ export default function OverviewPage() {
             )}
 
             {profile.likely_competitors && profile.likely_competitors.length > 0 ? (
-              <div className="mt-6 border-t border-[rgba(233,237,243,0.08)] pt-5">
+              <div className="mt-6 border-t border-[rgba(31,33,37,0.08)] pt-5">
                 <h4 className="text-[13px] font-semibold text-muted">Initial competitor hints</h4>
                 <ul className="mt-2.5 grid gap-2 sm:grid-cols-2">
                   {profile.likely_competitors.map((competitor) => (
                     <li
                       key={competitor.website}
-                      className="rounded-[8px] border border-[rgba(233,237,243,0.07)] bg-secondary/60 px-3 py-2 text-sm"
+                      className="rounded-[8px] border border-[rgba(31,33,37,0.07)] bg-secondary/60 px-3 py-2 text-sm"
                     >
                       <a href={competitor.website} target="_blank" rel="noreferrer" className="font-medium no-underline hover:underline">
                         {competitor.name}

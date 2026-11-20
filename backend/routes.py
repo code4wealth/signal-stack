@@ -34,6 +34,12 @@ def get_company_or_404(db: Session, company_id: int) -> Company:
     return company
 
 
+class CompanyResearchIn(BaseModel):
+    companyName: str = Field(min_length=2, max_length=200)
+    websiteUrl: str = Field(min_length=3, max_length=500)
+    context: str = Field(default="", max_length=4000)
+
+
 class AnswerIn(BaseModel):
     idx: int = Field(ge=0)
     answer: str | None = None
@@ -84,6 +90,25 @@ def create_company(payload: CompanyCreate, db: Session = Depends(get_db)) -> Com
     db.commit()
     db.refresh(company)
     return _company_out(company)
+
+
+@router.post("/companies/research", status_code=202, tags=["companies", "research", "jobs"])
+def create_company_and_start_research(payload: CompanyResearchIn, db: Session = Depends(get_db)) -> dict:
+    import jobs
+
+    raw_url = payload.websiteUrl.strip()
+    if not raw_url.lower().startswith(("http://", "https://")):
+        raw_url = f"https://{raw_url}"
+    website = _validate_http_url(raw_url, field="websiteUrl")
+    company = Company(
+        name=payload.companyName.strip(),
+        website=website,
+        context=payload.context.strip(),
+    )
+    db.add(company)
+    db.commit()
+    db.refresh(company)
+    return jobs.start_company_job(db, company.id, "research")
 
 
 @router.get("/companies", tags=["companies"])

@@ -169,7 +169,7 @@ export default function SourcesPage() {
 
       {grouped.map((group) => (
         <Card key={group.key}>
-          <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-[rgba(233,237,243,0.08)] pb-3.5">
+          <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-[rgba(31,33,37,0.08)] pb-3.5">
             <h3 className="text-base font-semibold text-ink">
               {group.label} <span className="tabular text-sm font-normal text-muted">({group.items.length})</span>
             </h3>
@@ -179,7 +179,7 @@ export default function SourcesPage() {
           {group.items.length === 0 ? (
             <p className="mt-3 text-sm text-muted">No {group.label.toLowerCase()} sources yet.</p>
           ) : (
-            <ul className="divide-y divide-[rgba(233,237,243,0.07)]">
+            <ul className="divide-y divide-[rgba(31,33,37,0.07)]">
               {group.items.map((source) => (
                 <li key={source.id} className="py-4">
                   <div className="flex flex-wrap items-start justify-between gap-4">
@@ -313,7 +313,7 @@ export default function SourcesPage() {
             ) : (
               <ul className="mt-3 space-y-2 text-xs text-muted">
                 {diagnostics.duplicate_entries.slice(0, 12).map((dup, idx) => (
-                  <li key={`${dup.url}-${idx}`} className="truncate border-b border-[rgba(233,237,243,0.06)] pb-1.5">
+                  <li key={`${dup.url}-${idx}`} className="truncate border-b border-[rgba(31,33,37,0.06)] pb-1.5">
                     <span className="font-medium text-ink/90">{dup.source_name}:</span> {dup.title || dup.url}
                   </li>
                 ))}
@@ -332,7 +332,7 @@ export default function SourcesPage() {
                 {diagnostics.history.slice(0, 10).map((run) => (
                   <li
                     key={run.id}
-                    className="tabular flex flex-wrap items-center justify-between gap-1 border-b border-[rgba(233,237,243,0.06)] pb-1.5"
+                    className="tabular flex flex-wrap items-center justify-between gap-1 border-b border-[rgba(31,33,37,0.06)] pb-1.5"
                   >
                     <span>{formatDate(run.at)}</span>
                     <span className="text-ink/85">

@@ -193,8 +193,8 @@ export default function IntelligencePage() {
                 onClick={() => setFilter(option)}
                 className={`rounded-[8px] px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
                   filter === option
-                    ? "bg-accent text-[#07101d]"
-                    : "border border-[rgba(233,237,243,0.12)] bg-secondary text-muted hover:text-ink"
+                    ? "bg-[#1C1D21] text-white"
+                    : "border border-[rgba(31,33,37,0.10)] bg-secondary text-muted hover:text-ink"
                 }`}
               >
                 {option}
@@ -359,7 +359,7 @@ export default function IntelligencePage() {
                     </div>
                   </div>
 
-                  <div className="flex shrink-0 items-center justify-between gap-4 border-t border-[rgba(233,237,243,0.08)] pt-3 sm:flex-col sm:items-end sm:border-t-0 sm:pt-0">
+                  <div className="flex shrink-0 items-center justify-between gap-4 border-t border-[rgba(31,33,37,0.08)] pt-3 sm:flex-col sm:items-end sm:border-t-0 sm:pt-0">
                     <div className="sm:text-right">
                       <p className="tabular text-3xl font-semibold tracking-[-0.03em] text-accent">
                         {signal.total.toFixed(1)}
@@ -381,14 +381,14 @@ export default function IntelligencePage() {
                 </div>
 
                 {isOpen ? (
-                  <div className="mt-5 space-y-4 border-t border-[rgba(233,237,243,0.08)] pt-5">
+                  <div className="mt-5 space-y-4 border-t border-[rgba(31,33,37,0.08)] pt-5">
                     <div className="grid gap-2.5 text-xs sm:grid-cols-3 lg:grid-cols-6">
                       {Object.entries(signal.scores ?? {})
                         .filter(([key]) => ["relevance", "impact", "urgency", "credibility", "recency", "novelty"].includes(key))
                         .map(([key, value]) => (
                           <div
                             key={key}
-                            className="rounded-[8px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 px-3 py-2.5"
+                            className="rounded-[8px] border border-[rgba(31,33,37,0.08)] bg-secondary/70 px-3 py-2.5"
                           >
                             <p className="capitalize text-muted">{key}</p>
                             <p className="tabular mt-0.5 text-base font-semibold text-ink">
@@ -402,7 +402,7 @@ export default function IntelligencePage() {
 
                     {signal.explanation ? <p className="text-sm text-muted">{signal.explanation}</p> : null}
 
-                    <div className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-4">
+                    <div className="rounded-[10px] border border-[rgba(31,33,37,0.08)] bg-secondary/70 p-4">
                       <p className="text-xs font-semibold text-muted">Verbatim evidence snippet</p>
                       <p className="mt-1.5 text-sm italic leading-relaxed text-ink">
                         {signal.evidence_snippet ? `“${signal.evidence_snippet}”` : "No snippet stored."}

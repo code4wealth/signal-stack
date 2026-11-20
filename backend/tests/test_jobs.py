@@ -120,3 +120,39 @@ def test_direct_browser_cors_allows_127_and_localhost() -> None:
             )
             assert res.status_code == 200
             assert res.headers.get("access-control-allow-origin") == origin
+
+
+def test_create_company_and_research_entry_endpoint(monkeypatch) -> None:
+    def fake_research(session, company):
+        profile = {
+            "summary": "TEST_entry_profile",
+            "industry": "edtech",
+            "unverified": [],
+            "_meta": {"pages_fetched": [company.website]},
+        }
+        company.profile = profile
+        session.commit()
+        return profile
+
+    monkeypatch.setattr(research, "research_company", fake_research)
+
+    with TestClient(main.app) as client:
+        started = client.post(
+            "/api/companies/research",
+            json={"companyName": "TEST_EntryCorp", "websiteUrl": "public.test"},
+        )
+        assert started.status_code == 202
+        body = started.json()
+        assert body["status"] == "running"
+        assert body["stage"] == "reading_website"
+        company_id = body["company_id"]
+        job_id = body["job_id"]
+
+        done = _poll_until_done(client, job_id)
+        assert done["status"] == "ok"
+        assert done["stage"] == "completed"
+        assert done["result"]["pages_fetched"] == ["https://public.test"]
+
+        fetched = client.get(f"/api/companies/{company_id}")
+        assert fetched.status_code == 200
+        assert fetched.json()["website"] == "https://public.test"
