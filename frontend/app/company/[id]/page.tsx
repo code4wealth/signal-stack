@@ -6,7 +6,7 @@ import { RefreshCw, Save } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
 import type { Fact, Profile } from "@/lib/types";
-import { Badge, Button, Card, Empty, ErrorNote, Field, Loading, Stat, inputClass } from "@/components/ui";
+import { Badge, BusyProgress, Button, Card, Empty, ErrorNote, Field, Loading, Stat, inputClass } from "@/components/ui";
 
 export default function OverviewPage() {
   const params = useParams<{ id: string }>();
@@ -91,6 +91,9 @@ export default function OverviewPage() {
   return (
     <div className="space-y-6">
       {loading ? <Loading label="Loading profile…" /> : null}
+      {busy === "research" ? (
+        <BusyProgress label="Researching website (fetching homepage + up to 5 internal pages, then building profile)…" />
+      ) : null}
       {error ? <ErrorNote message={error} onRetry={load} /> : null}
       {notice ? (
         <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">{notice}</div>

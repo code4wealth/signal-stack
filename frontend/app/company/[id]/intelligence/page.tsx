@@ -6,7 +6,7 @@ import { BarChart3, Download, RefreshCw } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
 import type { Signal } from "@/lib/types";
-import { Badge, Button, Card, Empty, ErrorNote, Loading, Stat, formatDate } from "@/components/ui";
+import { Badge, BusyProgress, Button, Card, Empty, ErrorNote, Loading, Stat, formatDate } from "@/components/ui";
 import { ScoreChart } from "@/components/score-chart";
 
 const FILTERS = ["all", "customers", "competitors", "market", "internal"] as const;
@@ -102,6 +102,12 @@ export default function IntelligencePage() {
         </div>
       </div>
 
+      {busy === "crawl" ? (
+        <BusyProgress label="Crawling approved sources (respecting 1 req/s host rate limit, robots.txt, and conditional GET)…" />
+      ) : null}
+      {busy === "analyse" ? (
+        <BusyProgress label="Analysing unanalysed records with Groq (1s pacing per record — up to 40 records per run)…" />
+      ) : null}
       {error ? <ErrorNote message={error} onRetry={load} /> : null}
       {notice ? (
         <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">{notice}</div>

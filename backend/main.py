@@ -71,6 +71,21 @@ async def _llm_error_handler(_request: Request, exc: LLMError) -> JSONResponse:
     return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.error(
+        "Unhandled error on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc.__class__.__name__,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {exc.__class__.__name__}"},
+    )
+
+
 @app.get("/api/health", tags=["system"])
 def health() -> dict:
     db_ok = True

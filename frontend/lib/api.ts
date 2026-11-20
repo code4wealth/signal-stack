@@ -12,6 +12,23 @@ export class ApiError extends Error {
 
 // Empty string = same-origin relative calls, proxied by Next's rewrite (default local dev).
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+const BACKEND_DISPLAY_URL = API_BASE || "http://127.0.0.1:8000";
+const START_BACKEND_CMD = "cd backend && uvicorn main:app --host 127.0.0.1 --port 8000 --reload";
+
+async function probeBackendHealth(): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(`${API_BASE}/api/health`, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -34,12 +51,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         parsed = true;
       }
     } catch {
-      // non-JSON error body — usually the dev proxy, not the API
+      // non-JSON error body — usually the dev proxy, not FastAPI
     }
-    if (!parsed && response.status >= 500) {
-      // A 502/504 with no JSON body comes from the Next dev proxy, not FastAPI: the backend was
-      // restarting or unreachable when the request went out. Say so instead of a bare status code.
-      detail += " — the API returned no error body, so the backend was probably restarting or unreachable";
+    if (!parsed && (response.status === 502 || response.status === 503 || response.status === 504)) {
+      const reachable = path === "/api/health" ? false : await probeBackendHealth();
+      if (!reachable) {
+        detail = `Backend not reachable on ${BACKEND_DISPLAY_URL}. Start it with: ${START_BACKEND_CMD}`;
+      } else {
+        detail = `Backend up on ${BACKEND_DISPLAY_URL} but this request failed (HTTP ${response.status} with no error body); see the backend terminal.`;
+      }
+    } else if (!parsed && response.status >= 500) {
+      detail += " — the API returned no error body; see the backend terminal.";
     }
     throw new ApiError(detail, response.status);
   }

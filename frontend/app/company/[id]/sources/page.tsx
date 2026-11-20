@@ -6,7 +6,7 @@ import { Ban, Check, Pause, Plus, Radar, Trash2 } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
 import type { DiscoveryResult, Source, SourceCategory } from "@/lib/types";
-import { Badge, Button, Card, Empty, ErrorNote, Field, Loading, Stat, formatDate, inputClass } from "@/components/ui";
+import { Badge, BusyProgress, Button, Card, Empty, ErrorNote, Field, Loading, Stat, formatDate, inputClass } from "@/components/ui";
 
 const CATEGORIES: { key: SourceCategory; label: string; blurb: string }[] = [
   { key: "customers", label: "Customers", blurb: "Where the company's buyers publish news, reviews and procurement signals." },
@@ -117,6 +117,9 @@ export default function SourcesPage() {
         </Button>
       </div>
 
+      {busy === "discover" ? (
+        <BusyProgress label="Discovering & verifying candidate URLs (1 req/s per host + RSS autodiscovery — may take 1–2 min)…" />
+      ) : null}
       {error ? <ErrorNote message={error} onRetry={load} /> : null}
 
       {discovery ? (

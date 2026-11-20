@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
@@ -65,6 +65,24 @@ export function Loading({ label = "Loading…" }: { label?: string }) {
     <div className="flex items-center gap-3 rounded-lg border border-white/5 bg-secondary/60 px-4 py-3 text-sm text-slate-300">
       <span className="h-3 w-3 animate-ping rounded-full bg-accent" aria-hidden />
       {label}
+    </div>
+  );
+}
+
+export function BusyProgress({ label }: { label: string }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    setElapsed(0);
+    const id = setInterval(() => setElapsed((prev) => prev + 1), 1000);
+    return () => clearInterval(id);
+  }, [label]);
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-slate-200">
+      <div className="flex items-center gap-3">
+        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-accent" aria-hidden />
+        <span>{label}</span>
+      </div>
+      <span className="font-mono text-xs text-accent">{elapsed}s elapsed</span>
     </div>
   );
 }

@@ -111,7 +111,7 @@ python3 -m venv .venv
 cp .env.example .env          # then add GROQ_API_KEY (repo root or backend/.env — both are read,
                              # repo root wins; a real env var beats both)
 cd backend
-../.venv/bin/uvicorn main:app --reload --port 8000
+../.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 # API docs: http://127.0.0.1:8000/docs   health: http://127.0.0.1:8000/api/health
 
 # frontend (new terminal)
@@ -141,12 +141,20 @@ powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1 -TempDir D:\T
 `backend\requirements.txt` with `--cache-dir`, and copies `.env.example` to `.env` only when `.env` does not
 exist. `setup_windows.ps1` is code-reviewed but not yet executed on Windows — first run is the verification.
 
-To start the backend afterwards:
+To start the backend afterwards (explicitly bound to `127.0.0.1` so Windows `localhost` IPv6 `::1` cannot collide with Next's proxy):
 
 ```powershell
 cd backend
-.\.venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
+.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
+
+Or launch both backend and frontend in separate windows and wait for `/api/health`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
+```
+
+(`dev.ps1` is also code-reviewed only on Linux and not yet executed on Windows.)
 
 ### Produce the real numbers
 
