@@ -6,7 +6,7 @@ import { ExternalLink, Plus, Radar } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
 import type { CompetitorHint, CompetitorProfile } from "@/lib/types";
-import { Badge, BusyProgress, Button, Card, Empty, ErrorNote, Loading, Stat } from "@/components/ui";
+import { Badge, BusyProgress, Button, Card, Empty, ErrorNote, Loading, Notice, Stat } from "@/components/ui";
 
 export default function CompetitorsPage() {
   const params = useParams<{ id: string }>();
@@ -85,15 +85,15 @@ export default function CompetitorsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-100">Competitors</h2>
-          <p className="text-xs text-slate-500">
-            5–10 verified competitor profiles researched directly from fetched public pages.
+          <h2 className="text-lg font-semibold tracking-[-0.02em] text-ink">Competitor landscape</h2>
+          <p className="mt-0.5 text-sm text-muted">
+            5–10 competitor profiles researched directly from fetched public homepages. Unreachable sites are dropped.
           </p>
         </div>
         <Button onClick={discover} disabled={busy !== null}>
-          <Radar size={16} /> {busy === "discover" ? "Researching competitors…" : "Discover & research competitors"}
+          <Radar size={15} /> {busy === "discover" ? "Researching competitors…" : "Discover & research competitors"}
         </Button>
       </div>
 
@@ -101,9 +101,7 @@ export default function CompetitorsPage() {
         <BusyProgress label="Identifying competitors and fetching public homepages…" />
       ) : null}
       {error ? <ErrorNote message={error} onRetry={load} /> : null}
-      {notice ? (
-        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">{notice}</div>
-      ) : null}
+      {notice ? <Notice>{notice}</Notice> : null}
 
       <div className="grid gap-4 md:grid-cols-3">
         <Stat label="Researched profiles" value={competitors.length} />
@@ -124,61 +122,69 @@ export default function CompetitorsPage() {
         <div className="grid gap-4 md:grid-cols-2">
           {competitors.map((comp) => (
             <Card key={comp.website}>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <h3 className="text-base font-semibold text-slate-100">{comp.name}</h3>
-                  <a href={comp.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-accent">
-                    {comp.website} <ExternalLink size={12} />
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[rgba(233,237,243,0.08)] pb-3.5">
+                <div className="min-w-0">
+                  <h3 className="text-base font-semibold text-ink">{comp.name}</h3>
+                  <a
+                    href={comp.website}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-0.5 inline-flex items-center gap-1 text-xs text-accent no-underline hover:underline"
+                  >
+                    {comp.website} <ExternalLink size={11} />
                   </a>
                 </div>
-                <Button
-                  variant="ghost"
-                  onClick={() => void monitorCompetitor(comp)}
-                  disabled={busy !== null}
-                >
+                <Button variant="ghost" onClick={() => void monitorCompetitor(comp)} disabled={busy !== null}>
                   <Plus size={14} /> Track source
                 </Button>
               </div>
-              {comp.positioning ? (
-                <p className="mt-2 text-sm text-slate-300">
-                  <span className="font-medium text-slate-200">Positioning:</span> {comp.positioning}
-                </p>
-              ) : null}
-              {comp.pricing_or_offer ? (
-                <p className="mt-1 text-xs text-slate-400">
-                  <span className="font-medium text-slate-300">Offer / pricing:</span> {comp.pricing_or_offer}
-                </p>
-              ) : null}
-              {comp.differentiation ? (
-                <p className="mt-1 text-xs text-slate-400">
-                  <span className="font-medium text-slate-300">Differentiation:</span> {comp.differentiation}
-                </p>
-              ) : null}
-              <div className="mt-3 grid gap-2 text-xs md:grid-cols-2">
-                {comp.strengths.length > 0 ? (
-                  <div className="rounded bg-secondary/40 p-2">
-                    <p className="font-semibold text-success">Strengths</p>
-                    <ul className="mt-1 list-disc pl-4 text-slate-400">
-                      {comp.strengths.map((s) => (
-                        <li key={s}>{s}</li>
-                      ))}
-                    </ul>
-                  </div>
+
+              <div className="mt-3.5 space-y-2">
+                {comp.positioning ? (
+                  <p className="text-sm leading-relaxed text-ink/90">
+                    <span className="font-medium text-ink">Positioning:</span> {comp.positioning}
+                  </p>
                 ) : null}
-                {comp.weaknesses.length > 0 ? (
-                  <div className="rounded bg-secondary/40 p-2">
-                    <p className="font-semibold text-warning">Weaknesses / gaps</p>
-                    <ul className="mt-1 list-disc pl-4 text-slate-400">
-                      {comp.weaknesses.map((w) => (
-                        <li key={w}>{w}</li>
-                      ))}
-                    </ul>
-                  </div>
+                {comp.pricing_or_offer ? (
+                  <p className="text-sm text-muted">
+                    <span className="font-medium text-ink/85">Offer / pricing:</span> {comp.pricing_or_offer}
+                  </p>
+                ) : null}
+                {comp.differentiation ? (
+                  <p className="text-sm text-muted">
+                    <span className="font-medium text-ink/85">Differentiation:</span> {comp.differentiation}
+                  </p>
                 ) : null}
               </div>
-              <p className="mt-2 text-xs text-slate-600">
-                evidence:{" "}
-                <a href={comp.evidence_url} target="_blank" rel="noreferrer" className="text-slate-500 underline">
+
+              {(comp.strengths.length > 0 || comp.weaknesses.length > 0) ? (
+                <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
+                  {comp.strengths.length > 0 ? (
+                    <div className="rounded-[10px] border border-success/20 bg-success/5 p-3">
+                      <p className="text-xs font-semibold text-success">Strengths</p>
+                      <ul className="mt-1.5 list-disc space-y-1 pl-4 text-xs leading-relaxed text-ink/85">
+                        {comp.strengths.map((s) => (
+                          <li key={s}>{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {comp.weaknesses.length > 0 ? (
+                    <div className="rounded-[10px] border border-warning/25 bg-warning/5 p-3">
+                      <p className="text-xs font-semibold text-warning">Weaknesses / gaps</p>
+                      <ul className="mt-1.5 list-disc space-y-1 pl-4 text-xs leading-relaxed text-ink/85">
+                        {comp.weaknesses.map((w) => (
+                          <li key={w}>{w}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <p className="mt-3.5 border-t border-[rgba(233,237,243,0.06)] pt-2.5 text-xs text-muted">
+                Verified page:{" "}
+                <a href={comp.evidence_url} target="_blank" rel="noreferrer" className="text-accent/90 no-underline hover:underline">
                   {comp.evidence_url}
                 </a>
               </p>
@@ -189,13 +195,13 @@ export default function CompetitorsPage() {
 
       {failed.length > 0 ? (
         <Card>
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Unreachable / skipped candidate sites ({failed.length})
+          <h3 className="text-sm font-semibold text-ink">
+            Unreachable or skipped candidate sites ({failed.length})
           </h3>
-          <ul className="mt-2 space-y-1 text-xs text-slate-500">
+          <ul className="mt-2.5 space-y-1.5 text-xs text-muted">
             {failed.map((f) => (
               <li key={f.url}>
-                <span className="text-slate-300">{f.name}</span> ({f.url}) — {f.reason}
+                <span className="font-medium text-ink">{f.name}</span> ({f.url}) — {f.reason}
               </li>
             ))}
           </ul>
@@ -204,22 +210,22 @@ export default function CompetitorsPage() {
 
       {monitored.length > 0 ? (
         <Card>
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+          <h3 className="text-sm font-semibold text-ink">
             Active competitor monitoring sources ({monitored.length})
           </h3>
-          <ul className="mt-2 divide-y divide-white/5 text-xs">
+          <ul className="mt-3 divide-y divide-[rgba(233,237,243,0.07)] text-sm">
             {monitored.map((s) => (
-              <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                <span>
-                  <span className="text-slate-200">{s.name}</span> ·{" "}
-                  <a href={s.url} target="_blank" rel="noreferrer" className="text-accent">
+              <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                <div className="min-w-0">
+                  <span className="font-medium text-ink">{s.name}</span>
+                  <a href={s.url} target="_blank" rel="noreferrer" className="ml-2 text-xs text-accent no-underline hover:underline">
                     {s.url}
                   </a>
-                </span>
-                <span className="flex gap-2">
+                </div>
+                <div className="flex gap-2">
                   <Badge>{s.status}</Badge>
                   <Badge tone={s.health === "ok" ? "ok" : "bad"}>{s.health}</Badge>
-                </span>
+                </div>
               </li>
             ))}
           </ul>

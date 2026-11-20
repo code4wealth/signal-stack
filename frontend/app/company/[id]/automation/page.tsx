@@ -6,7 +6,18 @@ import { Activity, CalendarClock, Database, Play, ShieldCheck, Upload } from "lu
 
 import { api, ApiError } from "@/lib/api";
 import type { DocumentItem, JobLog, ReassessResult, Source } from "@/lib/types";
-import { Badge, Button, Card, Empty, ErrorNote, Field, Loading, formatDate, inputClass } from "@/components/ui";
+import {
+  Badge,
+  Button,
+  Card,
+  Empty,
+  ErrorNote,
+  Field,
+  Loading,
+  Notice,
+  formatDate,
+  inputClass,
+} from "@/components/ui";
 
 export default function AutomationPage() {
   const params = useParams<{ id: string }>();
@@ -53,7 +64,7 @@ export default function AutomationPage() {
     setNotice(null);
     try {
       const result = kind === "weekly" ? await api.runAutomation(companyId) : await api.runAudit(companyId);
-      setNotice(`${kind === "weekly" ? "Weekly" : "Source audit"} finished. ${JSON.stringify(result)}`);
+      setNotice(`${kind === "weekly" ? "Weekly pipeline" : "Source audit"} finished. ${JSON.stringify(result)}`);
       await load();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Job failed.");
@@ -98,202 +109,206 @@ export default function AutomationPage() {
     }
   }
 
+  const lowFitSources = sources.filter((s) => s.relevance !== null && s.relevance < 0.4);
+
   return (
     <div className="space-y-6">
       {error ? <ErrorNote message={error} onRetry={load} /> : null}
-      {notice ? (
-        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">{notice}</div>
-      ) : null}
+      {notice ? <Notice>{notice}</Notice> : null}
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-            <CalendarClock size={16} /> Weekly job
-          </h3>
-          <p className="mt-2 text-xs text-slate-500">
-            Crawl → analyse → brief. Also scheduled in <code>.github/workflows/weekly.yml</code> (and locally with
-            ENABLE_SCHEDULER=1).
-          </p>
-          <div className="mt-3">
+        <Card className="flex flex-col justify-between">
+          <div>
+            <h3 className="flex items-center gap-2 text-base font-semibold text-ink">
+              <CalendarClock size={16} className="text-accent" /> Weekly job
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              Runs Crawl → Analyse → Brief. Also scheduled in <code className="font-mono text-xs text-ink/85">.github/workflows/weekly.yml</code> (and locally with <code className="font-mono text-xs text-ink/85">ENABLE_SCHEDULER=1</code>).
+            </p>
+          </div>
+          <div className="mt-4">
             <Button onClick={() => void runJob("weekly")} disabled={busy !== null}>
-              <Play size={16} /> {busy === "weekly" ? "Running…" : "Run now"}
+              <Play size={15} /> {busy === "weekly" ? "Running…" : "Run weekly job"}
             </Button>
           </div>
         </Card>
 
-        <Card>
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-            <ShieldCheck size={16} /> Source audit
-          </h3>
-          <p className="mt-2 text-xs text-slate-500">
-            Re-fetches every source and records health. Failing sources are flagged, never deleted.
-          </p>
-          <div className="mt-3">
+        <Card className="flex flex-col justify-between">
+          <div>
+            <h3 className="flex items-center gap-2 text-base font-semibold text-ink">
+              <ShieldCheck size={16} className="text-accent" /> Source audit
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              Re-fetches every source and updates health status. Failing sources are flagged cleanly, never deleted automatically.
+            </p>
+          </div>
+          <div className="mt-4">
             <Button variant="ghost" onClick={() => void runJob("audit")} disabled={busy !== null}>
-              <Activity size={16} /> {busy === "audit" ? "Auditing…" : "Run audit"}
+              <Activity size={15} /> {busy === "audit" ? "Auditing…" : "Run source audit"}
             </Button>
           </div>
         </Card>
 
-        <Card>
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-            <Upload size={16} /> Internal document
-          </h3>
-          <p className="mt-2 text-xs text-slate-500">TXT or CSV, 2 MB maximum. Stored as user-provided, never as web evidence.</p>
-          <div className="mt-2">
-            <select
-              aria-label="Document type"
-              className={inputClass}
-              value={docType}
-              onChange={(event) => setDocType(event.target.value)}
-            >
-              <option value="support_tickets">Support tickets</option>
-              <option value="sales_objections">Sales objections</option>
-              <option value="lost_deals">Lost deals</option>
-              <option value="product_requests">Product requests</option>
-              <option value="general">General internal note</option>
-            </select>
+        <Card className="flex flex-col justify-between">
+          <div>
+            <h3 className="flex items-center gap-2 text-base font-semibold text-ink">
+              <Upload size={16} className="text-accent" /> Internal document
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              TXT or CSV, 2 MB cap. Stored as <code className="font-mono text-xs text-ink/85">user-provided</code>, never as web evidence.
+            </p>
+            <div className="mt-3">
+              <select
+                aria-label="Document type"
+                className={inputClass}
+                value={docType}
+                onChange={(event) => setDocType(event.target.value)}
+              >
+                <option value="support_tickets">Support tickets</option>
+                <option value="sales_objections">Sales objections</option>
+                <option value="lost_deals">Lost deals</option>
+                <option value="product_requests">Product requests</option>
+                <option value="general">General internal note</option>
+              </select>
+            </div>
           </div>
-          <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm hover:border-accent/50 hover:text-accent">
-            <Database size={16} />
-            {busy === "upload" ? "Uploading…" : "Choose file"}
-            <input
-              type="file"
-              accept=".txt,.csv"
-              className="hidden"
-              onChange={(event) => void upload(event.target.files?.[0] ?? null)}
-            />
-          </label>
-          {documents.length > 0 ? (
-            <ul className="mt-3 space-y-2 text-xs text-slate-400">
-              {documents.map((doc) => (
-                <li key={doc.record_id} className="rounded border border-white/5 bg-secondary/40 p-2">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="font-medium text-slate-200">{doc.filename}</span>
-                    {doc.document_type ? <Badge tone="info">{doc.document_type}</Badge> : null}
-                    <Badge>user-provided</Badge>
-                  </div>
-                  <p className="mt-1 text-slate-500">
-                    {doc.characters} chars · {doc.analysed ? "analysed" : "not analysed"}
-                  </p>
-                  {doc.insights ? (
-                    <p className="mt-1 text-slate-500">
-                      complaints {doc.insights.counts.complaints ?? 0} · objections{" "}
-                      {doc.insights.counts.objections ?? 0} · lost deals {doc.insights.counts.lost_deal_reasons ?? 0} ·
-                      requests {doc.insights.counts.product_requests ?? 0}
+
+          <div className="mt-4 space-y-3">
+            <label className="btn-motion inline-flex min-h-[40px] cursor-pointer items-center gap-2 rounded-[10px] border border-[rgba(233,237,243,0.14)] bg-surface/60 px-4 py-2 text-sm font-medium text-ink hover:border-accent/45 hover:text-accent">
+              <Database size={15} />
+              {busy === "upload" ? "Uploading…" : "Choose TXT or CSV"}
+              <input
+                type="file"
+                accept=".txt,.csv"
+                className="hidden"
+                onChange={(event) => void upload(event.target.files?.[0] ?? null)}
+              />
+            </label>
+            {documents.length > 0 ? (
+              <ul className="space-y-2 text-xs text-muted">
+                {documents.map((doc) => (
+                  <li key={doc.record_id} className="rounded-[8px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-2.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-medium text-ink">{doc.filename}</span>
+                      {doc.document_type ? <Badge tone="info">{doc.document_type}</Badge> : null}
+                      <Badge>user-provided</Badge>
+                    </div>
+                    <p className="tabular mt-1 text-muted">
+                      {doc.characters} chars · {doc.analysed ? "analysed" : "pending analysis"}
                     </p>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : null}
+                    {doc.insights ? (
+                      <p className="tabular mt-1 text-muted/90">
+                        complaints {doc.insights.counts.complaints ?? 0} · objections{" "}
+                        {doc.insights.counts.objections ?? 0} · lost deals {doc.insights.counts.lost_deal_reasons ?? 0} ·
+                        requests {doc.insights.counts.product_requests ?? 0}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
         </Card>
       </div>
 
       <Card>
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Context reassessment</h3>
-        <p className="mt-1 text-xs text-slate-500">
-          Re-scores every active source against a new context and runs discovery again. Sources below 0.4 need your
-          approval before removal.
+        <h3 className="text-base font-semibold tracking-[-0.015em] text-ink">Context reassessment</h3>
+        <p className="mt-1 text-sm text-muted">
+          Re-scores every active source against a new context and discovers new candidates. Sources below 0.4 are flagged for human approval before removal.
         </p>
-        <div className="mt-3 flex flex-wrap items-end gap-3">
-          <div className="min-w-[320px] flex-1">
-            <Field label="New context">
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="min-w-[280px] flex-1">
+            <Field label="New monitoring context">
               <input className={inputClass} value={context} onChange={(event) => setContext(event.target.value)} />
             </Field>
           </div>
           <Button onClick={reassess} disabled={busy !== null}>
-            {busy === "reassess" ? "Re-scoring…" : "Reassess sources"}
+            {busy === "reassess" ? "Re-scoring sources…" : "Reassess sources"}
           </Button>
         </div>
 
         {reassessment ? (
-          <div className="mt-4 space-y-3">
+          <div className="mt-5 space-y-4">
             {reassessment.profile_comparison ? (
-              <div className="rounded-lg border border-accent/20 bg-accent/5 p-3 text-xs text-slate-300">
-                <p className="font-semibold text-accent">Before vs after comparison</p>
+              <div className="rounded-[10px] border border-accent/30 bg-accent/10 p-3.5 text-sm text-ink">
+                <p className="text-xs font-semibold text-accent">Before vs after comparison</p>
                 <p className="mt-1">{reassessment.profile_comparison.explanation}</p>
               </div>
             ) : (
-              <p className="text-xs text-slate-400">
-                previous: “{reassessment.previous_context}” → new: “{reassessment.new_context}”
+              <p className="text-xs text-muted">
+                Previous: “{reassessment.previous_context}” → New: “{reassessment.new_context}”
               </p>
             )}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="text-slate-500">
+                <thead className="border-b border-[rgba(233,237,243,0.08)] text-muted">
                   <tr>
-                    <th className="py-2">Source</th>
-                    <th className="py-2">Category</th>
-                    <th className="py-2">Before</th>
-                    <th className="py-2">After</th>
-                    <th className="py-2">Reason</th>
+                    <th className="py-2.5 pr-3 font-medium">Source</th>
+                    <th className="py-2.5 pr-3 font-medium">Category</th>
+                    <th className="py-2.5 pr-3 font-medium">Before</th>
+                    <th className="py-2.5 pr-3 font-medium">After</th>
+                    <th className="py-2.5 font-medium">Reason</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/5">
+                <tbody className="divide-y divide-[rgba(233,237,243,0.06)]">
                   {reassessment.updated.map((item) => (
-                    <tr key={item.source_id} className={item.relevance < 0.4 ? "text-warning" : "text-slate-300"}>
-                      <td className="max-w-[220px] truncate py-2">{item.name}</td>
-                      <td className="py-2">{item.category}</td>
-                      <td className="py-2">{item.previous_relevance?.toFixed(2) ?? "—"}</td>
-                      <td className="py-2">{item.relevance.toFixed(2)}</td>
-                      <td className="py-2">{item.reason}</td>
+                    <tr key={item.source_id} className={item.relevance < 0.4 ? "text-warning" : "text-ink/90"}>
+                      <td className="max-w-[220px] truncate py-2.5 pr-3 font-medium">{item.name}</td>
+                      <td className="py-2.5 pr-3 capitalize">{item.category}</td>
+                      <td className="tabular py-2.5 pr-3">{item.previous_relevance?.toFixed(2) ?? "—"}</td>
+                      <td className="tabular py-2.5 pr-3 font-semibold">{item.relevance.toFixed(2)}</td>
+                      <td className="py-2.5">{item.reason}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             {reassessment.recommended_removal.length > 0 ? (
-              <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
+              <div className="rounded-[10px] border border-warning/30 bg-warning/5 p-3.5 text-xs text-warning">
                 Recommended for removal (needs your approval, nothing deleted):{" "}
                 {reassessment.recommended_removal.map((item) => item.name).join(", ")}
               </div>
             ) : null}
           </div>
+        ) : lowFitSources.length > 0 ? (
+          <div className="mt-4 rounded-[10px] border border-warning/30 bg-warning/5 p-3.5 text-xs text-warning">
+            Previously flagged below 0.4 fit: {lowFitSources.map((s) => `${s.name} (${s.relevance?.toFixed(2)})`).join(", ")}
+          </div>
         ) : null}
       </Card>
 
       <Card>
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Job logs</h3>
+        <h3 className="mb-3 text-base font-semibold tracking-[-0.015em] text-ink">Job logs</h3>
         {loading ? <Loading label="Loading job logs…" /> : null}
         {!loading && logs && logs.length === 0 ? (
-          <Empty title="No jobs have run yet" hint="Run the weekly job or an audit to create log entries." />
+          <Empty title="No jobs have run yet" hint="Run the weekly job or a source audit to record log entries." />
         ) : null}
         {logs && logs.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="text-slate-500">
+              <thead className="border-b border-[rgba(233,237,243,0.08)] text-muted">
                 <tr>
-                  <th className="py-2">When</th>
-                  <th className="py-2">Job</th>
-                  <th className="py-2">Status</th>
-                  <th className="py-2">Detail</th>
+                  <th className="py-2.5 pr-3 font-medium">When</th>
+                  <th className="py-2.5 pr-3 font-medium">Job</th>
+                  <th className="py-2.5 pr-3 font-medium">Status</th>
+                  <th className="py-2.5 font-medium">Detail</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody className="divide-y divide-[rgba(233,237,243,0.06)]">
                 {logs.map((log) => (
-                  <tr key={log.id} className="align-top text-slate-300">
-                    <td className="whitespace-nowrap py-2">{formatDate(log.at)}</td>
-                    <td className="py-2">{log.job}</td>
-                    <td className="py-2">
+                  <tr key={log.id} className="align-top text-ink/90">
+                    <td className="tabular whitespace-nowrap py-2.5 pr-3 text-muted">{formatDate(log.at)}</td>
+                    <td className="py-2.5 pr-3 font-medium">{log.job}</td>
+                    <td className="py-2.5 pr-3">
                       <Badge tone={log.status === "ok" ? "ok" : log.status === "error" ? "bad" : "warn"}>{log.status}</Badge>
                     </td>
-                    <td className="max-w-[520px] truncate py-2 text-slate-500">{log.detail}</td>
+                    <td className="max-w-lg break-words py-2.5 font-mono text-[11px] text-muted">{log.detail}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : null}
-      </Card>
-
-      <Card>
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Sources at a glance</h3>
-        <p className="mt-1 text-xs text-slate-500">
-          {sources.filter((source) => source.status === "approved").length} approved ·{" "}
-          {sources.filter((source) => source.status === "pending").length} pending ·{" "}
-          {sources.filter((source) => source.health === "error").length} with fetch errors
-        </p>
       </Card>
     </div>
   );

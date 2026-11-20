@@ -2,11 +2,24 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Pencil, RefreshCw, Save, X } from "lucide-react";
+import { ExternalLink, Pencil, RefreshCw, Save, X } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
 import type { CompanyOverview, Fact, Profile } from "@/lib/types";
-import { Badge, BusyProgress, Button, Card, Empty, ErrorNote, Field, Loading, Stat, formatDate, inputClass } from "@/components/ui";
+import {
+  Badge,
+  BusyProgress,
+  Button,
+  Card,
+  Empty,
+  ErrorNote,
+  Field,
+  Loading,
+  Notice,
+  Stat,
+  formatDate,
+  inputClass,
+} from "@/components/ui";
 
 export default function OverviewPage() {
   const params = useParams<{ id: string }>();
@@ -71,6 +84,7 @@ export default function OverviewPage() {
       setNotice(
         `Research stored. ${result.pages_fetched.length} pages fetched, ${result.unverified_count} unverified item(s) recorded.`,
       );
+      await load();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Research failed.");
     } finally {
@@ -124,16 +138,23 @@ export default function OverviewPage() {
   function renderFacts(label: string, facts: Fact[] | undefined) {
     if (!facts || facts.length === 0) return null;
     return (
-      <div className="mt-4">
-        <h4 className="text-xs uppercase tracking-wide text-slate-500">{label}</h4>
-        <ul className="mt-2 space-y-2">
+      <div className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-4">
+        <h4 className="text-[13px] font-semibold text-ink">{label}</h4>
+        <ul className="mt-2.5 space-y-2.5">
           {facts.map((fact, index) => (
-            <li key={`${label}-${index}`} className="text-sm text-slate-300">
-              {fact.text}{" "}
-              <a href={fact.evidence_url} target="_blank" rel="noreferrer" className="text-xs text-accent">
-                source
-              </a>{" "}
-              <Badge tone={fact.verified ? "ok" : "warn"}>{fact.verified ? "verified" : "unverified"}</Badge>
+            <li key={`${label}-${index}`} className="text-sm leading-relaxed text-ink/90">
+              <span>{fact.text}</span>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <Badge tone={fact.verified ? "ok" : "warn"}>{fact.verified ? "Verified" : "Unverified"}</Badge>
+                <a
+                  href={fact.evidence_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-accent no-underline hover:underline"
+                >
+                  Source <ExternalLink size={11} />
+                </a>
+              </div>
             </li>
           ))}
         </ul>
@@ -143,58 +164,29 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-6">
-      {loading ? <Loading label="Loading profile…" /> : null}
+      {loading ? <Loading label="Loading profile and monitoring status…" /> : null}
       {busy === "research" ? (
         <BusyProgress label="Researching website (fetching homepage + up to 5 internal pages, then building profile)…" />
       ) : null}
       {error ? <ErrorNote message={error} onRetry={load} /> : null}
-      {notice ? (
-        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">{notice}</div>
-      ) : null}
-
-      <Card>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Company research</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Fetches the homepage plus up to five internal pages, then extracts a profile. Facts without page
-              evidence are demoted to the unverified list.
-            </p>
-          </div>
-          <Button onClick={runResearch} disabled={busy === "research"}>
-            <RefreshCw size={16} /> {busy === "research" ? "Researching…" : profile ? "Re-run research" : "Run research"}
-          </Button>
-        </div>
-
-        <div className="mt-4">
-          <Field label="Founder context" hint="Used for question generation, analysis relevance and context reassessment.">
-            <textarea className={`${inputClass} h-20`} value={context} onChange={(event) => setContext(event.target.value)} />
-          </Field>
-          <div className="mt-3">
-            <Button variant="ghost" onClick={saveContext} disabled={busy === "context"}>
-              <Save size={16} /> {busy === "context" ? "Saving…" : "Save context"}
-            </Button>
-          </div>
-        </div>
-      </Card>
+      {notice ? <Notice>{notice}</Notice> : null}
 
       {overview ? (
-        <Card>
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Monitoring dashboard</h3>
-          <div className="mt-3 grid gap-4 md:grid-cols-4">
+        <div className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Stat
-              label="Records"
+              label="Records analysed"
               value={`${overview.records_analysed} / ${overview.records_total}`}
               hint="analysed / discovered"
             />
             <Stat
               label="Latest crawl"
-              value={overview.latest_crawl ? overview.latest_crawl.status : "not run"}
+              value={overview.latest_crawl ? overview.latest_crawl.status : "Not run"}
               hint={overview.latest_crawl ? formatDate(overview.latest_crawl.at) : "Crawl approved sources"}
             />
             <Stat
               label="Latest brief"
-              value={overview.latest_report ? `#${overview.latest_report.id}` : "none"}
+              value={overview.latest_report ? `#${overview.latest_report.id}` : "None"}
               hint={
                 overview.latest_report
                   ? `${overview.latest_report.actions} action(s) · ${formatDate(overview.latest_report.created)}`
@@ -203,46 +195,78 @@ export default function OverviewPage() {
             />
             <Stat
               label="Scheduled job"
-              value={overview.scheduler_enabled ? "active (local)" : "GitHub Actions"}
+              value={overview.scheduler_enabled ? "Local active" : "GitHub Actions"}
               hint={
                 overview.latest_automation
-                  ? `last ${overview.latest_automation.job}: ${overview.latest_automation.status}`
-                  : "weekly.yml Monday 06:00 UTC"
+                  ? `Last ${overview.latest_automation.job}: ${overview.latest_automation.status}`
+                  : "weekly.yml · Monday 06:00 UTC"
               }
             />
           </div>
-          <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {Object.entries(overview.sources_by_category).map(([cat, counts]) => (
-              <div key={cat} className="rounded-lg border border-white/5 bg-secondary/40 px-3 py-2">
-                <p className="font-semibold uppercase tracking-wide text-slate-300">{cat}</p>
-                <p className="mt-1 text-slate-400">
-                  {counts.approved} approved · {counts.pending} pending · {counts.total} total
+              <div
+                key={cat}
+                className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-surface px-4 py-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] font-medium capitalize text-ink">{cat} sources</span>
+                  <span className="tabular text-xs font-medium text-accent">{counts.total}</span>
+                </div>
+                <p className="tabular mt-1 text-xs text-muted">
+                  {counts.approved} approved · {counts.pending} pending
                 </p>
               </div>
             ))}
           </div>
-        </Card>
+        </div>
       ) : null}
 
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[rgba(233,237,243,0.08)] pb-4">
+          <div>
+            <h2 className="text-base font-semibold tracking-[-0.015em] text-ink">Company research &amp; founder context</h2>
+            <p className="mt-1 text-sm text-muted">
+              Fetches the homepage plus up to five internal pages. Facts without page evidence are demoted to unverified.
+            </p>
+          </div>
+          <Button onClick={runResearch} disabled={busy === "research"}>
+            <RefreshCw size={15} /> {busy === "research" ? "Researching…" : profile ? "Re-run research" : "Run research"}
+          </Button>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          <Field label="Founder context" hint="Used for question generation, analysis relevance, and context reassessment.">
+            <textarea className={`${inputClass} h-20`} value={context} onChange={(event) => setContext(event.target.value)} />
+          </Field>
+          <div>
+            <Button variant="ghost" onClick={saveContext} disabled={busy === "context"}>
+              <Save size={15} /> {busy === "context" ? "Saving…" : "Save context"}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
       {!loading && !profile ? (
-        <Empty title="No profile stored yet" hint="Run research to fetch the website and build the profile." />
+        <Empty title="No profile stored yet" hint="Run research above to fetch the website and build a verified profile." />
       ) : null}
 
       {profile ? (
         <>
           <div className="grid gap-4 md:grid-cols-3">
-            <Stat label="Industry" value={profile.industry || "unclear"} />
+            <Stat label="Industry" value={profile.industry || "Unclear"} />
             <Stat
               label="Pages fetched"
               value={profile._meta?.pages_fetched?.length ?? 0}
-              hint={profile._meta?.model ? `model: ${profile._meta.model}` : undefined}
+              hint={profile._meta?.model ? `Model ${profile._meta.model}` : undefined}
             />
             <Stat label="Unverified items" value={profile.unverified?.length ?? 0} hint="Hypotheses, never counted as facts" />
           </div>
 
           <Card>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-base font-semibold text-slate-100">Profile</h3>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[rgba(233,237,243,0.08)] pb-4">
+              <h3 className="text-lg font-semibold tracking-[-0.02em] text-ink">Verified company profile</h3>
               <Button
                 variant="ghost"
                 onClick={() => {
@@ -263,7 +287,7 @@ export default function OverviewPage() {
             </div>
 
             {editingProfile ? (
-              <form onSubmit={saveProfileEdit} className="mt-4 space-y-3">
+              <form onSubmit={saveProfileEdit} className="mt-5 space-y-4">
                 <Field label="Overview / summary">
                   <textarea
                     className={`${inputClass} h-24`}
@@ -271,7 +295,7 @@ export default function OverviewPage() {
                     onChange={(event) => setProfileForm({ ...profileForm, summary: event.target.value })}
                   />
                 </Field>
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid gap-4 md:grid-cols-2">
                   <Field label="Industry">
                     <input
                       className={inputClass}
@@ -313,37 +337,56 @@ export default function OverviewPage() {
                 </Button>
               </form>
             ) : (
-              <>
-                <p className="prose-body mt-2 text-sm text-slate-300">{profile.summary || "No summary."}</p>
-                {profile.business_model ? (
-                  <p className="mt-2 text-sm text-slate-400">Business model: {profile.business_model}</p>
-                ) : null}
-                {profile.value_proposition ? (
-                  <p className="mt-1 text-sm text-slate-400">Value proposition: {profile.value_proposition}</p>
-                ) : null}
-                {profile.positioning ? (
-                  <p className="mt-1 text-sm text-slate-400">Positioning: {profile.positioning}</p>
+              <div className="mt-5 space-y-5">
+                <p className="prose-body max-w-[68ch] text-[15px] text-ink/90">{profile.summary || "No summary stored."}</p>
+
+                {(profile.business_model || profile.value_proposition || profile.positioning) ? (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {profile.business_model ? (
+                      <div className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-3.5">
+                        <p className="text-xs font-medium text-muted">Business model</p>
+                        <p className="mt-1 text-sm text-ink">{profile.business_model}</p>
+                      </div>
+                    ) : null}
+                    {profile.value_proposition ? (
+                      <div className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-3.5">
+                        <p className="text-xs font-medium text-muted">Value proposition</p>
+                        <p className="mt-1 text-sm text-ink">{profile.value_proposition}</p>
+                      </div>
+                    ) : null}
+                    {profile.positioning ? (
+                      <div className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-3.5">
+                        <p className="text-xs font-medium text-muted">Market positioning</p>
+                        <p className="mt-1 text-sm text-ink">{profile.positioning}</p>
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
 
-                {renderFacts("Products", profile.products)}
-                {renderFacts("Customers", profile.customers)}
-                {renderFacts("Geography", profile.geography)}
-                {renderFacts("Differentiators", profile.differentiators)}
-                {renderFacts("Growth opportunities", profile.growth_opportunities)}
-                {renderFacts("Challenges", profile.challenges)}
-              </>
+                <div className="grid gap-4 md:grid-cols-2">
+                  {renderFacts("Products", profile.products)}
+                  {renderFacts("Customers", profile.customers)}
+                  {renderFacts("Geography", profile.geography)}
+                  {renderFacts("Differentiators", profile.differentiators)}
+                  {renderFacts("Growth opportunities", profile.growth_opportunities)}
+                  {renderFacts("Challenges", profile.challenges)}
+                </div>
+              </div>
             )}
 
             {profile.likely_competitors && profile.likely_competitors.length > 0 ? (
-              <div className="mt-4">
-                <h4 className="text-xs uppercase tracking-wide text-slate-500">Likely competitors</h4>
-                <ul className="mt-2 space-y-1 text-sm text-slate-300">
+              <div className="mt-6 border-t border-[rgba(233,237,243,0.08)] pt-5">
+                <h4 className="text-[13px] font-semibold text-muted">Initial competitor hints</h4>
+                <ul className="mt-2.5 grid gap-2 sm:grid-cols-2">
                   {profile.likely_competitors.map((competitor) => (
-                    <li key={competitor.website}>
-                      <a href={competitor.website} target="_blank" rel="noreferrer">
+                    <li
+                      key={competitor.website}
+                      className="rounded-[8px] border border-[rgba(233,237,243,0.07)] bg-secondary/60 px-3 py-2 text-sm"
+                    >
+                      <a href={competitor.website} target="_blank" rel="noreferrer" className="font-medium no-underline hover:underline">
                         {competitor.name}
                       </a>
-                      {competitor.reason ? <span className="text-xs text-slate-500"> — {competitor.reason}</span> : null}
+                      {competitor.reason ? <p className="mt-0.5 text-xs text-muted">{competitor.reason}</p> : null}
                     </li>
                   ))}
                 </ul>
@@ -351,9 +394,9 @@ export default function OverviewPage() {
             ) : null}
 
             {profile.unverified && profile.unverified.length > 0 ? (
-              <div className="mt-4 rounded-lg border border-warning/30 bg-warning/5 p-3">
-                <h4 className="text-xs uppercase tracking-wide text-warning">Unverified (not facts)</h4>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-300">
+              <div className="mt-6 rounded-[10px] border border-warning/30 bg-warning/5 p-4">
+                <h4 className="text-[13px] font-semibold text-warning">Unverified hypotheses (not stored as facts)</h4>
+                <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-ink/85">
                   {profile.unverified.map((item, index) => (
                     <li key={index}>{item}</li>
                   ))}
@@ -362,9 +405,11 @@ export default function OverviewPage() {
             ) : null}
 
             {profile._meta?.fetch_failures && profile._meta.fetch_failures.length > 0 ? (
-              <details className="mt-4 text-xs text-slate-500">
-                <summary className="cursor-pointer">Fetch failures ({profile._meta.fetch_failures.length})</summary>
-                <ul className="mt-2 space-y-1">
+              <details className="mt-4 text-xs text-muted">
+                <summary className="cursor-pointer font-medium hover:text-ink">
+                  Fetch failures ({profile._meta.fetch_failures.length})
+                </summary>
+                <ul className="mt-2 space-y-1 font-mono">
                   {profile._meta.fetch_failures.map((failure, index) => (
                     <li key={index}>{failure}</li>
                   ))}
@@ -373,11 +418,11 @@ export default function OverviewPage() {
             ) : null}
 
             {profile.intelligence?.completed_at ? (
-              <div className="mt-4 rounded-lg border border-success/30 bg-success/5 p-3">
-                <h4 className="text-xs uppercase tracking-wide text-success">Interview intelligence captured</h4>
-                <p className="mt-1 text-sm text-slate-300">
-                  {profile.intelligence.answered ?? 0} answers, {profile.intelligence.skipped ?? 0} skipped. Merged into the
-                  profile on {new Date(profile.intelligence.completed_at).toLocaleString()}.
+              <div className="mt-6 rounded-[10px] border border-success/30 bg-success/5 p-4">
+                <h4 className="text-[13px] font-semibold text-success">Interview intelligence captured</h4>
+                <p className="mt-1 text-sm text-ink/90">
+                  {profile.intelligence.answered ?? 0} answers, {profile.intelligence.skipped ?? 0} skipped — merged into the
+                  profile on {formatDate(profile.intelligence.completed_at)}.
                 </p>
               </div>
             ) : null}

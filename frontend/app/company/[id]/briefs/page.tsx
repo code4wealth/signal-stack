@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Copy, Download, FileText } from "lucide-react";
+import { Copy, Download, ExternalLink, FileText } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
 import type { Report, ReportListItem } from "@/lib/types";
-import { Badge, Button, Card, Empty, ErrorNote, Loading, Stat, formatDate } from "@/components/ui";
+import { Badge, Button, Card, Empty, ErrorNote, Loading, Notice, Stat, formatDate } from "@/components/ui";
 
 export default function BriefsPage() {
   const params = useParams<{ id: string }>();
@@ -109,190 +109,225 @@ export default function BriefsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-100">Monday Morning Brief</h2>
-          <p className="text-xs text-slate-500">
-            Eleven sections. Prose is written by the model; headings, top-five selection and every citation id are
-            validated in code.
+          <h2 className="text-lg font-semibold tracking-[-0.02em] text-ink">Monday Morning Brief</h2>
+          <p className="mt-0.5 text-sm text-muted">
+            Eleven fixed sections. Prose is written by the model; headings, top-five selection, and every citation id are validated in code.
           </p>
         </div>
         <Button onClick={generate} disabled={busy !== null}>
-          <FileText size={16} /> {busy === "generate" ? "Generating…" : "Generate brief"}
+          <FileText size={15} /> {busy === "generate" ? "Generating brief…" : "Generate brief"}
         </Button>
       </div>
 
       {error ? <ErrorNote message={error} /> : null}
-      {notice ? (
-        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">{notice}</div>
-      ) : null}
-
+      {notice ? <Notice>{notice}</Notice> : null}
       {loading ? <Loading label="Loading briefs…" /> : null}
-
-      {history && history.length > 0 ? (
-        <Card>
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">History</h3>
-          <ul className="divide-y divide-white/5">
-            {history.map((item) => (
-              <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                <div>
-                  <span className="text-sm text-slate-200">Brief #{item.id}</span>
-                  <span className="ml-2 text-xs text-slate-500">{formatDate(item.created)}</span>
-                  {item.top_signal ? <p className="text-xs text-slate-500">top signal: {item.top_signal}</p> : null}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge>{item.actions} actions</Badge>
-                  <Button variant="ghost" onClick={() => void openReport(item.id)} disabled={busy !== null}>
-                    Open
-                  </Button>
-                  <a href={api.exportUrl(item.id)} className="text-xs text-accent">
-                    <Download size={14} className="mr-1 inline" />
-                    markdown
-                  </a>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      ) : null}
 
       {!loading && history && history.length === 0 ? (
         <Empty
-          title="No briefs yet"
-          hint="A brief needs analysed records. Crawl sources, run analysis, then generate."
+          title="No briefs generated yet"
+          hint="A brief requires analysed records. Crawl approved sources, run analysis, then generate."
         />
       ) : null}
 
-      {report ? (
-        <>
-          <div className="grid gap-4 md:grid-cols-4">
-            <Stat label="Records used" value={report.content.counts.records} />
-            <Stat label="Approved sources" value={report.content.counts.sources} />
-            <Stat label="Actions" value={report.content.actions.length} />
-            <Stat label="Dropped actions" value={report.content.dropped_actions} hint="No valid evidence" />
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Button variant="ghost" onClick={copyMarkdown}>
-              <Copy size={16} /> {copied ? "Copied" : "Copy markdown"}
-            </Button>
-            <a
-              href={api.exportUrl(report.id)}
-              className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm no-underline hover:border-accent/50 hover:text-accent"
-            >
-              <Download size={16} /> Export .md
-            </a>
-          </div>
-
-          <Card>
-            <h3 className="text-lg font-semibold text-slate-100">
-              Monday Morning Brief — {report.content.company.name}
-            </h3>
-            <p className="text-xs text-slate-500">
-              {formatDate(report.content.generated_at)} · model {report.content.model}
-            </p>
-
-            {report.content.sections.map((section) => (
-              <div key={section.key} className="mt-5">
-                <h4 className="text-sm font-semibold uppercase tracking-wide text-accent">{section.heading}</h4>
-
-                {section.key === "actions" && report.content.actions.length > 0 ? (
-                  <ul className="mt-2 space-y-2">
-                    {report.content.actions.map((action, index) => (
-                      <li key={`${action.action}-${index}`} className="flex items-start gap-2">
-                        <input
-                          type="checkbox"
-                          checked={action.done}
-                          disabled={busy !== null}
-                          onChange={(event) => void toggleAction(index, event.target.checked)}
-                          className="mt-1 h-4 w-4 accent-[#2DD4BF]"
-                          aria-label={`Mark action done: ${action.action}`}
-                        />
-                        <div>
-                          <p className={`text-sm ${action.done ? "text-slate-500 line-through" : "text-slate-200"}`}>
-                            {action.action} <span className="text-xs text-slate-500">· owner {action.owner}</span>
+      {history && history.length > 0 ? (
+        <div className="grid items-start gap-6 lg:grid-cols-12">
+          <div className="space-y-4 lg:col-span-4">
+            <Card>
+              <h3 className="text-sm font-semibold text-ink">Brief history</h3>
+              <ul className="mt-3 divide-y divide-[rgba(233,237,243,0.07)]">
+                {history.map((item) => {
+                  const active = report?.id === item.id;
+                  return (
+                    <li key={item.id} className="py-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className={`text-sm font-medium ${active ? "text-accent" : "text-ink"}`}>
+                            Brief #{item.id}
                           </p>
-                          {action.why ? <p className="text-xs text-slate-500">{action.why}</p> : null}
-                          <p className="text-xs text-slate-600">
-                            cites {action.record_ids.map((id) => `record ${id}`).join(", ")}
-                          </p>
+                          <p className="tabular mt-0.5 text-xs text-muted">{formatDate(item.created)}</p>
+                          {item.top_signal ? (
+                            <p className="mt-1 line-clamp-2 text-xs text-muted/85">{item.top_signal}</p>
+                          ) : null}
                         </div>
+                        <Badge>{item.actions} actions</Badge>
+                      </div>
+                      <div className="mt-2.5 flex items-center gap-3 text-xs">
+                        <button
+                          onClick={() => void openReport(item.id)}
+                          disabled={busy !== null}
+                          className="font-medium text-accent hover:underline disabled:opacity-50"
+                        >
+                          {active ? "Viewing" : "Open brief"}
+                        </button>
+                        <a href={api.exportUrl(item.id)} className="inline-flex items-center gap-1 text-muted hover:text-ink no-underline">
+                          <Download size={12} /> Markdown
+                        </a>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Card>
+          </div>
+
+          <div className="space-y-6 lg:col-span-8">
+            {report ? (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <Stat label="Records used" value={report.content.counts.records} />
+                  <Stat label="Approved sources" value={report.content.counts.sources} />
+                  <Stat label="Actions" value={report.content.actions.length} />
+                  <Stat label="Dropped actions" value={report.content.dropped_actions} hint="Lacked valid evidence" />
+                </div>
+
+                <Card>
+                  <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[rgba(233,237,243,0.08)] pb-5">
+                    <div>
+                      <h3 className="text-xl font-semibold tracking-[-0.025em] text-ink">
+                        Monday Morning Brief — {report.content.company.name}
+                      </h3>
+                      <p className="tabular mt-1 text-xs text-muted">
+                        {formatDate(report.content.generated_at)} · Model {report.content.model}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="ghost" onClick={copyMarkdown}>
+                        <Copy size={14} /> {copied ? "Copied markdown" : "Copy markdown"}
+                      </Button>
+                      <a
+                        href={api.exportUrl(report.id)}
+                        className="btn-motion inline-flex min-h-[40px] items-center gap-2 rounded-[10px] border border-[rgba(233,237,243,0.14)] bg-surface/60 px-4 py-2 text-sm font-medium text-ink no-underline hover:border-accent/45 hover:text-accent"
+                      >
+                        <Download size={14} /> Export .md
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 max-w-[72ch] space-y-6">
+                    {report.content.sections.map((section) => (
+                      <section key={section.key} className="space-y-2.5 border-b border-[rgba(233,237,243,0.06)] pb-5 last:border-b-0 last:pb-0">
+                        <h4 className="text-sm font-semibold text-accent">{section.heading}</h4>
+
+                        {section.key === "actions" && report.content.actions.length > 0 ? (
+                          <ul className="space-y-3 pt-1">
+                            {report.content.actions.map((action, index) => (
+                              <li
+                                key={`${action.action}-${index}`}
+                                className="flex items-start gap-3 rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-3.5"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={action.done}
+                                  disabled={busy !== null}
+                                  onChange={(event) => void toggleAction(index, event.target.checked)}
+                                  className="mt-1 h-4 w-4 accent-[#5ab9fc]"
+                                  aria-label={`Mark action done: ${action.action}`}
+                                />
+                                <div className="space-y-1">
+                                  <p className={`text-[15px] font-medium ${action.done ? "text-muted line-through" : "text-ink"}`}>
+                                    {action.action}
+                                  </p>
+                                  <p className="text-xs text-muted">
+                                    Owner: {action.owner}
+                                    {action.why ? ` · ${action.why}` : ""}
+                                  </p>
+                                  <p className="tabular text-xs text-muted/75">
+                                    Citations: {action.record_ids.map((id) => `record ${id}`).join(", ")}
+                                  </p>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="prose-body text-[15px] text-ink/90">{section.body}</p>
+                        )}
+
+                        {section.record_ids.length > 0 && section.key !== "actions" ? (
+                          <p className="tabular text-xs text-muted">
+                            Citations: {section.record_ids.map((id) => `record ${id}`).join(", ")}
+                          </p>
+                        ) : null}
+
+                        {section.key === "strategic_implications" &&
+                        report.content.opportunities &&
+                        report.content.opportunities.length > 0 ? (
+                          <div className="mt-3 space-y-2.5 pt-2">
+                            <p className="text-xs font-semibold text-muted">Structured Opportunities</p>
+                            <div className="grid gap-3 md:grid-cols-2">
+                              {report.content.opportunities.map((opp, idx) => (
+                                <div
+                                  key={`${opp.opportunity}-${idx}`}
+                                  className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-3.5"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <span className="text-sm font-semibold text-ink">{opp.opportunity}</span>
+                                    <Badge tone={opp.priority === "high" ? "ok" : opp.priority === "medium" ? "info" : "neutral"}>
+                                      {opp.priority}
+                                    </Badge>
+                                  </div>
+                                  {opp.evidence ? <p className="mt-1.5 text-xs text-muted">Evidence: {opp.evidence}</p> : null}
+                                  {opp.impact ? <p className="mt-1 text-xs text-muted">Impact: {opp.impact}</p> : null}
+                                  {opp.next_step ? <p className="mt-1 text-xs font-medium text-accent">Next: {opp.next_step}</p> : null}
+                                  <p className="tabular mt-2 text-[11px] text-muted/75">
+                                    Cites {opp.record_ids.map((id) => `record ${id}`).join(", ")}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {section.key === "risks_watchlist" && report.content.risks && report.content.risks.length > 0 ? (
+                          <div className="mt-3 space-y-2.5 pt-2">
+                            <p className="text-xs font-semibold text-muted">Structured Risks &amp; Mitigations</p>
+                            <ul className="space-y-2.5">
+                              {report.content.risks.map((item, idx) => (
+                                <li
+                                  key={`${item.risk}-${idx}`}
+                                  className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-3.5 text-sm"
+                                >
+                                  <p className="font-medium text-ink">{item.risk}</p>
+                                  {item.mitigation ? (
+                                    <p className="mt-1 text-xs text-muted">Mitigation: {item.mitigation}</p>
+                                  ) : null}
+                                  <p className="tabular mt-1.5 text-[11px] text-muted/75">
+                                    Cites {item.record_ids.map((id) => `record ${id}`).join(", ")}
+                                  </p>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                      </section>
+                    ))}
+                  </div>
+                </Card>
+
+                <Card>
+                  <h3 className="mb-3 text-sm font-semibold text-ink">Record index</h3>
+                  <ul className="space-y-1.5 text-xs">
+                    {report.content.record_index.map((item) => (
+                      <li key={item.id} className="tabular flex flex-wrap items-center gap-2 text-muted">
+                        <span className="font-mono text-ink/75">record {item.id}</span>
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-accent no-underline hover:underline"
+                        >
+                          {item.title || item.url} <ExternalLink size={11} />
+                        </a>
                       </li>
                     ))}
                   </ul>
-                ) : (
-                  <p className="prose-body mt-2 text-sm text-slate-300">{section.body}</p>
-                )}
-
-                {section.record_ids.length > 0 && section.key !== "actions" ? (
-                  <p className="mt-1 text-xs text-slate-600">
-                    citations: {section.record_ids.map((id) => `record ${id}`).join(", ")}
-                  </p>
-                ) : null}
-
-                {section.key === "strategic_implications" &&
-                report.content.opportunities &&
-                report.content.opportunities.length > 0 ? (
-                  <div className="mt-3 space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      Structured Opportunities
-                    </p>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      {report.content.opportunities.map((opp, idx) => (
-                        <div key={`${opp.opportunity}-${idx}`} className="rounded-lg border border-white/10 bg-secondary/40 p-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-sm font-medium text-slate-100">{opp.opportunity}</span>
-                            <Badge tone={opp.priority === "high" ? "ok" : opp.priority === "medium" ? "info" : "neutral"}>
-                              {opp.priority}
-                            </Badge>
-                          </div>
-                          {opp.evidence ? <p className="mt-1 text-xs text-slate-400">Evidence: {opp.evidence}</p> : null}
-                          {opp.impact ? <p className="mt-0.5 text-xs text-slate-400">Impact: {opp.impact}</p> : null}
-                          {opp.next_step ? <p className="mt-0.5 text-xs text-accent">Next: {opp.next_step}</p> : null}
-                          <p className="mt-1 text-xs text-slate-600">
-                            cites {opp.record_ids.map((id) => `record ${id}`).join(", ")}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {section.key === "risks_watchlist" && report.content.risks && report.content.risks.length > 0 ? (
-                  <div className="mt-3 space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      Structured Risks & Mitigations
-                    </p>
-                    <ul className="space-y-2">
-                      {report.content.risks.map((item, idx) => (
-                        <li key={`${item.risk}-${idx}`} className="rounded-lg border border-white/10 bg-secondary/40 p-3 text-xs">
-                          <p className="font-medium text-slate-200">{item.risk}</p>
-                          {item.mitigation ? <p className="mt-1 text-slate-400">Mitigation: {item.mitigation}</p> : null}
-                          <p className="mt-1 text-slate-600">
-                            cites {item.record_ids.map((id) => `record ${id}`).join(", ")}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </Card>
-
-          <Card>
-            <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">Record index</h3>
-            <ul className="space-y-1 text-xs">
-              {report.content.record_index.map((item) => (
-                <li key={item.id}>
-                  <a href={item.url} target="_blank" rel="noreferrer">
-                    record {item.id}: {item.title || item.url}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        </>
+                </Card>
+              </>
+            ) : null}
+          </div>
+        </div>
       ) : null}
     </div>
   );

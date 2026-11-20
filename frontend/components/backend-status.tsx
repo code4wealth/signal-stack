@@ -45,10 +45,10 @@ export function BackendStatus() {
   if (state.status === "checking") {
     return (
       <span
-        className="inline-flex items-center gap-2 rounded-full border border-white/10 px-2.5 py-1 text-xs text-slate-400"
+        className="inline-flex items-center gap-2 rounded-full border border-[rgba(233,237,243,0.12)] bg-surface px-3 py-1 text-xs font-medium text-muted"
         title="Checking /api/health"
       >
-        <span className="h-2 w-2 rounded-full bg-slate-400" aria-hidden />
+        <span className="h-2 w-2 rounded-full bg-muted" aria-hidden />
         Checking API…
       </span>
     );
@@ -57,7 +57,7 @@ export function BackendStatus() {
   if (state.status === "online") {
     return (
       <span
-        className="inline-flex items-center gap-2 rounded-full border border-success/40 bg-success/10 px-2.5 py-1 text-xs text-success"
+        className="inline-flex items-center gap-2 rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs font-medium text-success"
         title={`Backend online · model ${state.model} · ${state.keyConfigured ? "GROQ_API_KEY configured" : "GROQ_API_KEY missing"}`}
       >
         <span className="h-2 w-2 rounded-full bg-success" aria-hidden />
@@ -68,7 +68,7 @@ export function BackendStatus() {
 
   return (
     <span
-      className="inline-flex items-center gap-2 rounded-full border border-danger/40 bg-danger/10 px-2.5 py-1 text-xs text-danger"
+      className="inline-flex items-center gap-2 rounded-full border border-danger/35 bg-danger/10 px-3 py-1 text-xs font-medium text-danger"
       title={state.reason}
     >
       <span className="h-2 w-2 rounded-full bg-danger" aria-hidden />

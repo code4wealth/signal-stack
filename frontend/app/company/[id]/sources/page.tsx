@@ -2,17 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Ban, Check, Pause, Plus, Radar, Trash2 } from "lucide-react";
+import { Ban, Check, ExternalLink, Pause, Plus, Radar, Trash2 } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
 import type { CrawlDiagnostics, DiscoveryResult, Source, SourceCategory } from "@/lib/types";
 import { Badge, BusyProgress, Button, Card, Empty, ErrorNote, Field, Loading, Stat, formatDate, inputClass } from "@/components/ui";
 
 const CATEGORIES: { key: SourceCategory; label: string; blurb: string }[] = [
-  { key: "customers", label: "Customers", blurb: "Where the company's buyers publish news, reviews and procurement signals." },
-  { key: "competitors", label: "Competitors", blurb: "Competitor sites and trade press covering them." },
-  { key: "market", label: "Market", blurb: "Regulators, associations, statistics and funding news." },
-  { key: "internal", label: "Internal", blurb: "Documents you uploaded. Labelled user-provided." },
+  { key: "customers", label: "Customers", blurb: "Buyer news, reviews, and procurement signals." },
+  { key: "competitors", label: "Competitors", blurb: "Competitor domains and trade coverage." },
+  { key: "market", label: "Market", blurb: "Regulators, industry associations, and funding news." },
+  { key: "internal", label: "Internal", blurb: "User-uploaded internal documents (labelled user-provided)." },
 ];
 
 export default function SourcesPage() {
@@ -107,15 +107,15 @@ export default function SourcesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-100">Sources</h2>
-          <p className="text-xs text-slate-500">
-            Every stored source passed a real fetch during discovery. Rejected and paused sources are never crawled.
+          <h2 className="text-lg font-semibold tracking-[-0.02em] text-ink">Monitoring sources</h2>
+          <p className="mt-0.5 text-sm text-muted">
+            Every stored source passed a live HTTP fetch during discovery. Rejected and paused sources are never crawled.
           </p>
         </div>
         <Button onClick={discover} disabled={busy === "discover"}>
-          <Radar size={16} /> {busy === "discover" ? "Verifying candidates…" : "Discover sources"}
+          <Radar size={15} /> {busy === "discover" ? "Verifying candidates…" : "Discover sources"}
         </Button>
       </div>
 
@@ -126,7 +126,7 @@ export default function SourcesPage() {
 
       {discovery ? (
         <Card>
-          <h3 className="text-sm font-semibold text-slate-200">Last discovery run</h3>
+          <h3 className="text-base font-semibold text-ink">Latest discovery run</h3>
           <div className="mt-3 grid gap-3 md:grid-cols-4">
             <Stat label="Verified & stored" value={discovery.created_count} />
             <Stat label="Dropped" value={discovery.dropped_count} hint="Unreachable, blocked or duplicate" />
@@ -134,12 +134,14 @@ export default function SourcesPage() {
             <Stat label="Competitors" value={discovery.counts_by_category.competitors ?? 0} />
           </div>
           {discovery.dropped.length > 0 ? (
-            <details className="mt-3 text-xs text-slate-500">
-              <summary className="cursor-pointer">Dropped candidates ({discovery.dropped.length})</summary>
-              <ul className="mt-2 space-y-1">
+            <details className="mt-3 text-xs text-muted">
+              <summary className="cursor-pointer font-medium hover:text-ink">
+                Dropped candidates ({discovery.dropped.length})
+              </summary>
+              <ul className="mt-2 space-y-1 font-mono">
                 {discovery.dropped.map((item, index) => (
                   <li key={index}>
-                    <span className="text-slate-400">{item.url}</span> — {item.reason}
+                    <span className="text-ink/80">{item.url}</span> — {item.reason}
                   </li>
                 ))}
               </ul>
@@ -148,10 +150,10 @@ export default function SourcesPage() {
         </Card>
       ) : null}
 
-      <div className="flex flex-wrap gap-2 text-xs text-slate-400">
+      <div className="flex flex-wrap gap-2">
         {Object.entries(counts).map(([status, count]) => (
           <Badge key={status} tone={statusTone(status)}>
-            {status}: {count}
+            {status}: <span className="tabular ml-1">{count}</span>
           </Badge>
         ))}
       </div>
@@ -161,61 +163,68 @@ export default function SourcesPage() {
       {!loading && sources && sources.length === 0 ? (
         <Empty
           title="No sources yet"
-          hint="Run discovery after research, or add a URL you trust. Nothing is stored unless the fetch succeeds."
+          hint="Run discovery after research, or add a URL you trust below. Nothing is stored unless the fetch succeeds."
         />
       ) : null}
 
       {grouped.map((group) => (
         <Card key={group.key}>
-          <div className="flex items-baseline justify-between gap-3">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-              {group.label} <span className="text-slate-600">({group.items.length})</span>
+          <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-[rgba(233,237,243,0.08)] pb-3.5">
+            <h3 className="text-base font-semibold text-ink">
+              {group.label} <span className="tabular text-sm font-normal text-muted">({group.items.length})</span>
             </h3>
-            <p className="text-xs text-slate-500">{group.blurb}</p>
+            <p className="text-xs text-muted">{group.blurb}</p>
           </div>
 
           {group.items.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500">No {group.label.toLowerCase()} sources yet.</p>
+            <p className="mt-3 text-sm text-muted">No {group.label.toLowerCase()} sources yet.</p>
           ) : (
-            <ul className="mt-3 divide-y divide-white/5">
+            <ul className="divide-y divide-[rgba(233,237,243,0.07)]">
               {group.items.map((source) => (
-                <li key={source.id} className="py-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
+                <li key={source.id} className="py-4">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-medium text-slate-100">{source.name}</span>
+                        <span className="text-[15px] font-medium text-ink">{source.name}</span>
                         <Badge tone={statusTone(source.status)}>{source.status}</Badge>
                         {source.source_type ? <Badge tone="info">{source.source_type}</Badge> : null}
                         {source.update_frequency ? <Badge>{source.update_frequency}</Badge> : null}
                         <Badge tone={source.health === "ok" ? "ok" : source.health === "error" ? "bad" : "neutral"}>
                           health: {source.health}
                         </Badge>
-                        <Badge>reliability {source.reliability.toFixed(2)}</Badge>
+                        <Badge>
+                          <span className="tabular">rel {source.reliability.toFixed(2)}</span>
+                        </Badge>
                         {source.relevance !== null ? (
                           <Badge tone={source.relevance < 0.4 ? "warn" : "info"}>
-                            relevance {source.relevance.toFixed(2)}
+                            <span className="tabular">fit {source.relevance.toFixed(2)}</span>
                           </Badge>
                         ) : null}
                         {source.feed_url ? <Badge tone="info">RSS</Badge> : null}
                       </div>
-                      <a href={source.url} target="_blank" rel="noreferrer" className="mt-1 block truncate text-xs text-accent">
-                        {source.url}
+                      <a
+                        href={source.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1.5 inline-flex max-w-full items-center gap-1 truncate text-xs text-accent no-underline hover:underline"
+                      >
+                        <span className="truncate">{source.url}</span> <ExternalLink size={11} className="shrink-0" />
                       </a>
                       {source.description || source.reason ? (
-                        <p className="mt-1 text-xs text-slate-500">{source.description || source.reason}</p>
+                        <p className="mt-1.5 text-sm text-muted">{source.description || source.reason}</p>
                       ) : null}
                       {source.expected ? (
-                        <p className="mt-0.5 text-xs text-slate-600">expected: {source.expected}</p>
+                        <p className="mt-0.5 text-xs text-muted/80">Expected signal: {source.expected}</p>
                       ) : null}
                       {source.relevance_reason ? (
-                        <p className="mt-1 text-xs text-slate-500">relevance reason: {source.relevance_reason}</p>
+                        <p className="mt-1 text-xs text-muted">Context fit: {source.relevance_reason}</p>
                       ) : null}
-                      <p className="mt-1 text-xs text-slate-600">
-                        last checked {formatDate(source.last_checked)}
-                        {source.last_error ? ` · last error: ${source.last_error}` : ""}
+                      <p className="tabular mt-1.5 text-xs text-muted/75">
+                        Last checked {formatDate(source.last_checked)}
+                        {source.last_error ? ` · Error: ${source.last_error}` : ""}
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1.5">
                       {source.status !== "approved" ? (
                         <Button variant="success" onClick={() => void act(source.id, "approve")} disabled={busy !== null}>
                           <Check size={14} /> Approve
@@ -241,9 +250,9 @@ export default function SourcesPage() {
       ))}
 
       <Card>
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Add a source manually</h3>
-        <p className="mt-1 text-xs text-slate-500">The URL is fetched first; if it cannot be fetched it is not stored.</p>
-        <form onSubmit={addSource} className="mt-3 grid gap-3 md:grid-cols-2">
+        <h3 className="text-base font-semibold text-ink">Add a source manually</h3>
+        <p className="mt-1 text-sm text-muted">The URL is fetched live first; if unreachable or blocked it is not stored.</p>
+        <form onSubmit={addSource} className="mt-4 grid gap-4 md:grid-cols-2">
           <Field label="Name">
             <input className={inputClass} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
           </Field>
@@ -263,12 +272,12 @@ export default function SourcesPage() {
               ))}
             </select>
           </Field>
-          <Field label="Why this source">
+          <Field label="Why this source matters">
             <input className={inputClass} value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} />
           </Field>
           <div className="md:col-span-2">
             <Button type="submit" disabled={busy !== null}>
-              <Plus size={16} /> {busy === "add" ? "Verifying…" : "Add and verify"}
+              <Plus size={15} /> {busy === "add" ? "Verifying URL…" : "Add & verify source"}
             </Button>
           </div>
         </form>
@@ -277,18 +286,18 @@ export default function SourcesPage() {
       {diagnostics ? (
         <div className="grid gap-4 md:grid-cols-3">
           <Card>
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-              Crawl errors ({diagnostics.failing_sources.length})
+            <h3 className="text-sm font-semibold text-ink">
+              Crawl errors <span className="tabular text-muted">({diagnostics.failing_sources.length})</span>
             </h3>
             {diagnostics.failing_sources.length === 0 ? (
-              <p className="mt-2 text-xs text-slate-500">No failing sources recorded.</p>
+              <p className="mt-2 text-sm text-muted">No failing sources recorded.</p>
             ) : (
-              <ul className="mt-2 space-y-2 text-xs">
+              <ul className="mt-3 space-y-2 text-xs">
                 {diagnostics.failing_sources.map((s) => (
-                  <li key={s.id} className="rounded border border-danger/30 bg-danger/5 p-2">
-                    <p className="font-medium text-slate-200">{s.name}</p>
-                    <p className="truncate text-slate-400">{s.url}</p>
-                    <p className="mt-1 text-danger">{s.last_error || "fetch error"}</p>
+                  <li key={s.id} className="rounded-[8px] border border-danger/30 bg-danger/5 p-2.5">
+                    <p className="font-medium text-ink">{s.name}</p>
+                    <p className="truncate text-muted">{s.url}</p>
+                    <p className="mt-1 text-danger">{s.last_error || "Fetch error"}</p>
                   </li>
                 ))}
               </ul>
@@ -296,16 +305,16 @@ export default function SourcesPage() {
           </Card>
 
           <Card>
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-              Duplicates skipped ({diagnostics.total_duplicates_logged})
+            <h3 className="text-sm font-semibold text-ink">
+              Duplicates skipped <span className="tabular text-muted">({diagnostics.total_duplicates_logged})</span>
             </h3>
             {diagnostics.duplicate_entries.length === 0 ? (
-              <p className="mt-2 text-xs text-slate-500">No duplicate skips logged yet.</p>
+              <p className="mt-2 text-sm text-muted">No duplicate skips logged yet.</p>
             ) : (
-              <ul className="mt-2 space-y-1.5 text-xs text-slate-400">
+              <ul className="mt-3 space-y-2 text-xs text-muted">
                 {diagnostics.duplicate_entries.slice(0, 12).map((dup, idx) => (
-                  <li key={`${dup.url}-${idx}`} className="truncate">
-                    <span className="text-slate-300">{dup.source_name}:</span> {dup.title || dup.url}
+                  <li key={`${dup.url}-${idx}`} className="truncate border-b border-[rgba(233,237,243,0.06)] pb-1.5">
+                    <span className="font-medium text-ink/90">{dup.source_name}:</span> {dup.title || dup.url}
                   </li>
                 ))}
               </ul>
@@ -313,17 +322,20 @@ export default function SourcesPage() {
           </Card>
 
           <Card>
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-              Source crawl history ({diagnostics.history.length})
+            <h3 className="text-sm font-semibold text-ink">
+              Source crawl history <span className="tabular text-muted">({diagnostics.history.length})</span>
             </h3>
             {diagnostics.history.length === 0 ? (
-              <p className="mt-2 text-xs text-slate-500">No crawl runs recorded yet.</p>
+              <p className="mt-2 text-sm text-muted">No crawl runs recorded yet.</p>
             ) : (
-              <ul className="mt-2 space-y-1.5 text-xs text-slate-400">
+              <ul className="mt-3 space-y-2 text-xs text-muted">
                 {diagnostics.history.slice(0, 10).map((run) => (
-                  <li key={run.id} className="flex flex-wrap items-center justify-between gap-1 border-b border-white/5 pb-1">
+                  <li
+                    key={run.id}
+                    className="tabular flex flex-wrap items-center justify-between gap-1 border-b border-[rgba(233,237,243,0.06)] pb-1.5"
+                  >
                     <span>{formatDate(run.at)}</span>
-                    <span>
+                    <span className="text-ink/85">
                       +{run.new_records} new · {run.updated_records} upd · {run.duplicates} dup · {run.errors} err
                     </span>
                   </li>

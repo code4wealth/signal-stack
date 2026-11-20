@@ -2,11 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { BarChart3, Download, RefreshCw } from "lucide-react";
+import { BarChart3, ChevronDown, ChevronUp, Download, ExternalLink, RefreshCw, RotateCcw } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
 import type { Signal, Source } from "@/lib/types";
-import { Badge, BusyProgress, Button, Card, Empty, ErrorNote, Loading, Stat, formatDate, inputClass } from "@/components/ui";
+import {
+  Badge,
+  BusyProgress,
+  Button,
+  Card,
+  Empty,
+  ErrorNote,
+  Loading,
+  Notice,
+  Stat,
+  formatDate,
+  inputClass,
+} from "@/components/ui";
 import { ScoreChart } from "@/components/score-chart";
 
 const FILTERS = ["all", "customers", "competitors", "market", "internal"] as const;
@@ -78,6 +90,23 @@ export default function IntelligencePage() {
     if (Number.isFinite(companyId)) void load();
   }, [companyId, load]);
 
+  function resetFilters() {
+    setFilter("all");
+    setSourceId("");
+    setClassification("");
+    setPriorityBand("");
+    setVerifiedFilter("");
+    setMinRelevance("");
+    setMinImpact("");
+    setDateFrom("");
+    setDateTo("");
+    setSearchText("");
+  }
+
+  const hasActiveFilter =
+    filter !== "all" ||
+    Boolean(sourceId || classification || priorityBand || verifiedFilter || minRelevance || minImpact || dateFrom || dateTo || searchText);
+
   async function crawl() {
     setBusy("crawl");
     setError(null);
@@ -122,19 +151,19 @@ export default function IntelligencePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-100">Ranked intelligence</h2>
-          <p className="text-xs text-slate-500">
-            Score = 100 × Σ(weight × component). Crawling and ranking never call the LLM; only scoring inputs do.
+          <h2 className="text-lg font-semibold tracking-[-0.02em] text-ink">Ranked intelligence feed</h2>
+          <p className="mt-0.5 text-sm text-muted">
+            Score = 100 × Σ(weight × component). Crawling and ranking are deterministic code; only scoring inputs call the LLM.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button onClick={crawl} disabled={busy !== null}>
-            <RefreshCw size={16} /> {busy === "crawl" ? "Crawling…" : "Crawl approved sources"}
+            <RefreshCw size={15} /> {busy === "crawl" ? "Crawling…" : "Crawl approved sources"}
           </Button>
           <Button variant="ghost" onClick={analyse} disabled={busy !== null}>
-            <BarChart3 size={16} /> {busy === "analyse" ? "Analysing…" : "Analyse new records"}
+            <BarChart3 size={15} /> {busy === "analyse" ? "Analysing…" : "Analyse new records"}
           </Button>
         </div>
       </div>
@@ -146,32 +175,43 @@ export default function IntelligencePage() {
         <BusyProgress label="Analysing unanalysed records with Groq (1s pacing per record — up to 40 records per run)…" />
       ) : null}
       {error ? <ErrorNote message={error} onRetry={load} /> : null}
-      {notice ? (
-        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">{notice}</div>
-      ) : null}
+      {notice ? <Notice>{notice}</Notice> : null}
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Signals shown" value={stats.count} />
         <Stat label="Average score" value={stats.average.toFixed(1)} />
-        <Stat label="Evidence flagged" value={stats.flagged} hint="Snippet not found verbatim (capped at 0.2)" />
-        <Stat label="Updates" value={stats.updates} hint="Same URL, changed content" />
+        <Stat label="Evidence flagged" value={stats.flagged} hint="Snippet not verbatim (capped at 0.2)" />
+        <Stat label="Updated URLs" value={stats.updates} hint="Same URL with changed content" />
       </div>
 
-      <div className="space-y-3 rounded-xl border border-white/5 bg-secondary/40 p-3">
-        <div className="flex flex-wrap items-center gap-1">
-          {FILTERS.map((option) => (
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {FILTERS.map((option) => (
+              <button
+                key={option}
+                onClick={() => setFilter(option)}
+                className={`rounded-[8px] px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+                  filter === option
+                    ? "bg-accent text-[#07101d]"
+                    : "border border-[rgba(233,237,243,0.12)] bg-secondary text-muted hover:text-ink"
+                }`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+          {hasActiveFilter ? (
             <button
-              key={option}
-              onClick={() => setFilter(option)}
-              className={`rounded-lg px-3 py-1.5 text-xs ${
-                filter === option ? "bg-primary text-white" : "border border-white/10 text-slate-300 hover:text-accent"
-              }`}
+              onClick={resetFilters}
+              className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
             >
-              {option}
+              <RotateCcw size={12} /> Reset filters
             </button>
-          ))}
+          ) : null}
         </div>
-        <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+
+        <div className="mt-4 grid gap-2.5 text-xs sm:grid-cols-2 lg:grid-cols-4">
           <input
             type="search"
             aria-label="Search signals"
@@ -243,7 +283,7 @@ export default function IntelligencePage() {
             <option value="0.7">Impact &gt;= 0.7</option>
             <option value="0.85">Impact &gt;= 0.85</option>
           </select>
-          <div className="flex items-center gap-1">
+          <div className="grid grid-cols-2 gap-2">
             <input
               type="date"
               aria-label="Date from"
@@ -260,28 +300,28 @@ export default function IntelligencePage() {
             />
           </div>
         </div>
-      </div>
+      </Card>
 
       {loading ? <Loading label="Loading signals…" /> : null}
 
       {!loading && signals && signals.length === 0 ? (
         <Empty
-          title="No analysed records yet"
-          hint="Approve sources, crawl them, then run analysis. Nothing here is invented — records come from real fetches."
+          title="No analysed records match"
+          hint="Approve sources, crawl them, then run analysis — or clear your filters above."
         />
       ) : null}
 
       {signals && signals.length > 0 ? (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {signals.map((signal) => {
             const isOpen = expanded === signal.id;
             return (
               <Card key={signal.id}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-base font-semibold text-slate-100">{signal.title}</span>
-                      {signal.is_update ? <Badge tone="info">[UPDATED]</Badge> : null}
+                      <h3 className="text-[17px] font-semibold tracking-[-0.015em] text-ink">{signal.title}</h3>
+                      {signal.is_update ? <Badge tone="info">Updated</Badge> : null}
                       {signal.source ? <Badge>{signal.source.category}</Badge> : null}
                       {signal.classification ? (
                         <Badge
@@ -299,72 +339,101 @@ export default function IntelligencePage() {
                         </Badge>
                       ) : null}
                       {signal.corroborated ? (
-                        <Badge tone="ok">corroborated ({signal.related_records?.length ?? 1})</Badge>
+                        <Badge tone="ok">Corroborated ({signal.related_records?.length ?? 1})</Badge>
                       ) : null}
-                      {signal.evidence_verbatim === false ? <Badge tone="bad">evidence unverified</Badge> : null}
+                      {signal.evidence_verbatim === false ? <Badge tone="bad">Evidence unverified</Badge> : null}
                     </div>
-                    <p className="mt-1 text-sm text-slate-300">{signal.summary}</p>
-                    <a href={signal.url} target="_blank" rel="noreferrer" className="mt-1 block truncate text-xs text-accent">
-                      {signal.url}
-                    </a>
-                    <p className="mt-1 text-xs text-slate-500">
-                      discovered {formatDate(signal.discovered)} · published {formatDate(signal.published)} · hash{" "}
-                      {signal.content_hash.slice(0, 12)}…
-                    </p>
+                    <p className="max-w-[68ch] text-[15px] leading-relaxed text-ink/90">{signal.summary}</p>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+                      <a
+                        href={signal.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex max-w-md items-center gap-1 truncate text-accent no-underline hover:underline"
+                      >
+                        <span className="truncate">{signal.url}</span> <ExternalLink size={11} className="shrink-0" />
+                      </a>
+                      <span className="tabular">Discovered {formatDate(signal.discovered)}</span>
+                      <span className="tabular">Published {formatDate(signal.published)}</span>
+                      <span className="font-mono text-[11px] text-muted/75">sha256:{signal.content_hash.slice(0, 10)}</span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-2xl font-semibold text-accent">{signal.total.toFixed(1)}</p>
-                    <p className="text-xs text-slate-500">score /100</p>
+
+                  <div className="flex shrink-0 items-center justify-between gap-4 border-t border-[rgba(233,237,243,0.08)] pt-3 sm:flex-col sm:items-end sm:border-t-0 sm:pt-0">
+                    <div className="sm:text-right">
+                      <p className="tabular text-3xl font-semibold tracking-[-0.03em] text-accent">
+                        {signal.total.toFixed(1)}
+                      </p>
+                      <p className="text-xs text-muted">score / 100</p>
+                    </div>
                     <Button variant="ghost" onClick={() => setExpanded(isOpen ? null : signal.id)}>
-                      {isOpen ? "Hide" : "Why this score"}
+                      {isOpen ? (
+                        <>
+                          Hide breakdown <ChevronUp size={14} />
+                        </>
+                      ) : (
+                        <>
+                          Why this score <ChevronDown size={14} />
+                        </>
+                      )}
                     </Button>
                   </div>
                 </div>
 
                 {isOpen ? (
-                  <div className="mt-4 space-y-3 border-t border-white/5 pt-4">
-                    <div className="grid gap-2 text-xs sm:grid-cols-3 lg:grid-cols-6">
+                  <div className="mt-5 space-y-4 border-t border-[rgba(233,237,243,0.08)] pt-5">
+                    <div className="grid gap-2.5 text-xs sm:grid-cols-3 lg:grid-cols-6">
                       {Object.entries(signal.scores ?? {})
                         .filter(([key]) => ["relevance", "impact", "urgency", "credibility", "recency", "novelty"].includes(key))
                         .map(([key, value]) => (
-                          <div key={key} className="rounded-lg bg-secondary/60 px-3 py-2">
-                            <p className="text-slate-500">{key}</p>
-                            <p className="text-sm text-slate-200">{typeof value === "number" ? value.toFixed(2) : "—"}</p>
+                          <div
+                            key={key}
+                            className="rounded-[8px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 px-3 py-2.5"
+                          >
+                            <p className="capitalize text-muted">{key}</p>
+                            <p className="tabular mt-0.5 text-base font-semibold text-ink">
+                              {typeof value === "number" ? value.toFixed(2) : "—"}
+                            </p>
                           </div>
                         ))}
                     </div>
+
                     <ScoreChart components={(signal.scores ?? {}) as Record<string, number | undefined>} />
-                    <p className="text-xs text-slate-400">{signal.explanation}</p>
-                    <div className="rounded-lg border border-white/5 bg-secondary/40 p-3">
-                      <p className="text-xs uppercase tracking-wide text-slate-500">Evidence snippet</p>
-                      <p className="mt-1 text-sm italic text-slate-300">
-                        {signal.evidence_snippet ? `“${signal.evidence_snippet}”` : "no snippet stored"}
+
+                    {signal.explanation ? <p className="text-sm text-muted">{signal.explanation}</p> : null}
+
+                    <div className="rounded-[10px] border border-[rgba(233,237,243,0.08)] bg-secondary/70 p-4">
+                      <p className="text-xs font-semibold text-muted">Verbatim evidence snippet</p>
+                      <p className="mt-1.5 text-sm italic leading-relaxed text-ink">
+                        {signal.evidence_snippet ? `“${signal.evidence_snippet}”` : "No snippet stored."}
                       </p>
-                      <p className="mt-2 text-xs text-slate-500">
-                        verbatim: {signal.evidence_verbatim ? "yes" : "no"} · evidence strength{" "}
-                        {signal.evidence_strength?.toFixed(2) ?? "—"} · source reliability{" "}
-                        {signal.source_reliability?.toFixed(2) ?? "—"} · strategic relevance{" "}
+                      <p className="tabular mt-2.5 text-xs text-muted">
+                        Verbatim match: {signal.evidence_verbatim ? "yes" : "no"} · Evidence strength{" "}
+                        {signal.evidence_strength?.toFixed(2) ?? "—"} · Source reliability{" "}
+                        {signal.source_reliability?.toFixed(2) ?? "—"} · Strategic relevance{" "}
                         {signal.strategic_relevance?.toFixed(2) ?? "—"}
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <a href={`/api/signals/${signal.id}`} target="_blank" rel="noreferrer" className="text-xs text-accent">
-                        <Download size={12} className="mr-1 inline" /> raw signal JSON
-                      </a>
-                      <span className="text-xs text-slate-600">source: {signal.source?.name ?? "unknown"}</span>
-                    </div>
+
                     {signal.related_records && signal.related_records.length > 0 ? (
-                      <div className="rounded-lg border border-success/20 bg-success/5 p-3 text-xs">
-                        <p className="font-semibold text-success">Cross-source corroboration</p>
-                        <ul className="mt-1 space-y-1 text-slate-300">
+                      <div className="rounded-[10px] border border-success/25 bg-success/5 p-4 text-sm">
+                        <p className="text-xs font-semibold text-success">Cross-source corroboration</p>
+                        <ul className="mt-2 space-y-1 text-xs text-ink/90">
                           {signal.related_records.map((rel) => (
-                            <li key={rel.id}>
+                            <li key={rel.id} className="tabular">
                               Record #{rel.id} ({rel.source_name}) — {rel.title} · score {rel.total.toFixed(1)}
                             </li>
                           ))}
                         </ul>
                       </div>
                     ) : null}
+
+                    <div className="flex flex-wrap items-center gap-4 text-xs text-muted">
+                      <a href={`/api/signals/${signal.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent no-underline hover:underline">
+                        <Download size={12} /> Raw signal JSON
+                      </a>
+                      <span>Source: {signal.source?.name ?? "Unknown"}</span>
+                    </div>
                   </div>
                 ) : null}
               </Card>

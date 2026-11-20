@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { ArrowLeft, ExternalLink } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
 import type { Company } from "@/lib/types";
-import { ErrorNote, Loading } from "@/components/ui";
+import { Badge, ErrorNote, Loading } from "@/components/ui";
 
 const TABS = [
   { href: "", label: "Overview" },
@@ -45,19 +46,43 @@ export default function CompanyLayout({ children }: { children: React.ReactNode 
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-widest text-slate-500">Company</p>
-          <h1 className="text-2xl font-semibold text-slate-100">{company ? company.name : `#${companyId}`}</h1>
-          {company ? (
-            <a href={company.website} target="_blank" rel="noreferrer" className="text-xs text-accent">
-              {company.website}
-            </a>
-          ) : null}
+      <div className="space-y-3">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-muted no-underline hover:text-ink"
+        >
+          <ArrowLeft size={13} /> All companies
+        </Link>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-[-0.03em] text-ink sm:text-[28px]">
+                {company ? company.name : `Company #${companyId}`}
+              </h1>
+              {company ? (
+                <Badge tone={company.has_profile ? "ok" : "warn"}>
+                  {company.has_profile ? "Profile ready" : "Research pending"}
+                </Badge>
+              ) : null}
+            </div>
+            {company ? (
+              <a
+                href={company.website}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 inline-flex items-center gap-1.5 text-xs text-accent no-underline hover:underline"
+              >
+                {company.website} <ExternalLink size={12} />
+              </a>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      <nav className="flex flex-wrap gap-1 rounded-xl border border-white/5 bg-secondary/60 p-1">
+      <nav
+        aria-label="Company sections"
+        className="flex gap-1 overflow-x-auto rounded-[12px] border border-[rgba(233,237,243,0.09)] bg-surface p-1.5"
+      >
         {TABS.map((tab) => {
           const href = `${base}${tab.href}`;
           const active = tab.href === "" ? pathname === base : pathname === href;
@@ -65,8 +90,11 @@ export default function CompanyLayout({ children }: { children: React.ReactNode 
             <Link
               key={tab.href}
               href={href}
-              className={`rounded-lg px-3 py-2 text-sm no-underline transition ${
-                active ? "bg-primary text-white" : "text-slate-300 hover:bg-white/5 hover:text-accent"
+              aria-current={active ? "page" : undefined}
+              className={`shrink-0 rounded-[8px] px-3.5 py-2 text-sm font-medium no-underline transition-colors ${
+                active
+                  ? "bg-accent text-[#07101d]"
+                  : "text-muted hover:bg-[rgba(233,237,243,0.06)] hover:text-ink"
               }`}
             >
               {tab.label}
