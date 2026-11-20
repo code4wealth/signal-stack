@@ -145,6 +145,22 @@ export const api = {
     get<{ items: { id: number; job: string; status: string; at: string; detail: string }[] }>(
       `/api/companies/${id}/crawl-history`,
     ),
+  crawlDiagnostics: (id: number) => get<import("./types").CrawlDiagnostics>(`/api/companies/${id}/crawl-diagnostics`),
+  discoverCompetitors: (id: number) =>
+    post<{
+      company_id: number;
+      competitors: import("./types").CompetitorProfile[];
+      fetched_count: number;
+      failed: { name: string; url: string; reason: string }[];
+    }>(`/api/companies/${id}/competitors/discover`),
+  listCompetitors: (id: number) =>
+    get<{
+      company_id: number;
+      competitors: import("./types").CompetitorProfile[];
+      hints: import("./types").CompetitorHint[];
+      meta: { updated_at?: string; fetched_count?: number; failed?: { name: string; url: string; reason: string }[] };
+      monitored_sources: { id: number; name: string; url: string; status: string; health: string }[];
+    }>(`/api/companies/${id}/competitors`),
   intelligence: (id: number, category?: string) =>
     get<{ items: import("./types").Signal[]; total: number }>(
       `/api/companies/${id}/intelligence${category ? `?category=${category}` : ""}`,

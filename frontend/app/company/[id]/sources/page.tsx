@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { Ban, Check, Pause, Plus, Radar, Trash2 } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
-import type { DiscoveryResult, Source, SourceCategory } from "@/lib/types";
+import type { CrawlDiagnostics, DiscoveryResult, Source, SourceCategory } from "@/lib/types";
 import { Badge, BusyProgress, Button, Card, Empty, ErrorNote, Field, Loading, Stat, formatDate, inputClass } from "@/components/ui";
 
 const CATEGORIES: { key: SourceCategory; label: string; blurb: string }[] = [
@@ -22,6 +22,7 @@ export default function SourcesPage() {
   const [sources, setSources] = useState<Source[] | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [discovery, setDiscovery] = useState<DiscoveryResult | null>(null);
+  const [diagnostics, setDiagnostics] = useState<CrawlDiagnostics | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,9 +32,10 @@ export default function SourcesPage() {
     setLoading(true);
     setError(null);
     try {
-      const result = await api.listSources(companyId);
+      const [result, diag] = await Promise.all([api.listSources(companyId), api.crawlDiagnostics(companyId)]);
       setSources(result.items);
       setCounts(result.counts_by_status);
+      setDiagnostics(diag);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Could not load sources.");
       setSources([]);
@@ -271,6 +273,66 @@ export default function SourcesPage() {
           </div>
         </form>
       </Card>
+
+      {diagnostics ? (
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+              Crawl errors ({diagnostics.failing_sources.length})
+            </h3>
+            {diagnostics.failing_sources.length === 0 ? (
+              <p className="mt-2 text-xs text-slate-500">No failing sources recorded.</p>
+            ) : (
+              <ul className="mt-2 space-y-2 text-xs">
+                {diagnostics.failing_sources.map((s) => (
+                  <li key={s.id} className="rounded border border-danger/30 bg-danger/5 p-2">
+                    <p className="font-medium text-slate-200">{s.name}</p>
+                    <p className="truncate text-slate-400">{s.url}</p>
+                    <p className="mt-1 text-danger">{s.last_error || "fetch error"}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+              Duplicates skipped ({diagnostics.total_duplicates_logged})
+            </h3>
+            {diagnostics.duplicate_entries.length === 0 ? (
+              <p className="mt-2 text-xs text-slate-500">No duplicate skips logged yet.</p>
+            ) : (
+              <ul className="mt-2 space-y-1.5 text-xs text-slate-400">
+                {diagnostics.duplicate_entries.slice(0, 12).map((dup, idx) => (
+                  <li key={`${dup.url}-${idx}`} className="truncate">
+                    <span className="text-slate-300">{dup.source_name}:</span> {dup.title || dup.url}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+              Source crawl history ({diagnostics.history.length})
+            </h3>
+            {diagnostics.history.length === 0 ? (
+              <p className="mt-2 text-xs text-slate-500">No crawl runs recorded yet.</p>
+            ) : (
+              <ul className="mt-2 space-y-1.5 text-xs text-slate-400">
+                {diagnostics.history.slice(0, 10).map((run) => (
+                  <li key={run.id} className="flex flex-wrap items-center justify-between gap-1 border-b border-white/5 pb-1">
+                    <span>{formatDate(run.at)}</span>
+                    <span>
+                      +{run.new_records} new · {run.updated_records} upd · {run.duplicates} dup · {run.errors} err
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -396,7 +396,7 @@ def crawl_history(
     get_company_or_404(db, company_id)
     rows = db.scalars(
         select(JobLog)
-        .where(JobLog.company_id == company_id, JobLog.job.in_(("crawl", "analyse")))
+        .where(JobLog.company_id == company_id, JobLog.job.in_(("crawl", "analyse", "audit")))
         .order_by(JobLog.id.desc())
         .limit(limit)
     ).all()
@@ -406,6 +406,74 @@ def crawl_history(
             for row in rows
         ]
     }
+
+
+@router.get("/companies/{company_id}/crawl-diagnostics", tags=["crawl"])
+def crawl_diagnostics(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import json as _json
+
+    get_company_or_404(db, company_id)
+    failing_sources = db.scalars(
+        select(Source)
+        .where(Source.company_id == company_id, (Source.health == "error") | Source.last_error.is_not(None))
+        .order_by(Source.id.desc())
+    ).all()
+    crawl_logs = db.scalars(
+        select(JobLog)
+        .where(JobLog.company_id == company_id, JobLog.job == "crawl")
+        .order_by(JobLog.id.desc())
+        .limit(20)
+    ).all()
+
+    duplicate_entries: list[dict] = []
+    total_duplicates_logged = 0
+    history: list[dict] = []
+    for row in crawl_logs:
+        parsed = {}
+        try:
+            parsed = _json.loads(row.detail)
+        except Exception:
+            parsed = {}
+        dups = int(parsed.get("duplicates", 0) or 0)
+        total_duplicates_logged += dups
+        for entry in parsed.get("duplicate_entries") or []:
+            duplicate_entries.append({**entry, "at": row.at.isoformat()})
+        history.append(
+            {
+                "id": row.id,
+                "status": row.status,
+                "at": row.at.isoformat(),
+                "sources_checked": parsed.get("sources_checked", 0),
+                "new_records": parsed.get("new_records", 0),
+                "updated_records": parsed.get("updated_records", 0),
+                "duplicates": dups,
+                "errors": parsed.get("errors", 0),
+                "per_source": parsed.get("per_source", []),
+            }
+        )
+
+    return {
+        "failing_sources": [_source_dict(s) for s in failing_sources],
+        "total_duplicates_logged": total_duplicates_logged,
+        "duplicate_entries": duplicate_entries[:80],
+        "history": history,
+    }
+
+
+@router.post("/companies/{company_id}/competitors/discover", tags=["competitors"])
+def discover_competitors_route(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import competitors
+
+    company = get_company_or_404(db, company_id)
+    return competitors.discover_competitors(db, company)
+
+
+@router.get("/companies/{company_id}/competitors", tags=["competitors"])
+def list_competitors_route(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import competitors
+
+    company = get_company_or_404(db, company_id)
+    return competitors.list_competitors(db, company)
 
 
 @router.get("/companies/{company_id}/intelligence", tags=["crawl"])

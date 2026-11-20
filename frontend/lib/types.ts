@@ -259,3 +259,30 @@ export type DocumentItem = {
   analysed: boolean;
   insights?: DocumentInsights;
 };
+
+export type CompetitorProfile = {
+  name: string;
+  website: string;
+  positioning: string;
+  pricing_or_offer: string;
+  strengths: string[];
+  weaknesses: string[];
+  differentiation: string;
+  evidence_url: string;
+};
+
+export type CrawlDiagnostics = {
+  failing_sources: Source[];
+  total_duplicates_logged: number;
+  duplicate_entries: { source_id: number; source_name: string; url: string; title: string; at: string }[];
+  history: {
+    id: number;
+    status: string;
+    at: string;
+    sources_checked: number;
+    new_records: number;
+    updated_records: number;
+    duplicates: number;
+    errors: number;
+  }[];
+};

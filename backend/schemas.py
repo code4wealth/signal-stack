@@ -237,3 +237,31 @@ class BriefDraft(BaseModel):
     opportunities: list[BriefOpportunity] = Field(default_factory=list, max_length=6)
     risks: list[BriefRisk] = Field(default_factory=list, max_length=6)
     actions: list[BriefAction] = Field(default_factory=list, max_length=6)
+
+
+# --------------------------------------------------------------------------- #
+# Competitors (Priority 2)
+# --------------------------------------------------------------------------- #
+class CompetitorCandidate(BaseModel):
+    name: str
+    website: str
+    rationale: str = ""
+
+
+class CompetitorCandidateList(BaseModel):
+    competitors: list[CompetitorCandidate] = Field(default_factory=list, max_length=12)
+
+
+class CompetitorProfile(BaseModel):
+    name: str
+    website: str
+    positioning: str = ""
+    pricing_or_offer: str = ""
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
+    differentiation: str = ""
+    evidence_url: str = ""
+
+
+class CompetitorProfileBatch(BaseModel):
+    profiles: list[CompetitorProfile] = Field(default_factory=list, max_length=12)

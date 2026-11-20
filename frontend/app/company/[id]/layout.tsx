@@ -11,6 +11,7 @@ import { ErrorNote, Loading } from "@/components/ui";
 const TABS = [
   { href: "", label: "Overview" },
   { href: "/interview", label: "Interview" },
+  { href: "/competitors", label: "Competitors" },
   { href: "/sources", label: "Sources" },
   { href: "/intelligence", label: "Intelligence" },
   { href: "/briefs", label: "Briefs" },

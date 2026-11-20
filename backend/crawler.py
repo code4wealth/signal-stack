@@ -258,6 +258,7 @@ def crawl_company(db, company, *, concurrency: int | None = None) -> dict:
         "not_modified": 0,
         "sources_checked": len(sources),
         "per_source": [],
+        "duplicate_entries": [],
     }
     by_id = {source.id: source for source in sources}
     now = datetime.now(timezone.utc)
@@ -288,6 +289,15 @@ def crawl_company(db, company, *, concurrency: int | None = None) -> dict:
         for item in result.items:
             outcome = store_item(db, company, source, item)
             counts[outcome] = counts.get(outcome, 0) + 1
+            if outcome == "duplicate" and len(stats["duplicate_entries"]) < 40:
+                stats["duplicate_entries"].append(
+                    {
+                        "source_id": source.id,
+                        "source_name": source.name,
+                        "url": item.get("url", ""),
+                        "title": (item.get("title") or "")[:200],
+                    }
+                )
         stats["new_records"] += counts["new"]
         stats["updated_records"] += counts["updated"]
         stats["duplicates"] += counts["duplicate"]
