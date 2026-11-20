@@ -44,10 +44,42 @@ Larger runners and GPU runners are billed even on public repos. Sources:
 
 **Not verified:** any hosting provider's free tier, because nothing was deployed.
 
+## Sandbox network constraint (architectural limitation)
+
+The environment this repository was built and verified in has **no outbound network access** except to the package
+registries needed to install dependencies. Measured on 2026-11-20:
+
+```
+curl https://api.groq.com/openai/v1/models        -> HTTP 000 (no connection)
+curl https://www.meetuniversity.com               -> HTTP 000
+curl https://razorpay.com                         -> HTTP 000
+curl https://www.zomato.com                       -> HTTP 000
+curl http://localhost:8000/api/llm/healthcheck    -> 503 {"detail":"GROQ_API_KEY is not set. ..."}
+POST /api/companies/1/research                     -> 502 {"detail":"... ConnectError: TLS/SSL connection
+                                                      has been closed (EOF)"}
+```
+
+Consequences, stated plainly:
+
+1. **No live pipeline run exists.** Research, discovery, crawl, analysis, ranking and brief generation have never
+   executed against a real company in this environment. Everything below the HTTP/LLM boundary is covered by unit
+   and API tests with mocked responses, not by observed production output.
+2. **Every count is unmeasured.** The README results table and "Targets vs actual" below say
+   "Not measured" because filling them would require inventing data.
+3. **The failure is loud, not silent.** The application returns typed errors (502 for a fetch failure, 503 for a
+   missing LLM), the CLI driver exits non-zero, and no partial or placeholder record is written.
+4. This is an *environment* limitation, not a product limitation: the same code runs unmodified on a host with
+   internet and a key. The one design interaction worth knowing is that `safe_fetch`'s allow-list is deliberately
+   strict, so a misconfigured host fails closed rather than reaching something it should not.
+
+To close it: `scripts/run_three_companies.py --yes` on a networked machine, then replace the two counts tables with
+that output.
+
 ## Known shortcomings
 
 1. **No live run has completed.** The build environment blocked egress to company sites and `api.groq.com` and had
-   no Groq key, so no real source, record or brief exists yet. Every count in the README is marked "not measured".
+   no Groq key, so no real source, record or brief exists yet. Every count in the README is marked "Not measured —
+   sandbox egress blocked". See the section above for the measured evidence.
 2. **SQLite with JSON columns** instead of the full normalised schema. Reason: time budget. `DATABASE_URL` makes
    Postgres a configuration change.
 3. **No Alembic migrations.** Schema is created with `create_all`.
@@ -88,9 +120,9 @@ Larger runners and GPU runners are billed even on public repos. Sources:
 
 | Target | Actual | Reason if short |
 |---|---|---|
-| 20 MeetUniversity sources | not measured | Live run blocked: no egress to meetuniversity.com, no Groq key |
-| 5 to 10 competitors | not measured | Same |
-| 30 records overall | not measured | Same |
+| 20 MeetUniversity sources | Not measured — sandbox egress blocked | Live run blocked: no egress to meetuniversity.com, no Groq key |
+| 5 to 10 competitors | Not measured — sandbox egress blocked | Same |
+| 30 records overall | Not measured — sandbox egress blocked | Same |
 
 Nothing in this table is estimated. To fill it, run `scripts/run_three_companies.py --yes` on a machine with
 internet and a Groq key; it prints sources per category, record counts, top signals and the brief id.

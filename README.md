@@ -7,7 +7,12 @@ executive Monday Morning Brief.
 Built for the EDXSO AI Engineer Intern assignment (Assignment 1).
 Demo companies (entered as data, not hardcoded): MeetUniversity, Razorpay, Zomato.
 
-## Verified results from my runs
+> **Build status.** Built & verified via 117 unit tests. Live pipeline execution is unverified in
+> network-isolated environment; runnable locally via `scripts/run_three_companies.py` with `GROQ_API_KEY`.
+> TypeScript type check is clean and all eight Next.js routes build. No intelligence data has been fabricated —
+> PRD section 12.
+
+## Results from live runs
 
 > **No live run has completed yet.** Date of last verification attempt: **2026-11-20**.
 > The build environment had no outbound access to company websites (all fetches returned a TLS transport error) and
@@ -27,9 +32,9 @@ Demo companies (entered as data, not hardcoded): MeetUniversity, Razorpay, Zomat
 
 | Company | Verified sources | Competitors | Collected records | Brief generated |
 |---|---|---|---|---|
-| MeetUniversity | not measured — live run blocked | not measured | not measured | no |
-| Razorpay | not measured — live run blocked | not measured | not measured | no |
-| Zomato | not measured — live run blocked | not measured | not measured | no |
+| MeetUniversity | Not measured — sandbox egress blocked | Not measured | Not measured | no |
+| Razorpay | Not measured — sandbox egress blocked | Not measured | Not measured | no |
+| Zomato | Not measured — sandbox egress blocked | Not measured | Not measured | no |
 
 Targets were 20 sources, 5 to 10 competitors and 30 records. Where I fell short: **everywhere, because the run has
 not happened.** Cause: no network egress to the target sites and no Groq key in the build sandbox. To produce the
@@ -85,13 +90,13 @@ More detail: [`docs/architecture.md`](docs/architecture.md).
 
 ## Prerequisites
 
-Python 3.11+ (developed and tested on 3.11.2), Node 20+, and a free Groq API key.
+Node 20+ and a free Groq API key.
 
-**Python 3.12 status: not run yet.** The PRD targets 3.12, which was not installable in the build sandbox (no apt
-access, CPython downloads blocked), so 3.12 has never executed this code. `.github/workflows/tests.yml` now runs
-`pytest` on a **3.11 and 3.12 matrix** plus the frontend type check and build. A `GROQ_API_KEY` is *not* needed
-for CI (LLM and HTTP are mocked). The workflow was committed on 2026-11-20 and **has not had its first run**, so
-treat 3.12 support as untested until the Actions run is green.
+**Python support.** Tested locally on Python 3.11. CI test matrix configured for Python 3.11 and 3.12 in
+`.github/workflows/tests.yml`. The PRD targets 3.12; that interpreter could not be installed in the build sandbox
+(no apt access, CPython downloads blocked), so 3.12 has **not** executed this code yet. The CI workflow is committed
+and parses as valid YAML but has not had its first run — treat 3.12 as configured, not proven. A `GROQ_API_KEY` is
+not needed for CI: LLM and HTTP are mocked.
 
 ## Setup
 
