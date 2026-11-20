@@ -5,14 +5,15 @@ import { useParams } from "next/navigation";
 import { Pencil, RefreshCw, Save, X } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
-import type { Fact, Profile } from "@/lib/types";
-import { Badge, BusyProgress, Button, Card, Empty, ErrorNote, Field, Loading, Stat, inputClass } from "@/components/ui";
+import type { CompanyOverview, Fact, Profile } from "@/lib/types";
+import { Badge, BusyProgress, Button, Card, Empty, ErrorNote, Field, Loading, Stat, formatDate, inputClass } from "@/components/ui";
 
 export default function OverviewPage() {
   const params = useParams<{ id: string }>();
   const companyId = Number(params?.id);
 
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [overview, setOverview] = useState<CompanyOverview | null>(null);
   const [context, setContext] = useState("");
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({
@@ -43,8 +44,9 @@ export default function OverviewPage() {
     setLoading(true);
     setError(null);
     try {
-      const company = await api.getCompany(companyId);
+      const [company, dash] = await Promise.all([api.getCompany(companyId), api.getOverview(companyId)]);
       setProfile(company.profile);
+      setOverview(dash);
       syncProfileForm(company.profile);
       setContext(company.context);
     } catch (caught) {
@@ -175,6 +177,52 @@ export default function OverviewPage() {
           </div>
         </div>
       </Card>
+
+      {overview ? (
+        <Card>
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Monitoring dashboard</h3>
+          <div className="mt-3 grid gap-4 md:grid-cols-4">
+            <Stat
+              label="Records"
+              value={`${overview.records_analysed} / ${overview.records_total}`}
+              hint="analysed / discovered"
+            />
+            <Stat
+              label="Latest crawl"
+              value={overview.latest_crawl ? overview.latest_crawl.status : "not run"}
+              hint={overview.latest_crawl ? formatDate(overview.latest_crawl.at) : "Crawl approved sources"}
+            />
+            <Stat
+              label="Latest brief"
+              value={overview.latest_report ? `#${overview.latest_report.id}` : "none"}
+              hint={
+                overview.latest_report
+                  ? `${overview.latest_report.actions} action(s) · ${formatDate(overview.latest_report.created)}`
+                  : "Generate after analysis"
+              }
+            />
+            <Stat
+              label="Scheduled job"
+              value={overview.scheduler_enabled ? "active (local)" : "GitHub Actions"}
+              hint={
+                overview.latest_automation
+                  ? `last ${overview.latest_automation.job}: ${overview.latest_automation.status}`
+                  : "weekly.yml Monday 06:00 UTC"
+              }
+            />
+          </div>
+          <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+            {Object.entries(overview.sources_by_category).map(([cat, counts]) => (
+              <div key={cat} className="rounded-lg border border-white/5 bg-secondary/40 px-3 py-2">
+                <p className="font-semibold uppercase tracking-wide text-slate-300">{cat}</p>
+                <p className="mt-1 text-slate-400">
+                  {counts.approved} approved · {counts.pending} pending · {counts.total} total
+                </p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
 
       {!loading && !profile ? (
         <Empty title="No profile stored yet" hint="Run research to fetch the website and build the profile." />

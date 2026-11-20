@@ -111,6 +111,88 @@ def get_company(company_id: int, db: Session = Depends(get_db)) -> dict:
     }
 
 
+@router.get("/companies/{company_id}/overview", tags=["companies"])
+def get_company_overview(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import os
+
+    get_company_or_404(db, company_id)
+    sources = db.scalars(select(Source).where(Source.company_id == company_id)).all()
+    categories = ("customers", "competitors", "market", "internal")
+    by_category: dict[str, dict[str, int]] = {
+        cat: {"approved": 0, "pending": 0, "paused": 0, "rejected": 0, "total": 0}
+        for cat in categories
+    }
+    for s in sources:
+        bucket = by_category.setdefault(s.category, {"approved": 0, "pending": 0, "paused": 0, "rejected": 0, "total": 0})
+        bucket["total"] += 1
+        if s.status in bucket:
+            bucket[s.status] += 1
+
+    records_total = db.scalar(select(func.count(Record.id)).where(Record.company_id == company_id)) or 0
+    records_analysed = (
+        db.scalar(
+            select(func.count(Record.id)).where(
+                Record.company_id == company_id, Record.analysis.is_not(None)
+            )
+        )
+        or 0
+    )
+    latest_crawl = db.scalar(
+        select(JobLog)
+        .where(JobLog.company_id == company_id, JobLog.job == "crawl")
+        .order_by(JobLog.id.desc())
+        .limit(1)
+    )
+    latest_automation = db.scalar(
+        select(JobLog)
+        .where(JobLog.company_id == company_id, JobLog.job.in_(("weekly", "audit")))
+        .order_by(JobLog.id.desc())
+        .limit(1)
+    )
+    latest_report = db.scalar(
+        select(Report)
+        .where(Report.company_id == company_id)
+        .order_by(Report.id.desc())
+        .limit(1)
+    )
+
+    return {
+        "company_id": company_id,
+        "sources_by_category": by_category,
+        "records_total": records_total,
+        "records_analysed": records_analysed,
+        "latest_crawl": (
+            {
+                "id": latest_crawl.id,
+                "status": latest_crawl.status,
+                "at": latest_crawl.at.isoformat(),
+                "detail": latest_crawl.detail,
+            }
+            if latest_crawl
+            else None
+        ),
+        "latest_report": (
+            {
+                "id": latest_report.id,
+                "created": latest_report.created.isoformat(),
+                "actions": len((latest_report.content or {}).get("actions", [])),
+            }
+            if latest_report
+            else None
+        ),
+        "latest_automation": (
+            {
+                "job": latest_automation.job,
+                "status": latest_automation.status,
+                "at": latest_automation.at.isoformat(),
+            }
+            if latest_automation
+            else None
+        ),
+        "scheduler_enabled": os.getenv("ENABLE_SCHEDULER", "0") == "1",
+    }
+
+
 @router.patch("/companies/{company_id}", response_model=CompanyOut, tags=["companies"])
 def update_company(
     company_id: int, payload: CompanyUpdate, db: Session = Depends(get_db)

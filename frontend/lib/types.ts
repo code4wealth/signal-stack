@@ -280,6 +280,17 @@ export type CompetitorProfile = {
   evidence_url: string;
 };
 
+export type CompanyOverview = {
+  company_id: number;
+  sources_by_category: Record<string, { approved: number; pending: number; paused: number; rejected: number; total: number }>;
+  records_total: number;
+  records_analysed: number;
+  latest_crawl: { id: number; status: string; at: string; detail: string } | null;
+  latest_report: { id: number; created: string; actions: number } | null;
+  latest_automation: { job: string; status: string; at: string } | null;
+  scheduler_enabled: boolean;
+};
+
 export type CrawlDiagnostics = {
   failing_sources: Source[];
   total_duplicates_logged: number;

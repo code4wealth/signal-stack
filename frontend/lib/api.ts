@@ -85,6 +85,7 @@ export const api = {
     post<import("./types").Company>("/api/companies", payload),
   getCompany: (id: number) =>
     get<import("./types").Company & { profile: import("./types").Profile | null }>(`/api/companies/${id}`),
+  getOverview: (id: number) => get<import("./types").CompanyOverview>(`/api/companies/${id}/overview`),
   updateCompany: (id: number, payload: { name?: string; website?: string; context?: string }) =>
     patch<import("./types").Company>(`/api/companies/${id}`, payload),
 
