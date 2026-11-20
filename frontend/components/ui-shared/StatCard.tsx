@@ -11,12 +11,16 @@ export function StatCard({
   label,
   value,
   footer,
+  onClick,
+  activeRingClass,
 }: {
   icon: ReactNode;
   iconBg: string;
   label: string;
   value: number | string;
   footer: string;
+  onClick?: () => void;
+  activeRingClass?: string;
 }) {
   const reduced = Boolean(useReducedMotion());
   const isNumeric = typeof value === "number" && Number.isFinite(value);
@@ -43,8 +47,11 @@ export function StatCard({
     return () => cancelAnimationFrame(frameId);
   }, [isNumeric, value, reduced]);
 
-  return (
-    <GlassCard interactive className="flex flex-col justify-between gap-3 p-4 sm:p-5">
+  const cardInner = (
+    <GlassCard
+      interactive
+      className={`flex h-full flex-col justify-between gap-3 p-4 sm:p-5 ${activeRingClass ?? ""}`}
+    >
       <div className="flex items-center gap-3">
         <span
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${iconBg}`}
@@ -62,4 +69,18 @@ export function StatCard({
       </div>
     </GlassCard>
   );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="focus-ring w-full rounded-2xl text-left"
+      >
+        {cardInner}
+      </button>
+    );
+  }
+
+  return cardInner;
 }

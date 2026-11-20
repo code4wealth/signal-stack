@@ -257,6 +257,133 @@ export type InterviewState = {
 export type SourceCategory = "customers" | "competitors" | "market" | "internal";
 export type SourceStatus = "pending" | "approved" | "rejected" | "paused";
 
+export type SignalStackSourceStatus =
+  | "needs_review"
+  | "approved"
+  | "rejected"
+  | "failing"
+  | "blocked";
+
+export type SourceFrequency = "hourly" | "daily" | "weekly";
+
+export type SourceScoreReason = {
+  label: string;
+  weight: number;
+};
+
+export type SourceSubLink = {
+  name: string;
+  url: string;
+};
+
+export type SourceCrawlRun = {
+  at: string;
+  status: string;
+  recordsFound?: number;
+};
+
+export type SignalStackSource = {
+  id: number;
+  companyId: number;
+  name: string;
+  url: string;
+  domain: string;
+  category: SourceCategory;
+  type: string;
+  crawlMethod: "rss" | "sitemap" | "html";
+  language?: string;
+  status: SignalStackSourceStatus;
+  relevanceScore: number;
+  scoreReasons?: SourceScoreReason[];
+  whyRecommended: string;
+  evidenceIds: string[];
+  discoveryConfidence: ConfidenceLevel;
+  frequency: SourceFrequency;
+  lastCheckedAt?: string | null;
+  lastError?: string | null;
+  robotsAllowed: boolean;
+  isChecking?: boolean;
+  subSources?: SourceSubLink[];
+  isCustom: boolean;
+  maxPages?: number;
+  includePatterns?: string;
+  excludePatterns?: string;
+  lastHttpStatus?: number | null;
+  recentCrawls?: SourceCrawlRun[];
+};
+
+export type AuditProposal = {
+  id: string;
+  action: "add" | "keep" | "remove";
+  source: SignalStackSource;
+  reasoning: string;
+  evidenceIds: string[];
+};
+
+export type UploadedFile = {
+  id: number;
+  sourceId?: number;
+  filename: string;
+  size: number;
+  type: string;
+  uploadedAt?: string | null;
+  status: "uploaded" | "parsing" | "analysed" | "failed";
+  summary?: {
+    counts?: Record<string, number>;
+    label?: string;
+    complaints?: string[];
+    objections?: string[];
+    lost_deal_reasons?: string[];
+    product_requests?: string[];
+  } | null;
+  error?: string | null;
+};
+
+export type AddSourceValidation = {
+  reachable: boolean;
+  robotsAllowed: boolean;
+  feedFound: boolean;
+  readableText: boolean;
+  detail?: string;
+};
+
+export type SignalStack = {
+  sources: SignalStackSource[];
+  recommendedThreshold: number;
+  auditProposals?: AuditProposal[];
+  discoveryStatus: "queued" | "running" | "ready" | "failed";
+  discoveryStage?: string | null;
+  discoveryError?: string | null;
+  counts: {
+    customers: number;
+    competitors: number;
+    market: number;
+    internal: number;
+    approved: number;
+    needs_review: number;
+    rejected: number;
+    failing: number;
+    blocked: number;
+  };
+  internalFiles: UploadedFile[];
+  maxUploadBytes: number;
+  allowedExtensions: string[];
+  confirmedAt?: string | null;
+  isMock?: boolean;
+};
+
+export type SignalStackSourcePatch = {
+  status?: SignalStackSourceStatus;
+  name?: string;
+  url?: string;
+  category?: SourceCategory;
+  type?: string;
+  frequency?: SourceFrequency;
+  maxPages?: number;
+  includePatterns?: string;
+  excludePatterns?: string;
+};
+
 export type Source = {
   id: number;
   name: string;

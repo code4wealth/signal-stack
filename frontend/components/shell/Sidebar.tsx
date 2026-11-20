@@ -136,9 +136,9 @@ export function Sidebar({
     {
       key: "sources",
       label: "Signal Stack",
-      href: `${base}/sources`,
+      href: `${base}/signal-stack`,
       Icon: Layers,
-      active: pathname === `${base}/sources`,
+      active: pathname === `${base}/signal-stack` || pathname === `${base}/sources`,
       state: workflow.sources,
     },
     {

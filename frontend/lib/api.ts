@@ -10,6 +10,19 @@ export class ApiError extends Error {
   }
 }
 
+export class SourceValidationError extends ApiError {
+  validation: import("./types").AddSourceValidation | null;
+  constructor(
+    message: string,
+    status: number,
+    validation: import("./types").AddSourceValidation | null,
+  ) {
+    super(message, status);
+    this.name = "SourceValidationError";
+    this.validation = validation;
+  }
+}
+
 export type JobKind = "research" | "discover" | "crawl" | "analyse" | "competitors";
 
 export type ResearchStatus =
@@ -441,6 +454,155 @@ export async function resetInterview(companyId: number): Promise<import("./types
     `/api/companies/${companyId}/interview/reset`,
   );
   return normalizeInterview(raw);
+}
+
+export async function getSignalStack(companyId: number): Promise<import("./types").SignalStack> {
+  return get<import("./types").SignalStack>(`/api/companies/${companyId}/signal-stack`);
+}
+
+export async function runSignalStackDiscovery(companyId: number) {
+  return post<JobStatusResponse>(`/api/companies/${companyId}/signal-stack/discover`);
+}
+
+export async function updateSignalStackSource(
+  companyId: number,
+  sourceId: number,
+  patchPayload: import("./types").SignalStackSourcePatch,
+): Promise<import("./types").SignalStackSource> {
+  return patch<import("./types").SignalStackSource>(
+    `/api/companies/${companyId}/sources/${sourceId}`,
+    patchPayload,
+  );
+}
+
+export async function bulkUpdateSources(
+  companyId: number,
+  ids: number[],
+  patchPayload: import("./types").SignalStackSourcePatch,
+): Promise<import("./types").SignalStack> {
+  return post<import("./types").SignalStack>(`/api/companies/${companyId}/sources/bulk`, {
+    ids,
+    patch: patchPayload,
+  });
+}
+
+export async function addSignalStackSource(
+  companyId: number,
+  body: {
+    url: string;
+    name?: string;
+    category: import("./types").SourceCategory;
+    reason?: string;
+    forceAdd?: boolean;
+  },
+): Promise<{
+  normalized?: import("./types").SignalStackSource;
+  validation?: import("./types").AddSourceValidation;
+}> {
+  const targetUrl = `${API_BASE}/api/companies/${companyId}/sources`;
+  let response: Response;
+  try {
+    response = await fetch(targetUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError("Backend not reachable. Check that the API is running.", 0);
+  }
+
+  const parsed = (await response.json().catch(() => ({}))) as {
+    detail?: string;
+    validation?: import("./types").AddSourceValidation;
+    normalized?: import("./types").SignalStackSource;
+  };
+
+  if (!response.ok) {
+    throw new SourceValidationError(
+      parsed.detail || `Failed to add source (HTTP ${response.status})`,
+      response.status,
+      parsed.validation ?? null,
+    );
+  }
+
+  return parsed;
+}
+
+export async function recheckSignalStackSource(
+  companyId: number,
+  sourceId: number,
+): Promise<import("./types").SignalStackSource> {
+  return post<import("./types").SignalStackSource>(
+    `/api/companies/${companyId}/sources/${sourceId}/recheck`,
+  );
+}
+
+export async function deleteSignalStackSource(
+  companyId: number,
+  sourceId: number,
+): Promise<void> {
+  return del<void>(`/api/companies/${companyId}/sources/${sourceId}`);
+}
+
+export async function applyAudit(
+  companyId: number,
+  decisions: { proposalId: string; accepted: boolean }[],
+): Promise<import("./types").SignalStack> {
+  return post<import("./types").SignalStack>(
+    `/api/companies/${companyId}/signal-stack/audit/apply`,
+    { decisions },
+  );
+}
+
+export async function confirmSignalStack(companyId: number) {
+  return post<{
+    company_id: number;
+    confirmed: boolean;
+    confirmed_at: string;
+    workflow_status: import("./types").WorkflowStatus;
+  }>(`/api/companies/${companyId}/signal-stack/confirm`);
+}
+
+export async function uploadInternalFile(
+  companyId: number,
+  file: File,
+  documentType = "general",
+): Promise<{ filename: string; document_type: string; characters: number; label: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("document_type", documentType);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/api/companies/${companyId}/internal/upload`, {
+      method: "POST",
+      body: form,
+    });
+  } catch {
+    throw new ApiError("Backend not reachable. Check that the API is running.", 0);
+  }
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { detail?: string };
+    throw new ApiError(body.detail ?? `Upload failed (HTTP ${response.status})`, response.status);
+  }
+  return (await response.json()) as {
+    filename: string;
+    document_type: string;
+    characters: number;
+    label: string;
+  };
+}
+
+export async function listInternalFiles(
+  companyId: number,
+): Promise<{ items: import("./types").UploadedFile[] }> {
+  return get<{ items: import("./types").UploadedFile[] }>(
+    `/api/companies/${companyId}/internal/files`,
+  );
+}
+
+export async function deleteInternalFile(companyId: number, fileId: number): Promise<void> {
+  return del<void>(`/api/companies/${companyId}/internal/files/${fileId}`);
 }
 
 export const api = {

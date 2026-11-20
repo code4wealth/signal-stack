@@ -5,6 +5,7 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -13,10 +14,12 @@ import interview
 import research
 from db import Company, JobLog, QA, Record, Report, Source, get_db
 from schemas import (
+    AuditApplyIn,
     CompanyCreate,
     CompanyOut,
     CompanyUpdate,
     ProfilePatch,
+    SourceBulkPatch,
     SourceCreate,
     SourcePatch,
 )
@@ -632,39 +635,73 @@ def discover_sources(company_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/companies/{company_id}/sources", status_code=201, tags=["sources"])
-def add_source(company_id: int, payload: SourceCreate, db: Session = Depends(get_db)) -> dict:
+def add_source(company_id: int, payload: SourceCreate, db: Session = Depends(get_db)):
     import discovery
 
     company = get_company_or_404(db, company_id)
-    _validate_http_url(payload.url, "url")
+    raw_url = payload.url.strip()
+    if not raw_url.lower().startswith(("http://", "https://")):
+        raw_url = f"https://{raw_url}"
+    _validate_http_url(raw_url, "url")
     existing = db.scalars(select(Source).where(Source.company_id == company_id)).all()
-    if any(source.url.rstrip("/") == payload.url.rstrip("/") for source in existing):
+    if any(source.url.rstrip("/") == raw_url.rstrip("/") for source in existing):
         raise HTTPException(status_code=409, detail="this source already exists for the company")
 
-    ok, detail, final_url, feed_url = discovery.verify_candidate(payload.url)
+    ok, detail, final_url, feed_url = discovery.verify_candidate(raw_url)
+    detail_lower = (detail or "").lower()
+    robots_blocked = "robots" in detail_lower
+    validation = {
+        "reachable": bool(ok),
+        "robotsAllowed": not robots_blocked,
+        "feedFound": bool(feed_url),
+        "readableText": bool(ok),
+        "detail": detail,
+    }
+
     if not ok:
-        raise HTTPException(status_code=400, detail=f"source could not be fetched: {detail}")
+        if robots_blocked or not payload.forceAdd:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": f"source could not be fetched: {detail}",
+                    "validation": validation,
+                },
+            )
 
     effective_feed = payload.feed_url or feed_url
+    parsed_host = urlparse(final_url).hostname or final_url
+    clean_name = payload.name.strip() or parsed_host.replace("www.", "")
     source = Source(
         company_id=company_id,
-        name=payload.name,
+        name=clean_name,
         url=final_url,
         feed_url=effective_feed,
         category=payload.category,
         source_type=payload.source_type or ("rss" if effective_feed else "webpage"),
         description=payload.description or payload.reason,
-        reason=payload.reason,
+        reason=payload.reason or "Added manually by founder.",
         expected=payload.expected,
         reliability=payload.reliability,
         update_frequency=payload.update_frequency or ("daily" if effective_feed else "weekly"),
         status="pending",
-        health="ok",
+        health="ok" if ok else "error",
+        last_error=None if ok else detail,
     )
     db.add(source)
     db.commit()
     db.refresh(source)
-    return _source_dict(source)
+
+    profile = dict(company.profile or {})
+    src_meta = dict(profile.get("source_meta") or {})
+    src_meta[str(source.id)] = {**(src_meta.get(str(source.id)) or {}), "isCustom": True}
+    profile["source_meta"] = src_meta
+    company.profile = profile
+    db.commit()
+
+    out = _source_dict(source)
+    out["validation"] = validation
+    out["normalized"] = _signal_stack_source(db, company, source)
+    return out
 
 
 @router.patch("/sources/{source_id}", tags=["sources"])
@@ -1208,3 +1245,474 @@ def reassess_context(company_id: int, payload: ContextIn, db: Session = Depends(
         return context_module.reassess(db, company, payload.context, run_discovery=payload.run_discovery)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# --------------------------------------------------------------------------- #
+# Signal Stack Builder endpoints
+# --------------------------------------------------------------------------- #
+_RECOMMENDED_THRESHOLD = 60
+
+
+def _map_source_status(source: Source) -> tuple[str, bool]:
+    err_lower = (source.last_error or "").lower()
+    robots_allowed = not (source.health == "blocked" or "robots" in err_lower)
+    if not robots_allowed:
+        return "blocked", False
+    if source.health == "error":
+        return "failing", True
+    if source.status == "approved":
+        return "approved", True
+    if source.status in ("rejected", "paused"):
+        return "rejected", True
+    return "needs_review", True
+
+
+def _normalize_frequency(freq: str | None) -> str:
+    if freq in ("hourly", "daily", "weekly"):
+        return freq
+    return "weekly"
+
+
+def _signal_stack_source(db: Session, company: Company, source: Source) -> dict:
+    parsed = urlparse(source.url)
+    domain = (parsed.hostname or source.url).replace("www.", "")
+    mapped_status, robots_allowed = _map_source_status(source)
+
+    raw_rel = source.relevance if source.relevance is not None else source.reliability
+    relevance_score = max(0, min(100, int(round(float(raw_rel or 0.5) * 100))))
+
+    if source.feed_url or source.source_type == "rss":
+        crawl_method = "rss"
+    elif "sitemap" in source.url.lower():
+        crawl_method = "sitemap"
+    else:
+        crawl_method = "html"
+
+    conf = "high" if source.reliability >= 0.75 else ("medium" if source.reliability >= 0.5 else "low")
+    profile = company.profile or {}
+    meta_map = profile.get("source_meta") or {}
+    s_meta = meta_map.get(str(source.id)) or {}
+
+    pages_fetched = (profile.get("_meta") or {}).get("pages_fetched") or []
+    evidence_ids = list(s_meta.get("evidenceIds") or [])
+    if not evidence_ids and pages_fetched:
+        evidence_ids = [pages_fetched[0]]
+
+    score_reasons = list(s_meta.get("scoreReasons") or [])
+    if not score_reasons:
+        if source.relevance_reason:
+            score_reasons.append({"label": source.relevance_reason, "weight": relevance_score})
+        else:
+            score_reasons.append(
+                {
+                    "label": f"Source reliability ({int(round(source.reliability * 100))}%)",
+                    "weight": int(round(source.reliability * 100)),
+                }
+            )
+
+    sub_sources = list(s_meta.get("subSources") or [])
+    if source.feed_url and not sub_sources:
+        sub_sources = [{"name": "RSS / Atom Feed", "url": source.feed_url}]
+
+    return {
+        "id": source.id,
+        "companyId": company.id,
+        "name": source.name,
+        "url": source.url,
+        "domain": domain,
+        "category": source.category,
+        "type": s_meta.get("type") or source.source_type or "webpage",
+        "crawlMethod": crawl_method,
+        "language": s_meta.get("language") or "English",
+        "status": mapped_status,
+        "relevanceScore": relevance_score,
+        "scoreReasons": score_reasons,
+        "whyRecommended": source.description or source.reason or "Discovered for company monitoring.",
+        "evidenceIds": evidence_ids,
+        "discoveryConfidence": conf,
+        "frequency": _normalize_frequency(source.update_frequency),
+        "lastCheckedAt": source.last_checked.isoformat() if source.last_checked else None,
+        "lastError": source.last_error,
+        "robotsAllowed": robots_allowed,
+        "isChecking": False,
+        "subSources": sub_sources,
+        "isCustom": bool(s_meta.get("isCustom", False)),
+        "maxPages": s_meta.get("maxPages") or 10,
+        "includePatterns": s_meta.get("includePatterns") or "",
+        "excludePatterns": s_meta.get("excludePatterns") or "",
+        "lastHttpStatus": s_meta.get("lastHttpStatus"),
+        "recentCrawls": s_meta.get("recentCrawls") or [],
+    }
+
+
+def _apply_source_patch(company: Company, source: Source, payload: SourcePatch) -> None:
+    data = payload.model_dump(exclude_none=True)
+    if "status" in data:
+        req_status = data["status"]
+        if req_status == "approved":
+            _, robots_allowed = _map_source_status(source)
+            if not robots_allowed:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot approve a source disallowed by robots.txt",
+                )
+            source.status = "approved"
+            if source.health == "unknown":
+                source.health = "ok"
+        elif req_status in ("needs_review", "pending"):
+            source.status = "pending"
+        elif req_status in ("rejected", "paused"):
+            source.status = req_status
+
+    if "name" in data:
+        source.name = data["name"].strip() or source.name
+    if "url" in data:
+        source.url = _validate_http_url(data["url"], "url")
+    if "category" in data:
+        source.category = data["category"]
+    if "description" in data:
+        source.description = data["description"]
+    if "expected" in data:
+        source.expected = data["expected"]
+    if "relevance" in data:
+        source.relevance = data["relevance"]
+    if "frequency" in data or "update_frequency" in data:
+        source.update_frequency = _normalize_frequency(
+            data.get("frequency") or data.get("update_frequency")
+        )
+    if "type" in data:
+        source.source_type = data["type"]
+
+    meta_keys = ("type", "maxPages", "includePatterns", "excludePatterns")
+    if any(k in data for k in meta_keys):
+        profile = dict(company.profile or {})
+        meta_map = dict(profile.get("source_meta") or {})
+        s_meta = dict(meta_map.get(str(source.id)) or {})
+        for k in meta_keys:
+            if k in data:
+                s_meta[k] = data[k]
+        meta_map[str(source.id)] = s_meta
+        profile["source_meta"] = meta_map
+        company.profile = profile
+
+
+def _signal_stack_payload(db: Session, company: Company) -> dict:
+    import json as _json
+    import documents
+
+    all_sources = list(
+        db.scalars(
+            select(Source)
+            .where(Source.company_id == company.id, Source.category != "internal")
+            .order_by(Source.category, Source.id)
+        ).all()
+    )
+    normalized = [_signal_stack_source(db, company, s) for s in all_sources]
+
+    counts = {
+        "customers": 0,
+        "competitors": 0,
+        "market": 0,
+        "internal": 0,
+        "approved": 0,
+        "needs_review": 0,
+        "rejected": 0,
+        "failing": 0,
+        "blocked": 0,
+    }
+    for s in normalized:
+        cat = s["category"]
+        if cat in counts:
+            counts[cat] += 1
+        st = s["status"]
+        if st in counts:
+            counts[st] += 1
+
+    internal_docs = documents.list_documents(db, company)
+    counts["internal"] = len(internal_docs)
+    internal_files = [
+        {
+            "id": doc["record_id"],
+            "sourceId": doc["source_id"],
+            "filename": doc["filename"],
+            "size": doc["characters"],
+            "type": doc.get("document_type") or "general",
+            "uploadedAt": doc.get("discovered"),
+            "status": "analysed" if doc.get("analysed") else "uploaded",
+            "summary": doc.get("insights"),
+        }
+        for doc in internal_docs
+    ]
+
+    latest_discover = db.scalar(
+        select(JobLog)
+        .where(JobLog.company_id == company.id, JobLog.job == "job:discover")
+        .order_by(JobLog.id.desc())
+        .limit(1)
+    )
+    discovery_status = "ready"
+    discovery_stage = None
+    discovery_error = None
+    if latest_discover:
+        parsed: dict = {}
+        try:
+            parsed = _json.loads(latest_discover.detail) if latest_discover.detail else {}
+        except Exception:
+            parsed = {}
+        if latest_discover.status == "running":
+            discovery_status = "running"
+            discovery_stage = parsed.get("stage") or "Searching and verifying candidate sources"
+        elif latest_discover.status == "error":
+            discovery_status = "failed"
+            discovery_error = parsed.get("error") or "Source discovery failed."
+
+    profile = company.profile or {}
+    meta = profile.get("_meta") or {}
+    audit_proposals = list(profile.get("audit_proposals") or [])
+
+    return {
+        "sources": normalized,
+        "recommendedThreshold": _RECOMMENDED_THRESHOLD,
+        "auditProposals": audit_proposals,
+        "discoveryStatus": discovery_status,
+        "discoveryStage": discovery_stage,
+        "discoveryError": discovery_error,
+        "counts": counts,
+        "internalFiles": internal_files,
+        "maxUploadBytes": documents.MAX_UPLOAD_BYTES,
+        "allowedExtensions": list(documents.ALLOWED_EXTENSIONS),
+        "confirmedAt": meta.get("signal_stack_confirmed_at"),
+    }
+
+
+@router.get("/companies/{company_id}/signal-stack", tags=["signal-stack"])
+def get_signal_stack(company_id: int, db: Session = Depends(get_db)) -> dict:
+    company = get_company_or_404(db, company_id)
+    return _signal_stack_payload(db, company)
+
+
+@router.post("/companies/{company_id}/signal-stack/discover", status_code=202, tags=["signal-stack"])
+def run_signal_stack_discovery(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import jobs
+
+    get_company_or_404(db, company_id)
+    return jobs.start_company_job(db, company_id, "discover")
+
+
+@router.patch("/companies/{company_id}/sources/{source_id}", tags=["signal-stack"])
+def patch_company_source(
+    company_id: int, source_id: int, payload: SourcePatch, db: Session = Depends(get_db)
+) -> dict:
+    company = get_company_or_404(db, company_id)
+    source = db.get(Source, source_id)
+    if source is None or source.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"source {source_id} not found")
+    _apply_source_patch(company, source, payload)
+    db.commit()
+    db.refresh(source)
+    return _signal_stack_source(db, company, source)
+
+
+@router.post("/companies/{company_id}/sources/bulk", tags=["signal-stack"])
+def bulk_update_company_sources(
+    company_id: int, payload: SourceBulkPatch, db: Session = Depends(get_db)
+) -> dict:
+    company = get_company_or_404(db, company_id)
+    rows = db.scalars(
+        select(Source).where(Source.company_id == company_id, Source.id.in_(payload.ids))
+    ).all()
+    updated_count = 0
+    for source in rows:
+        if payload.patch.status == "approved":
+            _, robots_allowed = _map_source_status(source)
+            if not robots_allowed:
+                continue
+        _apply_source_patch(company, source, payload.patch)
+        updated_count += 1
+    db.commit()
+    out = _signal_stack_payload(db, company)
+    out["updatedCount"] = updated_count
+    return out
+
+
+@router.post("/companies/{company_id}/sources/{source_id}/recheck", tags=["signal-stack"])
+def recheck_company_source(
+    company_id: int, source_id: int, db: Session = Depends(get_db)
+) -> dict:
+    from datetime import datetime, timezone
+    import discovery
+
+    company = get_company_or_404(db, company_id)
+    source = db.get(Source, source_id)
+    if source is None or source.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"source {source_id} not found")
+
+    ok, detail, final_url, feed_url = discovery.verify_candidate(source.url)
+    now = datetime.now(timezone.utc)
+    source.last_checked = now
+    if ok:
+        source.health = "ok"
+        source.last_ok = now
+        source.last_error = None
+        source.url = final_url
+        if feed_url and not source.feed_url:
+            source.feed_url = feed_url
+    else:
+        source.health = "blocked" if "robots" in (detail or "").lower() else "error"
+        source.last_error = detail
+    db.commit()
+    db.refresh(source)
+    return _signal_stack_source(db, company, source)
+
+
+@router.delete("/companies/{company_id}/sources/{source_id}", status_code=204, tags=["signal-stack"])
+def delete_company_source(
+    company_id: int, source_id: int, db: Session = Depends(get_db)
+) -> Response:
+    get_company_or_404(db, company_id)
+    source = db.get(Source, source_id)
+    if source is None or source.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"source {source_id} not found")
+    db.delete(source)
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/companies/{company_id}/signal-stack/audit/apply", tags=["signal-stack"])
+def apply_signal_stack_audit(
+    company_id: int, payload: AuditApplyIn, db: Session = Depends(get_db)
+) -> dict:
+    company = get_company_or_404(db, company_id)
+    profile = dict(company.profile or {})
+    proposals = list(profile.get("audit_proposals") or [])
+    decision_map = {item.proposalId: item.accepted for item in payload.decisions}
+    remaining = []
+
+    for prop in proposals:
+        pid = str(prop.get("id"))
+        if pid not in decision_map:
+            remaining.append(prop)
+            continue
+        if decision_map[pid]:
+            action = prop.get("action")
+            src_data = prop.get("source") or {}
+            src_id = src_data.get("id")
+            if action == "remove" and src_id:
+                row = db.get(Source, int(src_id))
+                if row and row.company_id == company_id:
+                    row.status = "rejected"
+            elif action == "add" and src_data.get("url"):
+                db.add(
+                    Source(
+                        company_id=company_id,
+                        name=src_data.get("name") or src_data["url"],
+                        url=src_data["url"],
+                        category=src_data.get("category") or "market",
+                        source_type=src_data.get("type") or "webpage",
+                        reason=prop.get("reasoning") or "Proposed by monthly source audit",
+                        status="approved",
+                        health="ok",
+                    )
+                )
+
+    profile["audit_proposals"] = remaining
+    company.profile = profile
+    db.commit()
+    return _signal_stack_payload(db, company)
+
+
+@router.post("/companies/{company_id}/signal-stack/confirm", tags=["signal-stack"])
+def confirm_signal_stack(company_id: int, db: Session = Depends(get_db)) -> dict:
+    from datetime import datetime, timezone
+
+    company = get_company_or_404(db, company_id)
+    approved_cats = set(
+        db.scalars(
+            select(Source.category).where(
+                Source.company_id == company_id,
+                Source.status == "approved",
+            )
+        ).all()
+    )
+    missing = [cat for cat in ("customers", "competitors", "market") if cat not in approved_cats]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Approve at least 1 source in each required category: {', '.join(missing)}",
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    profile = dict(company.profile or {})
+    meta = dict(profile.get("_meta") or {})
+    meta["signal_stack_confirmed_at"] = now_iso
+    profile["_meta"] = meta
+    company.profile = profile
+    db.commit()
+    db.refresh(company)
+    return {
+        "company_id": company.id,
+        "confirmed": True,
+        "confirmed_at": now_iso,
+        "workflow_status": _compute_workflow_status(db, company),
+    }
+
+
+@router.post("/companies/{company_id}/internal/upload", status_code=201, tags=["signal-stack"])
+async def upload_internal_file_route(
+    company_id: int,
+    file: UploadFile = File(...),
+    document_type: str = Form("general"),
+    db: Session = Depends(get_db),
+) -> dict:
+    import documents
+
+    company = get_company_or_404(db, company_id)
+    raw = await file.read()
+    try:
+        stored = documents.store_document(
+            db, company, file.filename or "upload.txt", raw, document_type=document_type
+        )
+    except documents.UploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return stored
+
+
+@router.get("/companies/{company_id}/internal/files", tags=["signal-stack"])
+def list_internal_files_route(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import documents
+
+    company = get_company_or_404(db, company_id)
+    docs = documents.list_documents(db, company)
+    return {
+        "items": [
+            {
+                "id": doc["record_id"],
+                "sourceId": doc["source_id"],
+                "filename": doc["filename"],
+                "size": doc["characters"],
+                "type": doc.get("document_type") or "general",
+                "uploadedAt": doc.get("discovered"),
+                "status": "analysed" if doc.get("analysed") else "uploaded",
+                "summary": doc.get("insights"),
+            }
+            for doc in docs
+        ]
+    }
+
+
+@router.delete("/companies/{company_id}/internal/files/{record_id}", status_code=204, tags=["signal-stack"])
+def delete_internal_file_route(
+    company_id: int, record_id: int, db: Session = Depends(get_db)
+) -> Response:
+    get_company_or_404(db, company_id)
+    record = db.get(Record, record_id)
+    if record is None or record.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"file {record_id} not found")
+    source_id = record.source_id
+    db.delete(record)
+    if source_id:
+        source = db.get(Source, source_id)
+        if source and source.company_id == company_id and source.category == "internal":
+            db.delete(source)
+    db.commit()
+    return Response(status_code=204)

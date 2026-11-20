@@ -175,7 +175,7 @@ class DiscoveryBatch(BaseModel):
 
 
 class SourceCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=300)
+    name: str = Field(default="", max_length=300)
     url: str = Field(min_length=4, max_length=1000)
     category: Category
     source_type: str | None = None
@@ -185,16 +185,37 @@ class SourceCreate(BaseModel):
     reliability: float = Field(default=0.5, ge=0.0, le=1.0)
     update_frequency: str = "weekly"
     feed_url: str | None = None
+    forceAdd: bool = False
 
 
 class SourcePatch(BaseModel):
-    status: SourceStatus | None = None
+    status: str | None = None
     category: Category | None = None
     relevance: float | None = Field(default=None, ge=0.0, le=1.0)
     name: str | None = None
+    url: str | None = None
+    type: str | None = None
     description: str | None = None
     expected: str | None = None
     update_frequency: str | None = None
+    frequency: str | None = None
+    maxPages: int | None = Field(default=None, ge=1, le=200)
+    includePatterns: str | None = None
+    excludePatterns: str | None = None
+
+
+class SourceBulkPatch(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=200)
+    patch: SourcePatch
+
+
+class AuditDecisionItem(BaseModel):
+    proposalId: str
+    accepted: bool
+
+
+class AuditApplyIn(BaseModel):
+    decisions: list[AuditDecisionItem] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #
