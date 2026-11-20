@@ -69,11 +69,12 @@ mean a real company was processed. Do not present any of these as a live result,
 
 ```bash
 cp .env.example .env                 # set GROQ_API_KEY; confirm GROQ_MODEL is on the free-tier list
-cd backend && ../.venv/bin/uvicorn main:app --port 8000
-curl -s localhost:8000/api/llm/healthcheck          # must return valid JSON
-cd .. && python scripts/run_three_companies.py --yes 2>&1 | tee run_output.txt
+cd backend && ../.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+# in another terminal: cd frontend && npm run dev
+cd .. && .venv/bin/python scripts/preflight.py     # must print [PASS] for all 7 checks
+python scripts/run_three_companies.py --yes 2>&1 | tee run_output.txt
 python scripts/run_three_companies.py --only meetuniversity --skip-interview --yes \
   --reassess meetuniversity --context "International student recruitment and overseas education consultancy"
 ```
 
-Then update this file, the README table and `docs/COST_AND_LIMITATIONS.md` from `run_output.txt` only.
+Then paste/commit the real numbers into this file, the `README.md` table, and `docs/COST_AND_LIMITATIONS.md` from `run_output.txt` only.

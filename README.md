@@ -158,14 +158,25 @@ powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
 
 ### Produce the real numbers
 
+Run preflight first to confirm `.env` (`GROQ_API_KEY` — never printed), `GROQ_MODEL` via `/api/llm/healthcheck`,
+backend (`127.0.0.1:8000`), frontend (`127.0.0.1:3000`), database state, and public internet egress all pass:
+
 ```bash
-./.venv/bin/python scripts/run_three_companies.py --yes
-# one company, skipping the interactive interview
+# 1. Verify everything is ready before spending Groq tokens
+./.venv/bin/python scripts/preflight.py
+
+# 2. Run the 3-company end-to-end pipeline and save the output
+./.venv/bin/python scripts/run_three_companies.py --yes 2>&1 | tee run_output.txt
+
+# Or one company, skipping the interactive interview:
 ./.venv/bin/python scripts/run_three_companies.py --only meetuniversity --skip-interview --yes
-# the PRD context change
+
+# The PRD context change:
 ./.venv/bin/python scripts/run_three_companies.py --only meetuniversity --skip-interview --yes \
   --reassess meetuniversity \
   --context "International student recruitment and overseas education consultancy"
+
+# 3. Paste/commit the verified output into README.md, docs/acceptance.md, and exports/
 ```
 The companies live in `scripts/demo_companies.json` as data. No company name appears in backend logic (checked by grep).
 
