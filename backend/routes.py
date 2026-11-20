@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -456,6 +456,7 @@ def _record_dict(record: Record, source: Source | None) -> dict:
         "evidence_strength": analysis_data.get("evidence_strength"),
         "source_reliability": analysis_data.get("source_reliability"),
         "strategic_relevance": analysis_data.get("strategic_relevance"),
+        "classification": analysis_data.get("classification", "neutral"),
         "source": {"id": source.id, "name": source.name, "category": source.category} if source else None,
         "text_preview": record.text[:600],
     }
@@ -475,14 +476,19 @@ def get_signal(record_id: int, db: Session = Depends(get_db)) -> dict:
 # --------------------------------------------------------------------------- #
 @router.post("/companies/{company_id}/documents", status_code=201, tags=["documents"])
 async def upload_document(
-    company_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)
+    company_id: int,
+    file: UploadFile = File(...),
+    document_type: str = Form("general"),
+    db: Session = Depends(get_db),
 ) -> dict:
     import documents
 
     company = get_company_or_404(db, company_id)
     raw = await file.read()
     try:
-        stored = documents.store_document(db, company, file.filename or "upload.txt", raw)
+        stored = documents.store_document(
+            db, company, file.filename or "upload.txt", raw, document_type=document_type
+        )
     except documents.UploadError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return stored

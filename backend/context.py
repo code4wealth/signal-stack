@@ -80,6 +80,14 @@ def reassess(db, company, new_context: str, *, run_discovery: bool = True) -> di
             "updated": [],
             "recommended_removal": [],
             "discovery": None,
+            "profile_comparison": {
+                "previous_context": previous_context or "(none)",
+                "new_context": new_context,
+                "explanation": "Monitoring focus updated; no existing sources to re-score yet.",
+                "sources_scored": 0,
+                "recommended_removal_count": 0,
+                "new_candidates_count": 0,
+            },
             "message": "no sources to score yet",
         }
 
@@ -126,6 +134,11 @@ def reassess(db, company, new_context: str, *, run_discovery: bool = True) -> di
             logger.warning("discovery after reassessment failed: %s", exc.__class__.__name__)
             discovery_result = {"error": exc.__class__.__name__}
 
+    new_candidates = (
+        discovery_result.get("created_count", 0)
+        if isinstance(discovery_result, dict) and "created_count" in discovery_result
+        else 0
+    )
     summary = {
         "company_id": company.id,
         "previous_context": previous_context,
@@ -135,6 +148,18 @@ def reassess(db, company, new_context: str, *, run_discovery: bool = True) -> di
         "updated": updated,
         "recommended_removal": recommended,
         "discovery": discovery_result,
+        "profile_comparison": {
+            "previous_context": previous_context or "(none)",
+            "new_context": new_context,
+            "explanation": (
+                f"Context shifted from '{previous_context or '(none)'}' to '{new_context}'. "
+                f"{len(updated)} sources re-scored, {len(recommended)} recommended for removal "
+                f"(< {REMOVAL_THRESHOLD}), {new_candidates} new candidate source(s) discovered."
+            ),
+            "sources_scored": len(updated),
+            "recommended_removal_count": len(recommended),
+            "new_candidates_count": new_candidates,
+        },
         "threshold": REMOVAL_THRESHOLD,
     }
     db.add(

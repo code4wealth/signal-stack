@@ -155,6 +155,21 @@ export default function IntelligencePage() {
                       <span className="text-base font-semibold text-slate-100">{signal.title}</span>
                       {signal.is_update ? <Badge tone="info">[UPDATED]</Badge> : null}
                       {signal.source ? <Badge>{signal.source.category}</Badge> : null}
+                      {signal.classification ? (
+                        <Badge
+                          tone={
+                            signal.classification === "opportunity"
+                              ? "ok"
+                              : signal.classification === "threat"
+                                ? "bad"
+                                : signal.classification === "uncertain"
+                                  ? "warn"
+                                  : "neutral"
+                          }
+                        >
+                          {signal.classification}
+                        </Badge>
+                      ) : null}
                       {signal.evidence_verbatim === false ? <Badge tone="bad">evidence unverified</Badge> : null}
                     </div>
                     <p className="mt-1 text-sm text-slate-300">{signal.summary}</p>

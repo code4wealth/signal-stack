@@ -187,13 +187,14 @@ class Analysis(BaseModel):
     category: Literal["customers", "competitors", "market", "internal", "other"] = "other"
     signal_type: str = Field(default="news", description="e.g. launch, hire, funding, partnership")
     sentiment: Literal["positive", "neutral", "negative"] = "neutral"
+    classification: Literal["opportunity", "threat", "neutral", "uncertain"] = "neutral"
 
 
 # --------------------------------------------------------------------------- #
 # Brief (Phase 6)
 # --------------------------------------------------------------------------- #
 class SectionProse(BaseModel):
-    body: str = Field(description="2-5 factual sentences drawn only from the cited records")
+    body: str = Field(default="", description="2-5 factual sentences drawn only from the cited records")
     record_ids: list[int] = Field(
         default_factory=list, description="Every record id the sentences rely on"
     )
@@ -203,6 +204,22 @@ class BriefAction(BaseModel):
     action: str = Field(description="Concrete next action")
     owner: str = Field(default="Founder")
     why: str = Field(default="")
+    record_ids: list[int] = Field(default_factory=list)
+
+
+class BriefOpportunity(BaseModel):
+    opportunity: str
+    evidence: str = Field(default="")
+    relevance: str = Field(default="")
+    impact: str = Field(default="")
+    next_step: str = Field(default="")
+    priority: Literal["high", "medium", "low"] = "medium"
+    record_ids: list[int] = Field(default_factory=list)
+
+
+class BriefRisk(BaseModel):
+    risk: str
+    mitigation: str = Field(default="")
     record_ids: list[int] = Field(default_factory=list)
 
 
@@ -217,4 +234,6 @@ class BriefDraft(BaseModel):
     founder_intelligence: SectionProse = Field(default_factory=SectionProse)
     strategic_implications: SectionProse = Field(default_factory=SectionProse)
     risks_watchlist: SectionProse = Field(default_factory=SectionProse)
+    opportunities: list[BriefOpportunity] = Field(default_factory=list, max_length=6)
+    risks: list[BriefRisk] = Field(default_factory=list, max_length=6)
     actions: list[BriefAction] = Field(default_factory=list, max_length=6)

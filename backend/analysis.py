@@ -97,6 +97,7 @@ def _prompt(company, record: Record, source: Source | None) -> str:
         "business consequence), urgency (how soon someone must act), strategic_relevance (link "
         "to the founder's stated priorities), evidence_strength (how directly the snippet proves "
         "the summary).\n"
+        "- Classify the signal as one of: opportunity, threat, neutral, or uncertain.\n"
         "- If the document says nothing meaningful for this company, say so plainly and score low.\n\n"
         + llm.wrap_untrusted(record.url, record.text[:8000])
     )

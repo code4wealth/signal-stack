@@ -14,6 +14,7 @@ export default function AutomationPage() {
 
   const [logs, setLogs] = useState<JobLog[] | null>(null);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [docType, setDocType] = useState("support_tickets");
   const [sources, setSources] = useState<Source[]>([]);
   const [reassessment, setReassessment] = useState<ReassessResult | null>(null);
   const [context, setContext] = useState("International student recruitment and overseas education consultancy");
@@ -67,8 +68,10 @@ export default function AutomationPage() {
     setError(null);
     setNotice(null);
     try {
-      const stored = await api.uploadDocument(companyId, file);
-      setNotice(`Uploaded ${stored.filename} (${stored.characters} chars) and labelled ${stored.label}.`);
+      const stored = await api.uploadDocument(companyId, file, docType);
+      setNotice(
+        `Uploaded ${stored.filename} (${stored.document_type}, ${stored.characters} chars) and labelled ${stored.label}.`,
+      );
       await load();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Upload failed.");
@@ -137,6 +140,20 @@ export default function AutomationPage() {
             <Upload size={16} /> Internal document
           </h3>
           <p className="mt-2 text-xs text-slate-500">TXT or CSV, 2 MB maximum. Stored as user-provided, never as web evidence.</p>
+          <div className="mt-2">
+            <select
+              aria-label="Document type"
+              className={inputClass}
+              value={docType}
+              onChange={(event) => setDocType(event.target.value)}
+            >
+              <option value="support_tickets">Support tickets</option>
+              <option value="sales_objections">Sales objections</option>
+              <option value="lost_deals">Lost deals</option>
+              <option value="product_requests">Product requests</option>
+              <option value="general">General internal note</option>
+            </select>
+          </div>
           <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm hover:border-accent/50 hover:text-accent">
             <Database size={16} />
             {busy === "upload" ? "Uploading…" : "Choose file"}
@@ -148,10 +165,24 @@ export default function AutomationPage() {
             />
           </label>
           {documents.length > 0 ? (
-            <ul className="mt-3 space-y-1 text-xs text-slate-500">
+            <ul className="mt-3 space-y-2 text-xs text-slate-400">
               {documents.map((doc) => (
-                <li key={doc.record_id}>
-                  {doc.filename} · {doc.characters} chars · {doc.analysed ? "analysed" : "not analysed"}
+                <li key={doc.record_id} className="rounded border border-white/5 bg-secondary/40 p-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-medium text-slate-200">{doc.filename}</span>
+                    {doc.document_type ? <Badge tone="info">{doc.document_type}</Badge> : null}
+                    <Badge>user-provided</Badge>
+                  </div>
+                  <p className="mt-1 text-slate-500">
+                    {doc.characters} chars · {doc.analysed ? "analysed" : "not analysed"}
+                  </p>
+                  {doc.insights ? (
+                    <p className="mt-1 text-slate-500">
+                      complaints {doc.insights.counts.complaints ?? 0} · objections{" "}
+                      {doc.insights.counts.objections ?? 0} · lost deals {doc.insights.counts.lost_deal_reasons ?? 0} ·
+                      requests {doc.insights.counts.product_requests ?? 0}
+                    </p>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -178,9 +209,16 @@ export default function AutomationPage() {
 
         {reassessment ? (
           <div className="mt-4 space-y-3">
-            <p className="text-xs text-slate-400">
-              previous: “{reassessment.previous_context}” → new: “{reassessment.new_context}”
-            </p>
+            {reassessment.profile_comparison ? (
+              <div className="rounded-lg border border-accent/20 bg-accent/5 p-3 text-xs text-slate-300">
+                <p className="font-semibold text-accent">Before vs after comparison</p>
+                <p className="mt-1">{reassessment.profile_comparison.explanation}</p>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">
+                previous: “{reassessment.previous_context}” → new: “{reassessment.new_context}”
+              </p>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="text-slate-500">

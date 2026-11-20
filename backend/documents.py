@@ -19,10 +19,57 @@ from db import Record, Source
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024
 ALLOWED_EXTENSIONS = (".txt", ".csv")
 MIN_TEXT_CHARS = 40
+DOCUMENT_TYPES = ("general", "support_tickets", "sales_objections", "lost_deals", "product_requests")
+
+_INSIGHT_PATTERNS = {
+    "complaints": ("complaint", "bug", "broken", "fail", "slow", "error", "login loop", "timeout", "issue", "problem"),
+    "objections": ("objection", "expensive", "price", "pricing", "cost", "budget", "too high", "concern", "hesitant"),
+    "lost_deal_reasons": ("lost", "churn", "cancelled", "canceled", "competitor", "switched", "missing"),
+    "product_requests": ("feature", "request", "wish", "need", "support for", "integration", "filter", "export"),
+}
 
 
 class UploadError(ValueError):
     pass
+
+
+def extract_internal_insights(text: str, document_type: str = "general") -> dict:
+    """Deterministically group lines from user-provided documents without inventing text."""
+    buckets: dict[str, list[str]] = {
+        "complaints": [],
+        "objections": [],
+        "lost_deal_reasons": [],
+        "product_requests": [],
+    }
+    type_default_bucket = {
+        "support_tickets": "complaints",
+        "sales_objections": "objections",
+        "lost_deals": "lost_deal_reasons",
+        "product_requests": "product_requests",
+    }
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or len(line) < 12:
+            continue
+        lower = line.lower()
+        # Skip pure CSV header lines
+        if "," in line and ":" not in line and any(h in lower for h in ("ticket_id", "category,")):
+            continue
+        matched = False
+        for bucket, terms in _INSIGHT_PATTERNS.items():
+            if any(term in lower for term in terms):
+                if len(buckets[bucket]) < 10 and line not in buckets[bucket]:
+                    buckets[bucket].append(line[:280])
+                matched = True
+        if not matched and document_type in type_default_bucket:
+            default_bucket = type_default_bucket[document_type]
+            if len(buckets[default_bucket]) < 10 and line not in buckets[default_bucket]:
+                buckets[default_bucket].append(line[:280])
+    return {
+        **buckets,
+        "counts": {key: len(items) for key, items in buckets.items()},
+        "label": "user-provided",
+    }
 
 
 def _sanitise(filename: str) -> str:
@@ -73,7 +120,8 @@ def validate_upload(filename: str, raw: bytes) -> tuple[str, str]:
     return name, text
 
 
-def store_document(db, company, filename: str, raw: bytes) -> dict:
+def store_document(db, company, filename: str, raw: bytes, *, document_type: str = "general") -> dict:
+    doc_type = document_type if document_type in DOCUMENT_TYPES else "general"
     name, text = validate_upload(filename, raw)
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -83,14 +131,18 @@ def store_document(db, company, filename: str, raw: bytes) -> dict:
     if existing is not None:
         raise UploadError("this exact document was already uploaded")
 
+    insights = extract_internal_insights(text, doc_type)
     source = Source(
         company_id=company.id,
         name=f"user-provided: {name}",
         url=f"upload://{company.id}/{name}",
         category="internal",
+        source_type="upload",
+        description=f"document_type={doc_type}",
         reason="Uploaded by the user. Not independently verified.",
         expected="Context the founder wants the analysis to consider.",
         reliability=0.4,
+        update_frequency="manual",
         status="approved",
         health="ok",
     )
@@ -101,9 +153,10 @@ def store_document(db, company, filename: str, raw: bytes) -> dict:
         company_id=company.id,
         source_id=source.id,
         url=source.url,
-        title=f"[user-provided] {name}",
+        title=f"[user-provided:{doc_type}] {name}",
         text=text,
         content_hash=digest,
+        scores={"document_type": doc_type, "insights": insights},
     )
     db.add(record)
     db.commit()
@@ -112,9 +165,11 @@ def store_document(db, company, filename: str, raw: bytes) -> dict:
         "document_id": record.id,
         "source_id": source.id,
         "filename": name,
+        "document_type": doc_type,
         "characters": len(text),
         "records_created": 1,
         "label": "user-provided",
+        "insights": insights,
     }
 
 
@@ -125,14 +180,25 @@ def list_documents(db, company) -> list[dict]:
         .where(Record.company_id == company.id, Source.category == "internal")
         .order_by(Record.id.desc())
     ).all()
-    return [
-        {
-            "record_id": record.id,
-            "source_id": record.source_id,
-            "filename": record.title.replace("[user-provided] ", ""),
-            "characters": len(record.text),
-            "discovered": record.discovered.isoformat() if record.discovered else None,
-            "analysed": record.analysis is not None,
-        }
-        for record, _source in rows
-    ]
+    items = []
+    for record, source in rows:
+        meta = record.scores or {}
+        doc_type = meta.get("document_type")
+        if not doc_type and source and (source.description or "").startswith("document_type="):
+            doc_type = source.description.split("=", 1)[1]
+        doc_type = doc_type or "general"
+        insights = meta.get("insights") or extract_internal_insights(record.text, doc_type)
+        clean_name = re.sub(r"^\[user-provided(?::[^\]]+)?\]\s*", "", record.title or "")
+        items.append(
+            {
+                "record_id": record.id,
+                "source_id": record.source_id,
+                "filename": clean_name,
+                "document_type": doc_type,
+                "characters": len(record.text),
+                "discovered": record.discovered.isoformat() if record.discovered else None,
+                "analysed": record.analysis is not None,
+                "insights": insights,
+            }
+        )
+    return items

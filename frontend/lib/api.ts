@@ -166,15 +166,21 @@ export const api = {
   runAudit: (id: number) => post<Record<string, unknown>>(`/api/companies/${id}/source-audit`),
   jobLogs: (id: number) => get<{ items: import("./types").JobLog[]; total: number }>(`/api/companies/${id}/job-logs`),
 
-  uploadDocument: async (id: number, file: File) => {
+  uploadDocument: async (id: number, file: File, documentType = "general") => {
     const form = new FormData();
     form.append("file", file);
+    form.append("document_type", documentType);
     const response = await fetch(`${API_BASE}/api/companies/${id}/documents`, { method: "POST", body: form });
     if (!response.ok) {
       const body = (await response.json().catch(() => ({}))) as { detail?: string };
       throw new ApiError(body.detail ?? "upload failed", response.status);
     }
-    return (await response.json()) as { filename: string; characters: number; label: string };
+    return (await response.json()) as {
+      filename: string;
+      document_type: string;
+      characters: number;
+      label: string;
+    };
   },
   listDocuments: (id: number) => get<{ items: import("./types").DocumentItem[]; total: number }>(`/api/companies/${id}/documents`),
 

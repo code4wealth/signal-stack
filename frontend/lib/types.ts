@@ -109,6 +109,7 @@ export type Signal = {
   evidence_strength: number | null;
   source_reliability: number | null;
   strategic_relevance: number | null;
+  classification?: "opportunity" | "threat" | "neutral" | "uncertain";
   source: { id: number; name: string; category: string } | null;
   text_preview: string;
 };
@@ -128,11 +129,29 @@ export type BriefAction = {
   done: boolean;
 };
 
+export type BriefOpportunity = {
+  opportunity: string;
+  evidence: string;
+  relevance: string;
+  impact: string;
+  next_step: string;
+  priority: "high" | "medium" | "low";
+  record_ids: number[];
+};
+
+export type BriefRisk = {
+  risk: string;
+  mitigation: string;
+  record_ids: number[];
+};
+
 export type ReportContent = {
   company: { id: number; name: string; website: string };
   generated_at: string;
   sections: BriefSection[];
   top_signals: { id: number; title: string; url: string; total: number; category: string }[];
+  opportunities?: BriefOpportunity[];
+  risks?: BriefRisk[];
   actions: BriefAction[];
   counts: { records: number; sources: number; by_category: Record<string, number> };
   record_index: { id: number; url: string; title: string }[];
@@ -202,6 +221,14 @@ export type ReassessResult = {
   }[];
   recommended_removal: { source_id: number; name: string; relevance: number; reason: string; action: string }[];
   discovery: { created_count?: number; dropped_count?: number; error?: string } | null;
+  profile_comparison?: {
+    previous_context: string;
+    new_context: string;
+    explanation: string;
+    sources_scored: number;
+    recommended_removal_count: number;
+    new_candidates_count: number;
+  };
 };
 
 export type AnalysisResult = {
@@ -213,11 +240,22 @@ export type AnalysisResult = {
   cap_per_run: number;
 };
 
+export type DocumentInsights = {
+  complaints: string[];
+  objections: string[];
+  lost_deal_reasons: string[];
+  product_requests: string[];
+  counts: Record<string, number>;
+  label: string;
+};
+
 export type DocumentItem = {
   record_id: number;
   source_id: number;
   filename: string;
+  document_type?: string;
   characters: number;
   discovered: string | null;
   analysed: boolean;
+  insights?: DocumentInsights;
 };

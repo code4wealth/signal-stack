@@ -229,6 +229,53 @@ export default function BriefsPage() {
                     citations: {section.record_ids.map((id) => `record ${id}`).join(", ")}
                   </p>
                 ) : null}
+
+                {section.key === "strategic_implications" &&
+                report.content.opportunities &&
+                report.content.opportunities.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Structured Opportunities
+                    </p>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {report.content.opportunities.map((opp, idx) => (
+                        <div key={`${opp.opportunity}-${idx}`} className="rounded-lg border border-white/10 bg-secondary/40 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-medium text-slate-100">{opp.opportunity}</span>
+                            <Badge tone={opp.priority === "high" ? "ok" : opp.priority === "medium" ? "info" : "neutral"}>
+                              {opp.priority}
+                            </Badge>
+                          </div>
+                          {opp.evidence ? <p className="mt-1 text-xs text-slate-400">Evidence: {opp.evidence}</p> : null}
+                          {opp.impact ? <p className="mt-0.5 text-xs text-slate-400">Impact: {opp.impact}</p> : null}
+                          {opp.next_step ? <p className="mt-0.5 text-xs text-accent">Next: {opp.next_step}</p> : null}
+                          <p className="mt-1 text-xs text-slate-600">
+                            cites {opp.record_ids.map((id) => `record ${id}`).join(", ")}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {section.key === "risks_watchlist" && report.content.risks && report.content.risks.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Structured Risks & Mitigations
+                    </p>
+                    <ul className="space-y-2">
+                      {report.content.risks.map((item, idx) => (
+                        <li key={`${item.risk}-${idx}`} className="rounded-lg border border-white/10 bg-secondary/40 p-3 text-xs">
+                          <p className="font-medium text-slate-200">{item.risk}</p>
+                          {item.mitigation ? <p className="mt-1 text-slate-400">Mitigation: {item.mitigation}</p> : null}
+                          <p className="mt-1 text-slate-600">
+                            cites {item.record_ids.map((id) => `record ${id}`).join(", ")}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
             ))}
           </Card>
