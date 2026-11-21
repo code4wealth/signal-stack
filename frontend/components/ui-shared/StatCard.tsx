@@ -11,6 +11,7 @@ export function StatCard({
   label,
   value,
   footer,
+  badge,
   onClick,
   activeRingClass,
 }: {
@@ -19,6 +20,7 @@ export function StatCard({
   label: string;
   value: number | string;
   footer: string;
+  badge?: ReactNode;
   onClick?: () => void;
   activeRingClass?: string;
 }) {
@@ -52,14 +54,17 @@ export function StatCard({
       interactive
       className={`flex h-full flex-col justify-between gap-3 p-4 sm:p-5 ${activeRingClass ?? ""}`}
     >
-      <div className="flex items-center gap-3">
-        <span
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${iconBg}`}
-          aria-hidden="true"
-        >
-          {icon}
-        </span>
-        <p className="text-xs font-medium text-[#4B5058]">{label}</p>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-3 min-w-0">
+          <span
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${iconBg}`}
+            aria-hidden="true"
+          >
+            {icon}
+          </span>
+          <p className="truncate text-xs font-medium text-[#4B5058]">{label}</p>
+        </div>
+        {badge ? <div className="shrink-0">{badge}</div> : null}
       </div>
       <div>
         <p className="tabular text-2xl font-semibold tracking-[-0.025em] text-[#1F2125]">

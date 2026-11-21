@@ -22,6 +22,9 @@ export function Composer({
   onRetry,
   onSubmit,
   onSkip,
+  hideSkip = false,
+  placeholder,
+  ariaLabel = "Interview answer composer",
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -31,12 +34,15 @@ export function Composer({
   disabled: boolean;
   disabledReason?: string;
   isSubmitting: boolean;
-  isSkipping: boolean;
+  isSkipping?: boolean;
   focusTrigger: number;
   error: string | null;
   onRetry?: () => void;
   onSubmit: () => void;
-  onSkip: () => void;
+  onSkip?: () => void;
+  hideSkip?: boolean;
+  placeholder?: string;
+  ariaLabel?: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [confirmingSkip, setConfirmingSkip] = useState(false);
@@ -112,8 +118,12 @@ export function Composer({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={disabled ? disabledReason || "Waiting for next question…" : "Type your answer..."}
-          aria-label="Interview answer composer"
+          placeholder={
+            disabled
+              ? disabledReason || "Waiting for next question…"
+              : placeholder || "Type your answer..."
+          }
+          aria-label={ariaLabel}
           className="w-full resize-none bg-transparent text-sm leading-relaxed text-[#1F2125] placeholder:text-[#9AA0AA] focus:outline-none disabled:cursor-not-allowed"
         />
 
@@ -173,7 +183,7 @@ export function Composer({
               {value.length}/{MAX_CHARS}
             </span>
 
-            {confirmingSkip ? (
+            {hideSkip || !onSkip ? null : confirmingSkip ? (
               <div className="flex items-center gap-1 rounded-full border border-[#EA580C]/30 bg-white px-2.5 py-1 text-xs">
                 <span className="text-[#4B5058]">Skip this question?</span>
                 <button

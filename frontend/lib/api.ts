@@ -907,3 +907,129 @@ export async function updateCrawlerSettings(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Intelligence Feed / Signals (Step 5)
+// ---------------------------------------------------------------------------
+
+const USE_SIGNALS_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
+
+export async function getSignalsOverview(
+  companyId: number,
+  range: import("./types").SignalRange = "30d",
+): Promise<import("./types").SignalsOverviewResponse> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockSignalsOverview } = await import("@/lib/signals-mocks");
+    return mockSignalsOverview(range);
+  }
+  return get<import("./types").SignalsOverviewResponse>(
+    `/api/companies/${companyId}/signals/overview?range=${encodeURIComponent(range)}`,
+  );
+}
+
+export async function listSignals(
+  companyId: number,
+  filters: import("./types").SignalsListFilters = {},
+  cursor?: string | null,
+  limit = 25,
+): Promise<import("./types").SignalsListResponse> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockSignalsList } = await import("@/lib/signals-mocks");
+    return mockSignalsList(filters);
+  }
+  const params = new URLSearchParams();
+  if (filters.category && filters.category.length > 0) {
+    params.set("category", filters.category.join(","));
+  }
+  if (filters.classification && filters.classification !== "all") {
+    params.set("classification", filters.classification);
+  }
+  if (filters.minPriority !== undefined && filters.minPriority > 1) {
+    params.set("minPriority", String(filters.minPriority));
+  }
+  if (filters.sourceId !== undefined) {
+    params.set("sourceId", String(filters.sourceId));
+  }
+  if (filters.status && filters.status !== "all") {
+    params.set("status", filters.status);
+  }
+  if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
+  if (filters.dateTo) params.set("dateTo", filters.dateTo);
+  if (filters.q) params.set("q", filters.q);
+  if (filters.sort) params.set("sort", filters.sort);
+  if (cursor) params.set("cursor", cursor);
+  params.set("limit", String(limit));
+  const qs = params.toString();
+  return get<import("./types").SignalsListResponse>(
+    `/api/companies/${companyId}/signals${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export async function getSignalDetail(
+  companyId: number,
+  signalId: number,
+): Promise<import("./types").SignalDetailResponse> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockSignalDetail } = await import("@/lib/signals-mocks");
+    return mockSignalDetail(signalId);
+  }
+  return get<import("./types").SignalDetailResponse>(
+    `/api/companies/${companyId}/signals/${signalId}`,
+  );
+}
+
+export async function patchSignal(
+  companyId: number,
+  signalId: number,
+  body: import("./types").SignalPatchPayload,
+): Promise<import("./types").SignalItem> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockPatchSignal } = await import("@/lib/signals-mocks");
+    return mockPatchSignal(signalId, body);
+  }
+  return patch<import("./types").SignalItem>(
+    `/api/companies/${companyId}/signals/${signalId}`,
+    body,
+  );
+}
+
+export async function bulkUpdateSignals(
+  companyId: number,
+  ids: number[],
+  body: import("./types").SignalPatchPayload,
+): Promise<{ updatedCount: number }> {
+  if (USE_SIGNALS_MOCKS) {
+    return { updatedCount: ids.length };
+  }
+  return post<{ updatedCount: number }>(
+    `/api/companies/${companyId}/signals/bulk`,
+    { ids, patch: body },
+  );
+}
+
+export async function runAnalysis(
+  companyId: number,
+): Promise<{ id: number; job: string; status: string }> {
+  if (USE_SIGNALS_MOCKS) {
+    return { id: 1, job: "analyse", status: "running" };
+  }
+  return post<{ id: number; job: string; status: string }>(
+    `/api/companies/${companyId}/signals/analyse`,
+  );
+}
+
+export async function askSignals(
+  companyId: number,
+  question: string,
+  quotedText?: string | null,
+): Promise<import("./types").AskSignalsResponse> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockAskSignals } = await import("@/lib/signals-mocks");
+    return mockAskSignals(question);
+  }
+  return post<import("./types").AskSignalsResponse>(
+    `/api/companies/${companyId}/signals/ask`,
+    quotedText ? { question, quotedText } : { question },
+  );
+}
+
+

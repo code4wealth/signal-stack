@@ -787,3 +787,202 @@ export type CollectedItemsFilters = {
   dateTo?: string;
 };
 
+// ---------------------------------------------------------------------------
+// Intelligence Feed / Signals (Step 5)
+// ---------------------------------------------------------------------------
+
+export type SignalClassification = "opportunity" | "threat" | "neutral";
+export type SignalImpactLevel = "high" | "medium" | "low";
+export type SignalStatus = "new" | "saved" | "in_brief" | "dismissed";
+export type SignalFeedback = "useful" | "not_useful";
+export type SignalRange = "week" | "30d" | "90d" | "all";
+export type SignalTab =
+  | "overview"
+  | "feed"
+  | "opportunities"
+  | "threats"
+  | "saved"
+  | "dismissed";
+export type SignalSort = "priority" | "newest" | "confidence";
+
+export type SignalPriorityReason = {
+  label: string;
+  weight: number;
+};
+
+export type SignalAssumptionRef = {
+  type: "interview" | "profile";
+  id: string;
+  label: string;
+};
+
+export type SignalRecommendedAction = {
+  text: string;
+  effort?: "low" | "medium" | "high" | null;
+  timeframe?: string | null;
+};
+
+export type SignalItem = {
+  id: number;
+  companyId: number;
+  category: SourceCategory;
+  classification: SignalClassification;
+  headline: string;
+  evidenceSummary: string;
+  whyItMatters: string;
+  potentialImpact: string;
+  impactLevel: SignalImpactLevel;
+  recommendedAction: SignalRecommendedAction;
+  priority: 1 | 2 | 3 | 4 | 5;
+  priorityValue: number;
+  priorityReasons: SignalPriorityReason[];
+  confidence: ConfidenceLevel;
+  evidenceIds: string[];
+  itemIds: string[];
+  sourceDomains: string[];
+  assumptionRefs: SignalAssumptionRef[];
+  limitations?: string | null;
+  publishedAt?: string | null;
+  detectedAt?: string | null;
+  status: SignalStatus;
+  feedback?: SignalFeedback | null;
+  relatedSignalIds?: string[];
+  verified: boolean;
+  sourceName?: string;
+  sourceId?: number | null;
+  isMock?: boolean;
+};
+
+export type SignalDailyBucket = {
+  date: string;
+  opportunities: number;
+  threats: number;
+  neutral: number;
+  topHeadline?: string | null;
+};
+
+export type SignalAnalysisStep = {
+  label: string;
+  status: "done" | "running" | "pending";
+};
+
+export type SignalWatchlistItem = {
+  title: string;
+  domain: string;
+  expectedAt?: string | null;
+};
+
+export type SignalsOverviewResponse = {
+  range: SignalRange;
+  kpis: {
+    newSignals: number;
+    opportunities: number;
+    threats: number;
+    needsAttention: number;
+    evidenceCoveragePct: number;
+    highPriorityOpportunities: number;
+    highPriorityThreats: number;
+    deltaPct: {
+      newSignals: number | null;
+      opportunities: number | null;
+      threats: number | null;
+      needsAttention: number | null;
+    };
+  };
+  daily: SignalDailyBucket[];
+  previousPeriodTotal: number;
+  avgPriority: number;
+  verifiedPct: number;
+  topSignals: SignalItem[];
+  topOpportunities: SignalItem[];
+  topThreats: SignalItem[];
+  byCategory: {
+    category: SourceCategory;
+    count: number;
+  }[];
+  avgConfidence: string;
+  sourcesUsed: number;
+  awaitingReview: number;
+  inBriefCount: number;
+  latestEvidence: CollectedItem[];
+  watchlist: SignalWatchlistItem[];
+  analysisStatus: "idle" | "running" | "failed";
+  analysisError?: string | null;
+  analysisSteps: SignalAnalysisStep[];
+  unanalysedItems: number;
+  lastAnalysedAt?: string | null;
+  suggestedQuestions: string[];
+  countsByStatus: {
+    all: number;
+    new: number;
+    saved: number;
+    in_brief: number;
+    dismissed: number;
+    opportunities: number;
+    threats: number;
+  };
+  isMock?: boolean;
+};
+
+export type SignalsListFilters = {
+  category?: SourceCategory[];
+  classification?: SignalClassification | "all";
+  minPriority?: number;
+  sourceId?: number;
+  status?: SignalStatus | "all";
+  dateFrom?: string;
+  dateTo?: string;
+  q?: string;
+  sort?: SignalSort;
+};
+
+export type SignalsListResponse = {
+  items: SignalItem[];
+  evidenceById: Record<string, CollectedItem>;
+  nextCursor: string | null;
+  total: number;
+  countsByClassification: {
+    opportunity: number;
+    threat: number;
+    neutral: number;
+  };
+  countsByCategory: Record<SourceCategory, number>;
+  isMock?: boolean;
+};
+
+export type SignalDetailResponse = {
+  signal: SignalItem;
+  evidenceItems: CollectedItem[];
+  relatedSignals: SignalItem[];
+  isMock?: boolean;
+};
+
+export type SignalPatchPayload = {
+  status?: SignalStatus;
+  feedback?: SignalFeedback;
+  feedbackComment?: string;
+};
+
+export type AskCitation = {
+  signalId: string;
+  evidenceId: string;
+  label: string;
+};
+
+export type AskSignalsResponse = {
+  answer: string;
+  citations: AskCitation[];
+  suggestedQuestions: string[];
+};
+
+export type AskMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  quotedText?: string | null;
+  citations?: AskCitation[];
+  noEvidence?: boolean;
+  createdAt: string;
+};
+
+

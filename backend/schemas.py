@@ -242,6 +242,11 @@ class Analysis(BaseModel):
     signal_type: str = Field(default="news", description="e.g. launch, hire, funding, partnership")
     sentiment: Literal["positive", "neutral", "negative"] = "neutral"
     classification: Literal["opportunity", "threat", "neutral", "uncertain"] = "neutral"
+    why_it_matters: str = Field(default="", description="Why this matters specifically to the company")
+    recommended_action: str = Field(default="", description="Concrete recommended action for the company")
+    effort: Literal["low", "medium", "high"] | None = None
+    timeframe: str | None = None
+    limitations: str = Field(default="")
 
 
 # --------------------------------------------------------------------------- #
@@ -327,4 +332,27 @@ class CrawlRunStartIn(BaseModel):
 
 class CrawlerSettingsPatchIn(BaseModel):
     maxPagesPerRun: int | None = Field(default=None, ge=1, le=500)
+
+
+class SignalPatchIn(BaseModel):
+    status: Literal["new", "saved", "in_brief", "dismissed"] | None = None
+    feedback: Literal["useful", "not_useful"] | None = None
+    feedbackComment: str | None = Field(default=None, max_length=1000)
+
+
+class SignalsBulkIn(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=200)
+    patch: SignalPatchIn
+
+
+class SignalsAskIn(BaseModel):
+    question: str = Field(min_length=2, max_length=1200)
+    quotedText: str | None = Field(default=None, max_length=600)
+
+
+class SignalsAskLLMOut(BaseModel):
+    answer: str
+    cited_record_ids: list[int] = Field(default_factory=list)
+    suggested_questions: list[str] = Field(default_factory=list, max_length=4)
+
 

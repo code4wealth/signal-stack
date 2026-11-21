@@ -185,7 +185,7 @@ export function EvidenceDrawer({
           <div className="flex items-center justify-between gap-2 border-t border-[#1F2125]/8 bg-white/75 px-5 py-3.5">
             {item ? (
               <Link
-                href={`/company/${companyId}/intelligence?item=${item.id}`}
+                href={`/company/${companyId}/signals?item=${item.id}`}
                 className="btn-motion focus-ring inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#1C1D21] px-4 text-xs font-medium text-white no-underline hover:bg-[#2a2c32]"
               >
                 View in Signals →

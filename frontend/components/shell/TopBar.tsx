@@ -15,8 +15,12 @@ function resolveStepLabel(pathname: string, companyId: number): string {
   }
   if (pathname === `${base}/competitors`) return "Step 4 of 6: Competitor discovery";
   if (pathname === `${base}/crawler`) return "Step 4 of 6: Monitor sources";
-  if (pathname === `${base}/intelligence`) return "Step 5 of 6: Analyse signals";
-  if (pathname === `${base}/briefs`) return "Step 6 of 6: Monday Morning Brief";
+  if (pathname === `${base}/signals` || pathname === `${base}/intelligence`) {
+    return "Step 5 of 6: Analyse signals";
+  }
+  if (pathname === `${base}/briefs` || pathname === `${base}/brief`) {
+    return "Step 6 of 6: Monday Morning Brief";
+  }
   if (pathname === `${base}/automation`) return "Operations: Automation & documents";
   return "Signal Stack workspace";
 }
@@ -26,9 +30,9 @@ function resolveSectionLabel(pathname: string, companyId: number): string | null
   if (pathname === `${base}/interview`) return "Interview";
   if (pathname === `${base}/competitors`) return "Competitors";
   if (pathname === `${base}/sources` || pathname === `${base}/signal-stack`) return "Signal Stack";
-  if (pathname === `${base}/intelligence`) return "Signals";
+  if (pathname === `${base}/signals` || pathname === `${base}/intelligence`) return "Signals";
   if (pathname === `${base}/crawler`) return "Crawler";
-  if (pathname === `${base}/briefs`) return "Briefs";
+  if (pathname === `${base}/briefs` || pathname === `${base}/brief`) return "Briefs";
   if (pathname === `${base}/automation`) return "Automation";
   return null;
 }

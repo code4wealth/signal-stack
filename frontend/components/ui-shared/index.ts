@@ -1,10 +1,14 @@
+export { ActionBox } from "./ActionBox";
 export { CategoryBadge } from "./CategoryBadge";
+export { ClassificationPill } from "./ClassificationPill";
 export { ConfidenceBadge } from "./ConfidenceBadge";
 export { EditableField } from "./EditableField";
 export { EmptyState } from "./EmptyState";
+export { EvidenceBlock } from "./EvidenceBlock";
 export { EvidenceChip } from "./EvidenceChip";
 export { GlassCard } from "./GlassCard";
 export { PageContainer } from "./PageContainer";
+export { PriorityDots } from "./PriorityDots";
 export { SectionHeader } from "./SectionHeader";
 export { SkeletonBlock } from "./SkeletonBlock";
 export { StatCard } from "./StatCard";

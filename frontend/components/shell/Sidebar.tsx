@@ -29,7 +29,7 @@ import {
   X,
 } from "lucide-react";
 
-import { getCrawlerOverview } from "@/lib/api";
+import { getCrawlerOverview, getSignalsOverview } from "@/lib/api";
 import type { Company, CompanyRecord, WorkflowStepState } from "@/lib/types";
 import { extractDomain } from "@/lib/company-adapter";
 import { FAST_TRANSITION } from "@/lib/motion";
@@ -129,6 +129,19 @@ export function Sidebar({
     briefs: "locked",
   };
 
+  const signalsOverviewQuery = useQuery({
+    queryKey: ["signals-overview", companyId, "30d"],
+    queryFn: () => getSignalsOverview(companyId, "30d"),
+    enabled:
+      Number.isFinite(companyId) &&
+      companyId > 0 &&
+      workflow.signals !== "locked",
+    staleTime: 30_000,
+    retry: 0,
+  });
+
+  const unreviewedSignalsCount = signalsOverviewQuery.data?.countsByStatus?.new ?? 0;
+
   const workflowItems: {
     key: keyof typeof workflow;
     label: string;
@@ -136,6 +149,7 @@ export function Sidebar({
     Icon: typeof Building2;
     active: boolean;
     state: WorkflowStepState;
+    badgeCount?: number;
   }[] = [
     {
       key: "company",
@@ -164,17 +178,18 @@ export function Sidebar({
     {
       key: "signals",
       label: "Signals",
-      href: `${base}/intelligence`,
+      href: `${base}/signals`,
       Icon: Radar,
-      active: pathname === `${base}/intelligence`,
+      active: pathname === `${base}/signals` || pathname === `${base}/intelligence`,
       state: workflow.signals,
+      badgeCount: unreviewedSignalsCount,
     },
     {
       key: "briefs",
       label: "Briefs",
       href: `${base}/briefs`,
       Icon: FileText,
-      active: pathname === `${base}/briefs`,
+      active: pathname === `${base}/briefs` || pathname === `${base}/brief`,
       state: workflow.briefs,
     },
   ];
@@ -203,7 +218,7 @@ export function Sidebar({
     },
     {
       label: "Market",
-      href: `${base}/intelligence`,
+      href: `${base}/signals?category=market`,
       Icon: Globe,
       color: "text-[#2563EB]",
       count: counts.market,
@@ -364,7 +379,12 @@ export function Sidebar({
                       <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
                       <span className="md:hidden xl:inline">{item.label}</span>
                     </span>
-                    <span className="md:hidden xl:inline-flex">
+                    <span className="md:hidden xl:inline-flex items-center gap-1.5">
+                      {item.badgeCount && item.badgeCount > 0 ? (
+                        <span className="tabular rounded-full bg-[#4F46E5]/10 px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-[#4F46E5]">
+                          {item.badgeCount}
+                        </span>
+                      ) : null}
                       <StepDot state={item.state} />
                     </span>
                   </Link>

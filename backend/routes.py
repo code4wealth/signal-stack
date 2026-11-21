@@ -21,6 +21,10 @@ from schemas import (
     CrawlRunStartIn,
     CrawlerSettingsPatchIn,
     ProfilePatch,
+    SignalPatchIn,
+    SignalsAskIn,
+    SignalsAskLLMOut,
+    SignalsBulkIn,
     SourceBulkPatch,
     SourceCreate,
     SourcePatch,
@@ -175,10 +179,13 @@ def _compute_workflow_status(db: Session, company: Company) -> dict:
             select(func.count(JobLog.id)).where(
                 JobLog.company_id == company.id,
                 JobLog.job == "crawl_run",
-                JobLog.status.in_(["completed", "partial", "failed"]),
+                JobLog.status.in_(["completed", "partial"]),
             )
         )
         or 0
+    )
+    crawled_records_count = (
+        db.scalar(select(func.count(Record.id)).where(Record.company_id == company.id)) or 0
     )
     signal_stack_confirmed = bool(meta.get("signal_stack_confirmed_at")) or crawl_runs_done > 0
 
@@ -195,7 +202,7 @@ def _compute_workflow_status(db: Session, company: Company) -> dict:
         else ("current" if signal_stack_confirmed else "locked"),
         "signals": "done"
         if analysed_records > 0
-        else ("current" if (crawl_runs_done > 0 or approved_sources > 0) else "locked"),
+        else ("current" if (crawl_runs_done > 0 or crawled_records_count > 0) else "locked"),
         "briefs": "done"
         if reports_count > 0
         else ("current" if analysed_records > 0 else "locked"),
@@ -2502,4 +2509,789 @@ def patch_crawler_settings(
     company.profile = profile
     db.commit()
     return {"maxPagesPerRun": cfg.get("maxPagesPerRun")}
+
+
+# --------------------------------------------------------------------------- #
+# Intelligence Feed / Signals (Step 5)
+# --------------------------------------------------------------------------- #
+def _signal_range_days(range_key: str) -> int | None:
+    return {"week": 7, "30d": 30, "90d": 90, "all": None}.get(range_key, 30)
+
+
+def _map_classification(raw: str | None) -> str:
+    if raw in ("opportunity", "threat", "neutral"):
+        return raw
+    return "neutral"
+
+
+def _map_category(source: Source | None, analysis: dict) -> str:
+    cat = (source.category if source else None) or analysis.get("category") or "market"
+    if cat in ("customers", "competitors", "market", "internal"):
+        return cat
+    return "market"
+
+
+def _priority_level(total: float) -> int:
+    if total >= 80:
+        return 5
+    if total >= 65:
+        return 4
+    if total >= 45:
+        return 3
+    if total >= 25:
+        return 2
+    return 1
+
+
+def _serialize_signal(
+    company: Company,
+    record: Record,
+    source: Source | None,
+    *,
+    related_ids: list[int] | None = None,
+) -> dict:
+    analysis = record.analysis or {}
+    scores = record.scores or {}
+    profile = company.profile or {}
+    meta = profile.get("_meta") or {}
+    states = meta.get("signal_states") or {}
+    feedback_map = meta.get("signal_feedback") or {}
+
+    classification = _map_classification(analysis.get("classification"))
+    category = _map_category(source, analysis)
+    domain = _domain_of(source.url if source else record.url)
+    clean_title = (analysis.get("title") or record.title or record.url).strip()
+    if clean_title.startswith("[UPDATED] "):
+        clean_title = clean_title[len("[UPDATED] "):]
+
+    total_val = float(record.total or analysis.get("total") or 0.0)
+    priority_value = max(0, min(100, int(round(total_val))))
+    priority = _priority_level(total_val)
+
+    impact_num = float(analysis.get("impact") or 0.0)
+    impact_level = "high" if impact_num >= 0.7 else ("medium" if impact_num >= 0.4 else "low")
+
+    verbatim = analysis.get("evidence_verbatim") is True
+    ev_strength = float(analysis.get("evidence_strength") or 0.0)
+    confidence = "high" if (verbatim and ev_strength >= 0.7) else ("medium" if (verbatim or ev_strength >= 0.4) else "low")
+
+    weights = scores.get("weights") or {}
+    priority_reasons: list[dict] = []
+    for key, label in (
+        ("relevance", "Strategic relevance"),
+        ("impact", "Business impact"),
+        ("urgency", "Time urgency"),
+        ("credibility", "Source credibility"),
+        ("recency", "Recency"),
+    ):
+        val = scores.get(key)
+        if val is not None:
+            priority_reasons.append({"label": label, "weight": int(round(float(val) * 100))})
+    if not priority_reasons:
+        priority_reasons = [
+            {"label": "Relevance", "weight": int(round(float(analysis.get("relevance") or 0.5) * 100))},
+            {"label": "Impact", "weight": int(round(impact_num * 100))},
+            {"label": "Urgency", "weight": int(round(float(analysis.get("urgency") or 0.5) * 100))},
+        ]
+
+    # Ground assumption refs in real founder interview answers or company profile facts
+    assumption_refs: list[dict] = []
+    intel = profile.get("intelligence") or {}
+    founder_answers = intel.get("founder_answers") or []
+    for fa in founder_answers[:2]:
+        topic = fa.get("topic") or "Founder answer"
+        idx = fa.get("index", 0)
+        assumption_refs.append(
+            {
+                "type": "interview",
+                "id": str(idx),
+                "label": f"Interview: {topic}",
+            }
+        )
+    if profile.get("industry"):
+        assumption_refs.append(
+            {
+                "type": "profile",
+                "id": "industry",
+                "label": f"Profile: {profile.get('industry')}",
+            }
+        )
+
+    why_it_matters = (analysis.get("why_it_matters") or analysis.get("summary") or "").strip()
+    rec_text = (analysis.get("recommended_action") or "").strip()
+    if not rec_text:
+        if classification == "opportunity":
+            rec_text = f"Evaluate how {company.name} can act on this signal: {analysis.get('summary') or clean_title}"
+        elif classification == "threat":
+            rec_text = f"Review risk and prepare response to: {analysis.get('summary') or clean_title}"
+        else:
+            rec_text = f"Monitor development from {domain}: {analysis.get('summary') or clean_title}"
+
+    fb_entry = feedback_map.get(str(record.id))
+    fb_val = fb_entry.get("feedback") if isinstance(fb_entry, dict) else fb_entry
+
+    status_val = states.get(str(record.id), "new")
+    if status_val not in ("new", "saved", "in_brief", "dismissed"):
+        status_val = "new"
+
+    ev_snippet = (analysis.get("evidence_snippet") or record.text or "")[:320]
+
+    return {
+        "id": record.id,
+        "companyId": company.id,
+        "category": category,
+        "classification": classification,
+        "headline": clean_title,
+        "evidenceSummary": ev_snippet,
+        "whyItMatters": why_it_matters,
+        "potentialImpact": (
+            f"{impact_level.capitalize()} business impact ({int(round(impact_num * 100))}/100)"
+        ),
+        "impactLevel": impact_level,
+        "recommendedAction": {
+            "text": rec_text,
+            "effort": analysis.get("effort"),
+            "timeframe": analysis.get("timeframe"),
+        },
+        "priority": priority,
+        "priorityValue": priority_value,
+        "priorityReasons": priority_reasons,
+        "confidence": confidence,
+        "evidenceIds": [str(record.id)],
+        "itemIds": [str(record.id)],
+        "sourceDomains": [domain],
+        "assumptionRefs": assumption_refs,
+        "limitations": (
+            analysis.get("limitations")
+            or analysis.get("flag")
+            or ("Single-source signal; no corroboration yet." if not related_ids else None)
+        ),
+        "publishedAt": record.published.isoformat() if record.published else None,
+        "detectedAt": (
+            analysis.get("analysed_at")
+            or (record.discovered.isoformat() if record.discovered else None)
+        ),
+        "status": status_val,
+        "feedback": fb_val if fb_val in ("useful", "not_useful") else None,
+        "relatedSignalIds": [str(rid) for rid in (related_ids or [])],
+        "verified": verbatim,
+        "sourceName": source.name if source else domain,
+        "sourceId": record.source_id,
+    }
+
+
+def _analysed_rows(db: Session, company_id: int) -> list[tuple[Record, Source | None]]:
+    return list(
+        db.execute(
+            select(Record, Source)
+            .outerjoin(Source, Record.source_id == Source.id)
+            .where(Record.company_id == company_id, Record.analysis.is_not(None))
+            .order_by(Record.total.desc(), Record.id.desc())
+        ).all()
+    )
+
+
+@router.get("/companies/{company_id}/signals/overview", tags=["signals"])
+def get_signals_overview(
+    company_id: int,
+    range_key: str = Query(default="30d", alias="range", pattern="^(week|30d|90d|all)$"),
+    db: Session = Depends(get_db),
+) -> dict:
+    from datetime import datetime, timedelta, timezone
+
+    company = get_company_or_404(db, company_id)
+    now = datetime.now(timezone.utc)
+    days = _signal_range_days(range_key)
+    rows = _analysed_rows(db, company_id)
+    rel_map = _related_records_map(rows)
+
+    all_signals = [
+        _serialize_signal(
+            company,
+            rec,
+            src,
+            related_ids=[r["id"] for r in rel_map.get(rec.id, [])],
+        )
+        for rec, src in rows
+    ]
+
+    def _rec_dt(sig: dict) -> datetime | None:
+        raw = sig.get("detectedAt")
+        if not raw:
+            return None
+        try:
+            dt = datetime.fromisoformat(raw)
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            return None
+
+    if days is not None:
+        cutoff = now - timedelta(days=days)
+        prev_cutoff = cutoff - timedelta(days=days)
+        in_range = [s for s in all_signals if (_rec_dt(s) or now) >= cutoff]
+        prev_range = [
+            s
+            for s in all_signals
+            if (_rec_dt(s) or now) >= prev_cutoff and (_rec_dt(s) or now) < cutoff
+        ]
+    else:
+        in_range = all_signals
+        prev_range = []
+
+    opp_list = [s for s in in_range if s["classification"] == "opportunity"]
+    threat_list = [s for s in in_range if s["classification"] == "threat"]
+    needs_att = [s for s in in_range if s["priority"] >= 4 and s["status"] == "new"]
+    verified_cnt = sum(1 for s in in_range if s["verified"])
+    evidence_cov = round((verified_cnt / len(in_range)) * 100) if in_range else 100
+
+    prev_has_data = len(prev_range) > 0
+    prev_opp = sum(1 for s in prev_range if s["classification"] == "opportunity")
+    prev_threat = sum(1 for s in prev_range if s["classification"] == "threat")
+    prev_att = sum(1 for s in prev_range if s["priority"] >= 4 and s["status"] == "new")
+
+    # Daily chart buckets
+    bucket_days = days if days is not None else 30
+    start_date = now.date() - timedelta(days=bucket_days - 1)
+    daily_map: dict[str, dict] = {}
+    for i in range(bucket_days):
+        d_str = (start_date + timedelta(days=i)).isoformat()
+        daily_map[d_str] = {
+            "date": d_str,
+            "opportunities": 0,
+            "threats": 0,
+            "neutral": 0,
+            "topHeadline": None,
+            "_topPriority": -1,
+        }
+
+    for s in in_range:
+        dt = _rec_dt(s)
+        if not dt:
+            continue
+        key = dt.date().isoformat()
+        if key not in daily_map:
+            continue
+        bucket = daily_map[key]
+        if s["classification"] == "opportunity":
+            bucket["opportunities"] += 1
+        elif s["classification"] == "threat":
+            bucket["threats"] += 1
+        else:
+            bucket["neutral"] += 1
+        if s["priorityValue"] > bucket["_topPriority"]:
+            bucket["_topPriority"] = s["priorityValue"]
+            bucket["topHeadline"] = s["headline"]
+
+    daily = [
+        {
+            "date": b["date"],
+            "opportunities": b["opportunities"],
+            "threats": b["threats"],
+            "neutral": b["neutral"],
+            "topHeadline": b["topHeadline"],
+        }
+        for b in [daily_map[k] for k in sorted(daily_map.keys())]
+    ]
+
+    non_dismissed = [s for s in in_range if s["status"] != "dismissed"]
+    top_signals = sorted(non_dismissed, key=lambda s: -s["priorityValue"])[:5]
+    top_opps = sorted(opp_list, key=lambda s: -s["priorityValue"])[:3]
+    top_threats = sorted(threat_list, key=lambda s: -s["priorityValue"])[:3]
+
+    by_category = [
+        {
+            "category": cat,
+            "count": sum(1 for s in in_range if s["category"] == cat),
+        }
+        for cat in ("customers", "competitors", "market", "internal")
+    ]
+
+    avg_priority = (
+        round(sum(s["priority"] for s in in_range) / len(in_range), 1)
+        if in_range
+        else 0.0
+    )
+    conf_scores = {"high": 3, "medium": 2, "low": 1}
+    avg_conf_num = (
+        sum(conf_scores.get(s["confidence"], 1) for s in in_range) / len(in_range)
+        if in_range
+        else 0.0
+    )
+    avg_confidence = (
+        "High" if avg_conf_num >= 2.5 else ("Medium" if avg_conf_num >= 1.6 else ("Low" if in_range else "—"))
+    )
+    sources_used = len({s.get("sourceId") for s in in_range if s.get("sourceId")})
+    awaiting_review = sum(1 for s in in_range if s["status"] == "new")
+
+    # Latest real collected evidence (not AI text)
+    ev_rows = db.execute(
+        select(Record, Source)
+        .outerjoin(Source, Record.source_id == Source.id)
+        .where(
+            Record.company_id == company_id,
+            (Source.category.is_(None)) | (Source.category != "internal"),
+        )
+        .order_by(Record.id.desc())
+        .limit(5)
+    ).all()
+    latest_evidence = [_serialize_collected_item(rec, src) for rec, src in ev_rows]
+
+    # Real watchlist from latest report if any
+    latest_report = db.scalar(
+        select(Report).where(Report.company_id == company_id).order_by(Report.id.desc()).limit(1)
+    )
+    watchlist: list[dict] = []
+    if latest_report and isinstance(latest_report.content, dict):
+        risks = latest_report.content.get("risks") or []
+        for rk in risks[:4]:
+            if isinstance(rk, dict) and rk.get("risk"):
+                watchlist.append(
+                    {
+                        "title": rk["risk"][:120],
+                        "domain": company.website,
+                        "expectedAt": None,
+                    }
+                )
+
+    unanalysed_items = (
+        db.scalar(
+            select(func.count(Record.id)).where(
+                Record.company_id == company_id, Record.analysis.is_(None)
+            )
+        )
+        or 0
+    )
+
+    latest_job = db.scalar(
+        select(JobLog)
+        .where(JobLog.company_id == company_id, JobLog.job == "job:analyse")
+        .order_by(JobLog.id.desc())
+        .limit(1)
+    )
+    analysis_status = "idle"
+    analysis_error: str | None = None
+    if latest_job:
+        if latest_job.status == "running":
+            analysis_status = "running"
+        elif latest_job.status == "error":
+            parsed = _parse_job_json(latest_job.detail)
+            # Only report failed if no signals exist or latest job just errored after last signal
+            analysis_status = "failed"
+            analysis_error = parsed.get("error") or latest_job.detail
+
+    analysis_steps = (
+        [
+            {"label": f"Reading {unanalysed_items} new item(s)", "status": "running" if analysis_status == "running" else "done"},
+            {"label": "Classifying", "status": "pending" if analysis_status == "running" else "done"},
+            {"label": "Scoring priority", "status": "pending" if analysis_status == "running" else "done"},
+            {"label": "Writing recommendations", "status": "pending" if analysis_status == "running" else "done"},
+        ]
+        if analysis_status == "running"
+        else []
+    )
+
+    last_analysed_at = max(
+        (s["detectedAt"] for s in all_signals if s.get("detectedAt")),
+        default=None,
+    )
+
+    suggested_questions: list[str] = []
+    if top_threats:
+        suggested_questions.append("Which threats should we address first this week?")
+    if top_opps:
+        suggested_questions.append("What are our highest-priority growth opportunities?")
+    if any(s["category"] == "competitors" for s in in_range):
+        suggested_questions.append("Which competitor changes matter most right now?")
+
+    return {
+        "range": range_key,
+        "kpis": {
+            "newSignals": len(in_range),
+            "opportunities": len(opp_list),
+            "threats": len(threat_list),
+            "needsAttention": len(needs_att),
+            "evidenceCoveragePct": evidence_cov,
+            "highPriorityOpportunities": sum(1 for s in opp_list if s["priority"] >= 4),
+            "highPriorityThreats": sum(1 for s in threat_list if s["priority"] >= 4),
+            "deltaPct": {
+                "newSignals": _compute_delta_pct(len(in_range), len(prev_range)) if prev_has_data else None,
+                "opportunities": _compute_delta_pct(len(opp_list), prev_opp) if prev_has_data else None,
+                "threats": _compute_delta_pct(len(threat_list), prev_threat) if prev_has_data else None,
+                "needsAttention": _compute_delta_pct(len(needs_att), prev_att) if prev_has_data else None,
+            },
+        },
+        "daily": daily,
+        "previousPeriodTotal": len(prev_range),
+        "avgPriority": avg_priority,
+        "verifiedPct": evidence_cov,
+        "topSignals": top_signals,
+        "topOpportunities": top_opps,
+        "topThreats": top_threats,
+        "byCategory": by_category,
+        "avgConfidence": avg_confidence,
+        "sourcesUsed": sources_used,
+        "awaitingReview": awaiting_review,
+        "inBriefCount": sum(1 for s in all_signals if s["status"] == "in_brief"),
+        "latestEvidence": latest_evidence,
+        "watchlist": watchlist,
+        "analysisStatus": analysis_status,
+        "analysisError": analysis_error,
+        "analysisSteps": analysis_steps,
+        "unanalysedItems": unanalysed_items,
+        "lastAnalysedAt": last_analysed_at,
+        "suggestedQuestions": suggested_questions,
+        "countsByStatus": {
+            "all": len(all_signals),
+            "new": sum(1 for s in all_signals if s["status"] == "new"),
+            "saved": sum(1 for s in all_signals if s["status"] == "saved"),
+            "in_brief": sum(1 for s in all_signals if s["status"] == "in_brief"),
+            "dismissed": sum(1 for s in all_signals if s["status"] == "dismissed"),
+            "opportunities": sum(1 for s in all_signals if s["classification"] == "opportunity" and s["status"] != "dismissed"),
+            "threats": sum(1 for s in all_signals if s["classification"] == "threat" and s["status"] != "dismissed"),
+        },
+    }
+
+
+@router.get("/companies/{company_id}/signals", tags=["signals"])
+def list_company_signals(
+    company_id: int,
+    category: str | None = Query(default=None),
+    classification: str | None = Query(default=None),
+    minPriority: int | None = Query(default=None, ge=1, le=5),
+    sourceId: int | None = Query(default=None),
+    status: str | None = Query(default=None),
+    dateFrom: str | None = Query(default=None),
+    dateTo: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+    sort: str = Query(default="priority", pattern="^(priority|newest|confidence)$"),
+    cursor: int | None = Query(default=None),
+    limit: int = Query(default=25, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> dict:
+    from datetime import datetime, timezone
+
+    company = get_company_or_404(db, company_id)
+    rows = _analysed_rows(db, company_id)
+    rel_map = _related_records_map(rows)
+
+    rec_by_id: dict[int, tuple[Record, Source | None]] = {rec.id: (rec, src) for rec, src in rows}
+    all_signals = [
+        _serialize_signal(
+            company,
+            rec,
+            src,
+            related_ids=[r["id"] for r in rel_map.get(rec.id, [])],
+        )
+        for rec, src in rows
+    ]
+
+    cat_filters = {c.strip() for c in category.split(",")} if category else set()
+    needle = (q or "").strip().lower()
+    from_dt = datetime.fromisoformat(dateFrom).replace(tzinfo=timezone.utc) if dateFrom else None
+    to_dt = (
+        datetime.fromisoformat(dateTo).replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+        if dateTo
+        else None
+    )
+
+    filtered: list[dict] = []
+    for sig in all_signals:
+        if cat_filters and sig["category"] not in cat_filters:
+            continue
+        if classification and classification != "all" and sig["classification"] != classification:
+            continue
+        if minPriority is not None and sig["priority"] < minPriority:
+            continue
+        if sourceId is not None and sig.get("sourceId") != sourceId:
+            continue
+        if status and status != "all":
+            if sig["status"] != status:
+                continue
+        elif not status:
+            # Default feed hides dismissed unless explicitly queried
+            if sig["status"] == "dismissed":
+                continue
+
+        if from_dt or to_dt:
+            raw_dt = sig.get("detectedAt")
+            if raw_dt:
+                dt = datetime.fromisoformat(raw_dt)
+                dt = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+                if from_dt and dt < from_dt:
+                    continue
+                if to_dt and dt > to_dt:
+                    continue
+
+        if needle:
+            hay = f"{sig['headline']} {sig['evidenceSummary']} {sig['whyItMatters']} {sig['recommendedAction']['text']}".lower()
+            if needle not in hay:
+                continue
+        filtered.append(sig)
+
+    conf_rank = {"high": 3, "medium": 2, "low": 1}
+    if sort == "newest":
+        filtered.sort(key=lambda s: (s.get("detectedAt") or "", s["id"]), reverse=True)
+    elif sort == "confidence":
+        filtered.sort(key=lambda s: (conf_rank.get(s["confidence"], 0), s["priorityValue"]), reverse=True)
+    else:
+        filtered.sort(key=lambda s: (s["priorityValue"], s["id"]), reverse=True)
+
+    total = len(filtered)
+    offset = max(0, cursor or 0)
+    page = filtered[offset : offset + limit]
+    next_cursor = str(offset + limit) if (offset + limit) < total else None
+
+    evidence_by_id: dict[str, dict] = {}
+    for sig in page:
+        rec, src = rec_by_id[sig["id"]]
+        evidence_by_id[str(sig["id"])] = _serialize_collected_item(rec, src, excerpt_len=360)
+
+    return {
+        "items": page,
+        "evidenceById": evidence_by_id,
+        "nextCursor": next_cursor,
+        "total": total,
+        "countsByClassification": {
+            "opportunity": sum(1 for s in filtered if s["classification"] == "opportunity"),
+            "threat": sum(1 for s in filtered if s["classification"] == "threat"),
+            "neutral": sum(1 for s in filtered if s["classification"] == "neutral"),
+        },
+        "countsByCategory": {
+            cat: sum(1 for s in filtered if s["category"] == cat)
+            for cat in ("customers", "competitors", "market", "internal")
+        },
+    }
+
+
+@router.get("/companies/{company_id}/signals/{signal_id}", tags=["signals"])
+def get_company_signal(company_id: int, signal_id: int, db: Session = Depends(get_db)) -> dict:
+    from research import normalise_url
+
+    company = get_company_or_404(db, company_id)
+    record = db.get(Record, signal_id)
+    if record is None or record.company_id != company_id or record.analysis is None:
+        raise HTTPException(status_code=404, detail=f"signal {signal_id} not found")
+    source = db.get(Source, record.source_id) if record.source_id else None
+    rows = _analysed_rows(db, company_id)
+    rel_map = _related_records_map(rows)
+    signal = _serialize_signal(
+        company,
+        record,
+        source,
+        related_ids=[r["id"] for r in rel_map.get(record.id, [])],
+    )
+
+    diff: dict | None = None
+    if record.is_update:
+        target_key = normalise_url(record.url)
+        prior = [
+            r
+            for r in db.scalars(
+                select(Record)
+                .where(Record.company_id == company_id, Record.id < record.id)
+                .order_by(Record.id.desc())
+            ).all()
+            if normalise_url(r.url) == target_key
+        ]
+        if prior:
+            diff = {"before": (prior[0].text or "")[:500], "after": (record.text or "")[:500]}
+
+    return {
+        "signal": signal,
+        "evidenceItems": [_serialize_collected_item(record, source, excerpt_len=1000, diff=diff)],
+        "relatedSignals": [
+            _serialize_signal(company, r_rec, r_src)
+            for r_rec, r_src in rows
+            if str(r_rec.id) in signal["relatedSignalIds"]
+        ],
+    }
+
+
+@router.patch("/companies/{company_id}/signals/{signal_id}", tags=["signals"])
+def patch_company_signal(
+    company_id: int,
+    signal_id: int,
+    payload: SignalPatchIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    company = get_company_or_404(db, company_id)
+    record = db.get(Record, signal_id)
+    if record is None or record.company_id != company_id or record.analysis is None:
+        raise HTTPException(status_code=404, detail=f"signal {signal_id} not found")
+
+    profile = dict(company.profile or {})
+    meta = dict(profile.get("_meta") or {})
+    states = dict(meta.get("signal_states") or {})
+    feedback_map = dict(meta.get("signal_feedback") or {})
+
+    if payload.status is not None:
+        states[str(signal_id)] = payload.status
+    if payload.feedback is not None:
+        feedback_map[str(signal_id)] = {
+            "feedback": payload.feedback,
+            "comment": payload.feedbackComment or "",
+        }
+
+    meta["signal_states"] = states
+    meta["signal_feedback"] = feedback_map
+    profile["_meta"] = meta
+    company.profile = profile
+    db.commit()
+    db.refresh(company)
+
+    source = db.get(Source, record.source_id) if record.source_id else None
+    return _serialize_signal(company, record, source)
+
+
+@router.post("/companies/{company_id}/signals/bulk", tags=["signals"])
+def bulk_update_company_signals(
+    company_id: int,
+    payload: SignalsBulkIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    company = get_company_or_404(db, company_id)
+    profile = dict(company.profile or {})
+    meta = dict(profile.get("_meta") or {})
+    states = dict(meta.get("signal_states") or {})
+    feedback_map = dict(meta.get("signal_feedback") or {})
+
+    valid_ids = set(
+        db.scalars(
+            select(Record.id).where(
+                Record.company_id == company_id,
+                Record.analysis.is_not(None),
+                Record.id.in_(payload.ids),
+            )
+        ).all()
+    )
+    updated_count = 0
+    for sid in valid_ids:
+        if payload.patch.status is not None:
+            states[str(sid)] = payload.patch.status
+        if payload.patch.feedback is not None:
+            feedback_map[str(sid)] = {
+                "feedback": payload.patch.feedback,
+                "comment": payload.patch.feedbackComment or "",
+            }
+        updated_count += 1
+
+    meta["signal_states"] = states
+    meta["signal_feedback"] = feedback_map
+    profile["_meta"] = meta
+    company.profile = profile
+    db.commit()
+    return {"updatedCount": updated_count}
+
+
+@router.post("/companies/{company_id}/signals/analyse", status_code=202, tags=["signals"])
+def run_signals_analysis(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import jobs
+
+    get_company_or_404(db, company_id)
+    existing = db.scalar(
+        select(JobLog)
+        .where(
+            JobLog.company_id == company_id,
+            JobLog.job == "job:analyse",
+            JobLog.status == "running",
+        )
+        .order_by(JobLog.id.desc())
+        .limit(1)
+    )
+    if existing is not None:
+        return {"id": existing.id, "job": "analyse", "status": "running"}
+    return jobs.start_company_job(db, company_id, "analyse")
+
+
+@router.post("/companies/{company_id}/signals/ask", tags=["signals"])
+def ask_company_signals(
+    company_id: int,
+    payload: SignalsAskIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    import re as _re
+    import llm
+    from config import get_settings
+
+    company = get_company_or_404(db, company_id)
+    settings = get_settings()
+    rows = _analysed_rows(db, company_id)
+    if not rows:
+        return {"answer": "", "citations": [], "suggestedQuestions": []}
+
+    q_text = f"{payload.question} {payload.quotedText or ''}".lower()
+    tokens = {tok for tok in _re.findall(r"[a-z0-9]{3,}", q_text) if tok not in _CORROBORATION_STOPWORDS}
+
+    scored_matches: list[tuple[int, Record, Source | None]] = []
+    for rec, src in rows:
+        a = rec.analysis or {}
+        hay = f"{a.get('title') or rec.title} {a.get('summary') or ''} {rec.text[:800]} {src.category if src else ''}".lower()
+        overlap = sum(1 for tok in tokens if tok in hay)
+        if overlap > 0 or not tokens:
+            scored_matches.append((overlap, rec, src))
+
+    if not scored_matches:
+        return {"answer": "", "citations": [], "suggestedQuestions": []}
+
+    scored_matches.sort(key=lambda item: (-item[0], -item[1].total))
+    top_matches = scored_matches[:5]
+
+    if settings.has_groq_key:
+        try:
+            evidence_context = "\n\n".join(
+                f"[Record {rec.id}] ({src.category if src else 'market'}, {_domain_of(src.url if src else rec.url)}) "
+                f"Title: {(rec.analysis or {}).get('title') or rec.title}\n"
+                f"Summary: {(rec.analysis or {}).get('summary') or ''}\n"
+                f"Verbatim evidence: {(rec.analysis or {}).get('evidence_snippet') or rec.text[:300]}"
+                for _, rec, src in top_matches
+            )
+            prompt = (
+                f"You are answering a founder question about {company.name}'s monitored signals.\n"
+                f"Question: {payload.question}\n"
+                + (f"Quoted context: {payload.quotedText}\n" if payload.quotedText else "")
+                + "\nRules:\n"
+                "- Answer strictly using ONLY the records below.\n"
+                "- Populate cited_record_ids with the exact integer Record IDs you relied on.\n"
+                "- If none of the records answer the question, return empty cited_record_ids.\n\n"
+                + evidence_context
+            )
+            llm_out = llm.ask(prompt, SignalsAskLLMOut, max_tokens=700)
+            valid_ids = {rec.id for _, rec, _ in top_matches}
+            cited = [rid for rid in llm_out.cited_record_ids if rid in valid_ids]
+            if not cited:
+                return {"answer": "", "citations": [], "suggestedQuestions": llm_out.suggested_questions}
+            rec_lookup = {rec.id: (rec, src) for _, rec, src in top_matches}
+            citations = [
+                {
+                    "signalId": str(rid),
+                    "evidenceId": str(rid),
+                    "label": ((rec_lookup[rid][0].analysis or {}).get("title") or rec_lookup[rid][0].title)[:90],
+                }
+                for rid in cited
+            ]
+            return {
+                "answer": llm_out.answer,
+                "citations": citations,
+                "suggestedQuestions": llm_out.suggested_questions,
+            }
+        except Exception:
+            pass
+
+    # Deterministic grounded fallback using strictly verified stored summaries
+    bullets = []
+    citations = []
+    for _, rec, src in top_matches[:3]:
+        a = rec.analysis or {}
+        title = (a.get("title") or rec.title)[:90]
+        summary = (a.get("summary") or rec.text[:220]).strip()
+        domain = _domain_of(src.url if src else rec.url)
+        bullets.append(f"• {title} ({domain}): {summary}")
+        citations.append({"signalId": str(rec.id), "evidenceId": str(rec.id), "label": title})
+
+    return {
+        "answer": "Based on the collected signals:\n" + "\n".join(bullets),
+        "citations": citations,
+        "suggestedQuestions": [],
+    }
+
 
