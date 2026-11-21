@@ -74,6 +74,45 @@ def normalise_url(url: str) -> str:
     return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{path}"
 
 
+_TRACKING_QUERY_PARAMS = {
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "fbclid",
+    "gclid",
+    "mc_cid",
+    "mc_eid",
+    "ref",
+}
+
+
+def canonical_url_key(url: str) -> str:
+    """Canonical URL key for deduplication: ignores http/https, www., trailing slash, fragments, and tracking params."""
+    from urllib.parse import parse_qsl, urlencode
+
+    raw = (url or "").strip()
+    try:
+        parsed = urlparse(raw)
+    except ValueError:
+        return raw.lower()
+    scheme = parsed.scheme.lower()
+    host = parsed.netloc.lower()
+    path = parsed.path.rstrip("/") or "/"
+    if scheme == "upload":
+        return f"upload://{host}{path}"
+    if host.startswith("www."):
+        host = host[4:]
+    clean_qs = [
+        (k, v)
+        for k, v in parse_qsl(parsed.query, keep_blank_values=False)
+        if k.lower() not in _TRACKING_QUERY_PARAMS
+    ]
+    query_str = f"?{urlencode(sorted(clean_qs))}" if clean_qs else ""
+    return f"{host}{path}{query_str}"
+
+
 @dataclass
 class Page:
     url: str

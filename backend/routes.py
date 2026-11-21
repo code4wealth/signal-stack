@@ -132,15 +132,35 @@ def create_company(payload: CompanyCreate, db: Session = Depends(get_db)) -> Com
 @router.post("/companies/research", status_code=202, tags=["companies", "research", "jobs"])
 def create_company_and_start_research(payload: CompanyResearchIn, db: Session = Depends(get_db)) -> dict:
     import jobs
+    from research import canonical_url_key
 
     raw_url = payload.websiteUrl.strip()
     if not raw_url.lower().startswith(("http://", "https://")):
         raw_url = f"https://{raw_url}"
     website = _validate_http_url(raw_url, field="websiteUrl")
+    clean_name = payload.companyName.strip()
+    clean_context = payload.context.strip()
+    target_key = canonical_url_key(website)
+
+    existing = next(
+        (
+            c
+            for c in db.scalars(select(Company).order_by(Company.id.asc())).all()
+            if (c.name or "").strip().lower() == clean_name.lower()
+            and canonical_url_key(c.website) == target_key
+        ),
+        None,
+    )
+    if existing is not None:
+        if clean_context and not existing.context:
+            existing.context = clean_context
+            db.commit()
+        return jobs.start_company_job(db, existing.id, "research")
+
     company = Company(
-        name=payload.companyName.strip(),
+        name=clean_name,
         website=website,
-        context=payload.context.strip(),
+        context=clean_context,
     )
     db.add(company)
     db.commit()
@@ -731,6 +751,7 @@ def discover_sources(company_id: int, db: Session = Depends(get_db)) -> dict:
 @router.post("/companies/{company_id}/sources", status_code=201, tags=["sources"])
 def add_source(company_id: int, payload: SourceCreate, db: Session = Depends(get_db)):
     import discovery
+    from research import canonical_url_key
 
     company = get_company_or_404(db, company_id)
     raw_url = payload.url.strip()
@@ -738,10 +759,13 @@ def add_source(company_id: int, payload: SourceCreate, db: Session = Depends(get
         raw_url = f"https://{raw_url}"
     _validate_http_url(raw_url, "url")
     existing = db.scalars(select(Source).where(Source.company_id == company_id)).all()
-    if any(source.url.rstrip("/") == raw_url.rstrip("/") for source in existing):
+    existing_keys = {canonical_url_key(source.url) for source in existing}
+    if canonical_url_key(raw_url) in existing_keys:
         raise HTTPException(status_code=409, detail="this source already exists for the company")
 
     ok, detail, final_url, feed_url = discovery.verify_candidate(raw_url)
+    if canonical_url_key(final_url) in existing_keys:
+        raise HTTPException(status_code=409, detail="this source already exists for the company")
     detail_lower = (detail or "").lower()
     robots_blocked = "robots" in detail_lower
     validation = {
@@ -1696,18 +1720,33 @@ def apply_signal_stack_audit(
                 if row and row.company_id == company_id:
                     row.status = "rejected"
             elif action == "add" and src_data.get("url"):
-                db.add(
-                    Source(
-                        company_id=company_id,
-                        name=src_data.get("name") or src_data["url"],
-                        url=src_data["url"],
-                        category=src_data.get("category") or "market",
-                        source_type=src_data.get("type") or "webpage",
-                        reason=prop.get("reasoning") or "Proposed by monthly source audit",
-                        status="approved",
-                        health="ok",
-                    )
+                from research import canonical_url_key
+
+                target_key = canonical_url_key(src_data["url"])
+                existing_match = next(
+                    (
+                        s
+                        for s in db.scalars(select(Source).where(Source.company_id == company_id)).all()
+                        if canonical_url_key(s.url) == target_key
+                    ),
+                    None,
                 )
+                if existing_match is not None:
+                    existing_match.status = "approved"
+                    existing_match.health = "ok"
+                else:
+                    db.add(
+                        Source(
+                            company_id=company_id,
+                            name=src_data.get("name") or src_data["url"],
+                            url=src_data["url"],
+                            category=src_data.get("category") or "market",
+                            source_type=src_data.get("type") or "webpage",
+                            reason=prop.get("reasoning") or "Proposed by monthly source audit",
+                            status="approved",
+                            health="ok",
+                        )
+                    )
 
     profile["audit_proposals"] = remaining
     company.profile = profile
