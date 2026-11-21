@@ -71,5 +71,5 @@ Every record stores its component breakdown, weights, and a human-readable `expl
 ## 7. Reliability, Security & Verification
 
 - **Failure Isolation:** Per-record analysis failures are isolated and logged; `MAX_ANALYSES_PER_RUN=40` and exponential backoff protect Groq free-tier quotas. TLS verification honours `SSL_CERT_FILE`, OS trust stores (`truststore`), and `certifi`.
-- **Automated Verification:** **203 backend tests** (`pytest -q` covering SSRF, honest UA, `.xlsx`/`.pdf` uploads, ranking, brief citations, settings, scheduler honesty, and `scripts/export_reports.py`), **5 frontend tests** (`npm test`), TypeScript (`npx tsc --noEmit`), ESLint (`npm run lint`), and Next.js production build (`npm run build`).
+- **Automated Verification:** **209 backend tests** (`pytest -q` covering SSRF, honest UA, `.xlsx`/`.pdf` uploads, ranking, brief citations, settings, scheduler honesty, canonical deduplication, and `scripts/export_reports.py`), **5 frontend tests** (`npm test`), TypeScript (`npx tsc --noEmit`), ESLint (`npm run lint`), and Next.js production build (`npm run build`).
 - **Reporting Utility:** `scripts/export_reports.py` reads directly from the database (without inventing counts) to generate `docs/sample_reports/<company>.md` (latest brief + evidence appendix) and `docs/sample_reports/SUMMARY.md`.
