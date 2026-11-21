@@ -431,4 +431,39 @@ class OverrideDraftIn(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
 
+class BriefNoteIn(BaseModel):
+    sectionKey: str = Field(min_length=1, max_length=64)
+    text: str = Field(max_length=2000)
+
+
+class BriefPatchIn(BaseModel):
+    status: Literal["draft", "ready", "sent"] | None = None
+    removeItemIds: list[str] | None = None
+    notes: list[BriefNoteIn] | None = None
+
+
+class BriefActionPatchIn(BaseModel):
+    done: bool | None = None
+    owner: str | None = Field(default=None, max_length=120)
+    dueDate: str | None = Field(default=None, max_length=40)
+    order: int | None = Field(default=None, ge=0, le=100)
+
+
+class BriefActionCreateIn(BaseModel):
+    text: str = Field(min_length=2, max_length=500)
+    owner: str = Field(default="Founder", max_length=120)
+    dueDate: str | None = Field(default=None, max_length=40)
+    effort: Literal["low", "medium", "high"] = "medium"
+
+
+class BriefEmailIn(BaseModel):
+    to: str = Field(min_length=3, max_length=254)
+
+
+class BriefFeedbackIn(BaseModel):
+    useful: bool
+    comment: str | None = Field(default=None, max_length=1000)
+
+
+
 

@@ -10,7 +10,9 @@ export default function CompanyLayout({ children }: { children: ReactNode }) {
   const isFullBleed =
     pathname === base ||
     pathname === `${base}/interview` ||
-    pathname === `${base}/dashboard`;
+    pathname === `${base}/dashboard` ||
+    pathname === `${base}/brief` ||
+    pathname.startsWith(`${base}/brief/`);
 
   if (isFullBleed) {
     return <>{children}</>;

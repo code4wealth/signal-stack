@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useParams, usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Menu, Search } from "lucide-react";
 
 import { BackendStatus } from "@/components/backend-status";
+import { getBrief, getLatestBrief } from "@/lib/api";
 
 function resolveStepLabel(pathname: string, companyId: number): string {
   const base = `/company/${companyId}`;
@@ -19,7 +21,7 @@ function resolveStepLabel(pathname: string, companyId: number): string {
   if (pathname === `${base}/signals` || pathname === `${base}/intelligence`) {
     return "Step 5 of 6: Analyse signals";
   }
-  if (pathname === `${base}/briefs` || pathname === `${base}/brief`) {
+  if (pathname === `${base}/briefs`) {
     return "Step 6 of 6: Monday Morning Brief";
   }
   if (pathname === `${base}/automation`) return "Step 6 of 6: Automate your intelligence";
@@ -34,9 +36,17 @@ function resolveSectionLabel(pathname: string, companyId: number): string | null
   if (pathname === `${base}/sources` || pathname === `${base}/signal-stack`) return "Signal Stack";
   if (pathname === `${base}/signals` || pathname === `${base}/intelligence`) return "Signals";
   if (pathname === `${base}/crawler`) return "Crawler";
-  if (pathname === `${base}/briefs` || pathname === `${base}/brief`) return "Briefs";
+  if (pathname === `${base}/briefs`) return "Briefs";
+  if (pathname === `${base}/brief` || pathname.startsWith(`${base}/brief/`)) return "Monday Brief";
   if (pathname === `${base}/automation`) return "Automation";
   return null;
+}
+
+function formatWeekDate(iso?: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 export function TopBar({
@@ -51,7 +61,38 @@ export function TopBar({
   onOpenCommandPalette?: () => void;
 }) {
   const pathname = usePathname();
-  const stepText = resolveStepLabel(pathname, companyId);
+  const params = useParams<{ briefId?: string }>();
+  const base = `/company/${companyId}`;
+  const isBriefView =
+    pathname === `${base}/brief` || pathname.startsWith(`${base}/brief/`);
+  const briefIdParam = typeof params?.briefId === "string" ? params.briefId : null;
+
+  const latestBriefQuery = useQuery({
+    queryKey: ["brief-latest", companyId],
+    queryFn: () => getLatestBrief(companyId),
+    enabled: isBriefView && !briefIdParam && Number.isFinite(companyId) && companyId > 0,
+    staleTime: 30_000,
+    retry: 0,
+  });
+
+  const specificBriefQuery = useQuery({
+    queryKey: ["brief-detail", companyId, briefIdParam],
+    queryFn: () => getBrief(companyId, briefIdParam as string),
+    enabled: isBriefView && Boolean(briefIdParam) && Number.isFinite(companyId) && companyId > 0,
+    staleTime: 30_000,
+    retry: 0,
+  });
+
+  const weekStart = briefIdParam
+    ? specificBriefQuery.data?.weekStart
+    : latestBriefQuery.data?.brief?.weekStart;
+  const weekLabel = formatWeekDate(weekStart);
+
+  const stepText = isBriefView
+    ? weekLabel
+      ? `Week of ${weekLabel}`
+      : "Monday Brief"
+    : resolveStepLabel(pathname, companyId);
   const sectionLabel = resolveSectionLabel(pathname, companyId);
 
   return (

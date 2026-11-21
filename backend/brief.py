@@ -363,7 +363,7 @@ def render_markdown(content: dict) -> str:
             lines.append("")
             lines.append("Citations: " + ", ".join(f"record {rid}" for rid in section["record_ids"]))
         lines.append("")
-    if content["record_index"]:
+    if content.get("record_index"):
         lines.append("## Record index")
         for item in content["record_index"]:
             lines.append(f"- record {item['id']}: [{item['title'] or item['url']}]({item['url']})")

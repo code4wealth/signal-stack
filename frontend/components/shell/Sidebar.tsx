@@ -30,7 +30,7 @@ import {
   X,
 } from "lucide-react";
 
-import { getAutomation, getCrawlerOverview, getSignalsOverview } from "@/lib/api";
+import { getAutomation, getCrawlerOverview, getLatestBrief, getSignalsOverview } from "@/lib/api";
 import type { Company, CompanyRecord, WorkflowStepState } from "@/lib/types";
 import { extractDomain } from "@/lib/company-adapter";
 import { FAST_TRANSITION } from "@/lib/motion";
@@ -166,6 +166,19 @@ export function Sidebar({
 
   const unreviewedSignalsCount = signalsOverviewQuery.data?.countsByStatus?.new ?? 0;
 
+  const latestBriefQuery = useQuery({
+    queryKey: ["brief-latest", companyId],
+    queryFn: () => getLatestBrief(companyId),
+    enabled:
+      Number.isFinite(companyId) &&
+      companyId > 0 &&
+      workflow.briefs !== "locked",
+    staleTime: 30_000,
+    retry: 0,
+  });
+
+  const hasUnreadBrief = Boolean(latestBriefQuery.data?.brief?.unread);
+
   const workflowItems: {
     key: keyof typeof workflow;
     label: string;
@@ -174,6 +187,7 @@ export function Sidebar({
     active: boolean;
     state: WorkflowStepState;
     badgeCount?: number;
+    unreadDot?: boolean;
   }[] = [
     {
       key: "company",
@@ -211,10 +225,14 @@ export function Sidebar({
     {
       key: "briefs",
       label: "Briefs",
-      href: `${base}/briefs`,
+      href: `${base}/brief`,
       Icon: FileText,
-      active: pathname === `${base}/briefs` || pathname === `${base}/brief`,
+      active:
+        pathname === `${base}/briefs` ||
+        pathname === `${base}/brief` ||
+        pathname.startsWith(`${base}/brief/`),
       state: workflow.briefs,
+      unreadDot: hasUnreadBrief,
     },
   ];
 
@@ -434,6 +452,13 @@ export function Sidebar({
                       <span className="md:hidden xl:inline">{item.label}</span>
                     </span>
                     <span className="md:hidden xl:inline-flex items-center gap-1.5">
+                      {item.unreadDot ? (
+                        <span
+                          aria-label="Unread Monday Morning Brief"
+                          title="Unread Monday Morning Brief"
+                          className="h-2 w-2 rounded-full bg-[#4F46E5]"
+                        />
+                      ) : null}
                       {item.badgeCount && item.badgeCount > 0 ? (
                         <span className="tabular rounded-full bg-[#4F46E5]/10 px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-[#4F46E5]">
                           {item.badgeCount}

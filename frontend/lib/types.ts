@@ -1352,6 +1352,189 @@ export type AutomationRunDetailResponse = {
   isMock?: boolean;
 };
 
+// ---------------------------------------------------------------------------
+// Monday Morning Brief v2 (Showpiece)
+// ---------------------------------------------------------------------------
+
+export type BriefStatus = "draft" | "ready" | "sent";
+export type BriefTrigger = "scheduled" | "manual";
+
+export type CitedText = {
+  text: string;
+  citations: number[];
+};
+
+export type BriefSectionItem = {
+  id: string;
+  signalId: string;
+  category: SourceCategory;
+  classification: SignalClassification;
+  priority: 1 | 2 | 3 | 4 | 5;
+  headline: string;
+  fact: CitedText;
+  whyItMatters: CitedText;
+  impactLevel: SignalImpactLevel;
+  action?: { text: string; actionId?: string | null } | null;
+  confidence: ConfidenceLevel;
+};
+
+export type BriefCategorySection = {
+  key: SourceCategory;
+  summary: CitedText | null;
+  items: BriefSectionItem[];
+  sourcesChecked: number;
+};
+
+export type BriefOpportunityItem = {
+  id: string;
+  headline: string;
+  explanation: CitedText;
+  impactLevel: SignalImpactLevel;
+  likelihood: SignalImpactLevel;
+  actNowBy?: string | null;
+  linkedActionId?: string | null;
+  signalId: string;
+};
+
+export type BriefActionItem = {
+  id: string;
+  text: string;
+  rationale?: CitedText | null;
+  owner: string;
+  dueDate?: string | null;
+  effort: "low" | "medium" | "high";
+  done: boolean;
+  linkedSignalId?: string | null;
+  citations: number[];
+  isCustom?: boolean;
+  order: number;
+};
+
+export type BriefWatchItem = {
+  id: string;
+  title: string;
+  why: CitedText;
+  expectedAt?: string | null;
+  sourceDomain?: string | null;
+  inWatchlist?: boolean;
+};
+
+export type BriefSourceItem = {
+  n: number;
+  title: string;
+  url: string;
+  domain: string;
+  type: string;
+  publishedAt?: string | null;
+  fetchedAt: string;
+  verified: boolean;
+  usedIn: { section: string; itemId: string }[];
+};
+
+export type BriefNote = {
+  sectionKey: string;
+  text: string;
+};
+
+export type BriefFeedback = {
+  useful: boolean;
+  comment?: string | null;
+  at?: string;
+};
+
+export type Brief = {
+  id: string;
+  companyId: number;
+  companyName: string;
+  weekStart: string;
+  weekEnd: string;
+  generatedAt: string;
+  version: number;
+  status: BriefStatus;
+  trigger: BriefTrigger;
+  automationRunId?: string | null;
+  unread?: boolean;
+  headline?: string | null;
+  stats: {
+    signals: number;
+    sources: number;
+    newEvidence: number;
+    verifiedPct: number;
+  };
+  comparison?: {
+    opportunities: number;
+    threats: number;
+    newEvidence: number;
+  } | null;
+  executiveSummary: BriefSectionItem[];
+  sections: BriefCategorySection[];
+  opportunities: BriefOpportunityItem[];
+  risks: BriefOpportunityItem[];
+  actions: BriefActionItem[];
+  watch: BriefWatchItem[];
+  sources: BriefSourceItem[];
+  notes: BriefNote[];
+  provenance: {
+    steps: string[];
+    model?: string | null;
+  };
+  removedUnsupportedClaims?: number;
+  feedback?: BriefFeedback | null;
+  capabilities?: {
+    emailConfigured: boolean;
+  };
+  isArchived?: boolean;
+  isMock?: boolean;
+};
+
+export type BriefSummary = {
+  id: string;
+  weekStart: string;
+  weekEnd: string;
+  status: BriefStatus;
+  signals: number;
+  actionsDonePct: number;
+  trigger: BriefTrigger;
+  version: number;
+};
+
+export type BriefPrerequisites = {
+  ready: boolean;
+  reason?: string | null;
+  signalsCount: number;
+  completedCrawls: number;
+};
+
+export type BriefLatestResponse = {
+  brief: Brief | null;
+  prerequisites: BriefPrerequisites;
+  capabilities: {
+    emailConfigured: boolean;
+  };
+  isMock?: boolean;
+};
+
+export type BriefGenerationStep = {
+  label: string;
+  status: "pending" | "running" | "done" | "failed";
+};
+
+export type BriefGenerationState = {
+  status: "idle" | "queued" | "running" | "failed";
+  steps: BriefGenerationStep[];
+  error?: string | null;
+  briefId?: string | null;
+};
+
+export type BriefCompareResult = {
+  briefA: { id: string; version: number; weekStart: string };
+  briefB: { id: string; version: number; weekStart: string };
+  added: string[];
+  removed: string[];
+  unchanged: string[];
+};
+
+
 
 
 

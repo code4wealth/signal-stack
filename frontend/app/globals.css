@@ -297,6 +297,97 @@ a:hover {
   }
 }
 
+@keyframes briefSourceFlash {
+  0% {
+    background-color: rgba(238, 242, 255, 0.95);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.35);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.brief-source-flash {
+  animation: briefSourceFlash 1.2s var(--ease) forwards;
+}
+
+.brief-print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 18mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #1f2125 !important;
+    font-size: 11pt !important;
+    line-height: 1.5 !important;
+  }
+
+  .bg-blobs,
+  .no-print,
+  .brief-reading-progress,
+  .brief-sticky-footer,
+  aside,
+  header,
+  nav[aria-label="Brief sections"],
+  .skip-link {
+    display: none !important;
+  }
+
+  .brief-print-only {
+    display: block !important;
+  }
+
+  .glass,
+  .glass-strong,
+  .glass-subtle {
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    border-color: #d6dbe5 !important;
+  }
+
+  [data-brief-section],
+  [data-brief-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+    transition: none !important;
+  }
+
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  article {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  h1,
+  h2 {
+    font-family: var(--font-serif), Georgia, serif !important;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  section[data-brief-section] {
+    break-inside: avoid-page;
+  }
+}
+
+
 .ambient-blobs-active .bg-blob-tl {
   animation: blobDriftA 31s ease-in-out infinite alternate;
 }

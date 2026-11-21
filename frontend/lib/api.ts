@@ -1285,5 +1285,186 @@ export async function exportRunsCsv(
   return res.text();
 }
 
+// ---------------------------------------------------------------------------
+// Monday Morning Brief v2 (Showpiece)
+// ---------------------------------------------------------------------------
+
+export async function getLatestBrief(
+  companyId: number,
+): Promise<import("./types").BriefLatestResponse> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockLatestBrief } = await import("@/lib/brief-mocks");
+    return mockLatestBrief(companyId);
+  }
+  return get<import("./types").BriefLatestResponse>(
+    `/api/companies/${companyId}/briefs/latest`,
+  );
+}
+
+export async function getBrief(
+  companyId: number,
+  briefId: string,
+): Promise<import("./types").Brief> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockBriefById } = await import("@/lib/brief-mocks");
+    return mockBriefById(companyId, briefId);
+  }
+  return get<import("./types").Brief>(
+    `/api/companies/${companyId}/briefs/${encodeURIComponent(briefId)}`,
+  );
+}
+
+export async function listBriefs(
+  companyId: number,
+  cursor?: string | null,
+): Promise<{
+  items: import("./types").BriefSummary[];
+  nextCursor: string | null;
+  total: number;
+}> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockBriefList } = await import("@/lib/brief-mocks");
+    return mockBriefList();
+  }
+  const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+  return get<{
+    items: import("./types").BriefSummary[];
+    nextCursor: string | null;
+    total: number;
+  }>(`/api/companies/${companyId}/briefs${qs}`);
+}
+
+export async function generateBrief(
+  companyId: number,
+): Promise<import("./types").BriefGenerationState> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockBriefGeneration } = await import("@/lib/brief-mocks");
+    return mockBriefGeneration();
+  }
+  return post<import("./types").BriefGenerationState>(
+    `/api/companies/${companyId}/briefs/generate`,
+  );
+}
+
+export async function getBriefGeneration(
+  companyId: number,
+): Promise<import("./types").BriefGenerationState> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockBriefGeneration } = await import("@/lib/brief-mocks");
+    return mockBriefGeneration();
+  }
+  return get<import("./types").BriefGenerationState>(
+    `/api/companies/${companyId}/briefs/generation`,
+  );
+}
+
+export async function patchBrief(
+  companyId: number,
+  briefId: string,
+  payload: {
+    status?: import("./types").BriefStatus;
+    removeItemIds?: string[];
+    notes?: import("./types").BriefNote[];
+  },
+): Promise<import("./types").Brief> {
+  return patch<import("./types").Brief>(
+    `/api/companies/${companyId}/briefs/${encodeURIComponent(briefId)}`,
+    payload,
+  );
+}
+
+export async function patchBriefAction(
+  companyId: number,
+  briefId: string,
+  actionId: string,
+  payload: {
+    done?: boolean;
+    owner?: string;
+    dueDate?: string | null;
+    order?: number;
+  },
+): Promise<import("./types").BriefActionItem> {
+  return patch<import("./types").BriefActionItem>(
+    `/api/companies/${companyId}/briefs/${encodeURIComponent(briefId)}/actions/${encodeURIComponent(actionId)}`,
+    payload,
+  );
+}
+
+export async function createBriefAction(
+  companyId: number,
+  briefId: string,
+  payload: {
+    text: string;
+    owner: string;
+    dueDate?: string | null;
+    effort: "low" | "medium" | "high";
+  },
+): Promise<import("./types").BriefActionItem> {
+  return post<import("./types").BriefActionItem>(
+    `/api/companies/${companyId}/briefs/${encodeURIComponent(briefId)}/actions`,
+    payload,
+  );
+}
+
+export async function getBriefPdfBlob(
+  companyId: number,
+  briefId: string,
+): Promise<Blob> {
+  const res = await fetch(
+    `${API_BASE}/api/companies/${companyId}/briefs/${encodeURIComponent(briefId)}/pdf`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) {
+    throw new ApiError(`PDF export returned HTTP ${res.status}`, res.status);
+  }
+  return res.blob();
+}
+
+export async function emailBrief(
+  companyId: number,
+  briefId: string,
+  to: string,
+): Promise<{ sent: boolean; to: string; sentAt: string }> {
+  return post<{ sent: boolean; to: string; sentAt: string }>(
+    `/api/companies/${companyId}/briefs/${encodeURIComponent(briefId)}/email`,
+    { to },
+  );
+}
+
+export async function compareBriefs(
+  companyId: number,
+  a: string,
+  b: string,
+): Promise<import("./types").BriefCompareResult> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockBriefCompare } = await import("@/lib/brief-mocks");
+    return mockBriefCompare(a, b);
+  }
+  return get<import("./types").BriefCompareResult>(
+    `/api/companies/${companyId}/briefs/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
+  );
+}
+
+export async function submitBriefFeedback(
+  companyId: number,
+  briefId: string,
+  payload: { useful: boolean; comment?: string },
+): Promise<import("./types").BriefFeedback> {
+  return post<import("./types").BriefFeedback>(
+    `/api/companies/${companyId}/briefs/${encodeURIComponent(briefId)}/feedback`,
+    payload,
+  );
+}
+
+export async function toggleWatchlistItem(
+  companyId: number,
+  watchId: string,
+): Promise<{ watchId: string; inWatchlist: boolean }> {
+  return post<{ watchId: string; inWatchlist: boolean }>(
+    `/api/companies/${companyId}/watchlist/${encodeURIComponent(watchId)}/toggle`,
+  );
+}
+
+
 
 

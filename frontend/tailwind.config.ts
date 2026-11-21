@@ -43,6 +43,13 @@ const config: Config = {
           "Menlo",
           "monospace",
         ],
+        serif: [
+          "var(--font-serif)",
+          "Source Serif 4",
+          "Georgia",
+          "Cambria",
+          "serif",
+        ],
       },
       borderRadius: {
         card: "16px",

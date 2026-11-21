@@ -212,3 +212,14 @@ export const timelineMarkerGrow = (delaySec = 0, reduced = false): Variants => (
   },
 });
 
+/** Editorial section entrance for Monday Morning Brief whileInView sections */
+export const readingReveal = (reduced = false): Variants => ({
+  hidden: { opacity: 0, y: reduced ? 0 : 12 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: reduced ? FAST_TRANSITION : BASE_TRANSITION,
+  },
+});
+
+

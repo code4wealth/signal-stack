@@ -1,5 +1,8 @@
 export { ActionBox } from "./ActionBox";
 export { CategoryBadge } from "./CategoryBadge";
+export { CitationPopover } from "./CitationPopover";
+export { Cite } from "./Cite";
+export { ClaimText } from "./ClaimText";
 export { ClassificationPill } from "./ClassificationPill";
 export { ConfidenceBadge } from "./ConfidenceBadge";
 export { EditableField } from "./EditableField";

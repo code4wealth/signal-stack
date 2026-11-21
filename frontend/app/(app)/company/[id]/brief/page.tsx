@@ -1,17 +1,24 @@
 "use client";
 
-import { useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { Suspense } from "react";
+import { useParams } from "next/navigation";
 
-export default function BriefRedirectPage() {
+import { BriefReaderView } from "@/components/brief";
+import { SkeletonBlock } from "@/components/ui-shared";
+
+export default function CompanyBriefPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
+  const companyId = Number(params?.id ?? "0");
 
-  useEffect(() => {
-    if (params?.id) {
-      router.replace(`/company/${params.id}/briefs`);
-    }
-  }, [params?.id, router]);
-
-  return null;
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-[1360px] space-y-6 px-4 py-6 sm:px-6">
+          <SkeletonBlock className="h-56 w-full rounded-[24px]" />
+        </div>
+      }
+    >
+      <BriefReaderView companyId={companyId} />
+    </Suspense>
+  );
 }

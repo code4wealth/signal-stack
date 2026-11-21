@@ -26,6 +26,11 @@ from db import (
 )
 from schemas import (
     AuditApplyIn,
+    BriefActionCreateIn,
+    BriefActionPatchIn,
+    BriefEmailIn,
+    BriefFeedbackIn,
+    BriefPatchIn,
     CompanyCreate,
     CompanyOut,
     CompanyUpdate,
@@ -4362,6 +4367,336 @@ def delete_automation_override(
     db.delete(ov)
     db.commit()
     return Response(status_code=204)
+
+
+# --------------------------------------------------------------------------- #
+# Monday Morning Brief v2 (Showpiece)
+# --------------------------------------------------------------------------- #
+@router.get("/companies/{company_id}/briefs/latest", tags=["briefs-v2"])
+def get_latest_brief_v2(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import brief_api
+
+    company = get_company_or_404(db, company_id)
+    latest = db.scalar(
+        select(Report).where(Report.company_id == company_id).order_by(Report.id.desc()).limit(1)
+    )
+    prereq = brief_api.get_prerequisites(db, company_id)
+    if latest is None:
+        return {
+            "brief": None,
+            "prerequisites": prereq,
+            "capabilities": {"emailConfigured": brief_api.email_configured()},
+        }
+    return {
+        "brief": brief_api.serialize_brief(db, company, latest),
+        "prerequisites": prereq,
+        "capabilities": {"emailConfigured": brief_api.email_configured()},
+    }
+
+
+@router.get("/companies/{company_id}/briefs/generation", tags=["briefs-v2"])
+def get_brief_generation_v2(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import brief_api
+
+    get_company_or_404(db, company_id)
+    return brief_api.get_brief_generation(db, company_id)
+
+
+@router.post("/companies/{company_id}/briefs/generate", status_code=202, tags=["briefs-v2"])
+def generate_brief_v2(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import brief_api
+
+    company = get_company_or_404(db, company_id)
+    try:
+        return brief_api.start_brief_generation(db, company)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/companies/{company_id}/briefs/compare", tags=["briefs-v2"])
+def compare_briefs_v2(
+    company_id: int,
+    a: int = Query(...),
+    b: int = Query(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    import brief_api
+
+    company = get_company_or_404(db, company_id)
+    rep_a = db.get(Report, a)
+    rep_b = db.get(Report, b)
+    if rep_a is None or rep_a.company_id != company_id or rep_b is None or rep_b.company_id != company_id:
+        raise HTTPException(status_code=404, detail="Brief not found for comparison")
+    return brief_api.compare_briefs(db, company, rep_a, rep_b)
+
+
+@router.get("/companies/{company_id}/briefs", tags=["briefs-v2"])
+def list_briefs_v2(
+    company_id: int,
+    cursor: int | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> dict:
+    import brief_api
+
+    get_company_or_404(db, company_id)
+    all_rows = list(
+        db.scalars(select(Report).where(Report.company_id == company_id).order_by(Report.id.asc())).all()
+    )
+    version_by_id = {r.id: idx + 1 for idx, r in enumerate(all_rows)}
+    desc_rows = list(reversed(all_rows))
+    if cursor is not None:
+        desc_rows = [r for r in desc_rows if r.id < cursor]
+    has_more = len(desc_rows) > limit
+    page = desc_rows[:limit]
+    return {
+        "items": [brief_api.serialize_brief_summary(r, version_by_id[r.id]) for r in page],
+        "nextCursor": str(page[-1].id) if has_more and page else None,
+        "total": len(all_rows),
+    }
+
+
+@router.get("/companies/{company_id}/briefs/{brief_id}", tags=["briefs-v2"])
+def get_brief_v2(company_id: int, brief_id: int, db: Session = Depends(get_db)) -> dict:
+    import brief_api
+
+    company = get_company_or_404(db, company_id)
+    report = db.get(Report, brief_id)
+    if report is None or report.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"Brief {brief_id} not found")
+    return brief_api.serialize_brief(db, company, report, mark_read=True)
+
+
+@router.patch("/companies/{company_id}/briefs/{brief_id}", tags=["briefs-v2"])
+def patch_brief_v2(
+    company_id: int,
+    brief_id: int,
+    payload: BriefPatchIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    import brief_api
+
+    company = get_company_or_404(db, company_id)
+    report = db.get(Report, brief_id)
+    if report is None or report.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"Brief {brief_id} not found")
+    content = dict(report.content or {})
+    if payload.status is not None:
+        content["status"] = payload.status
+    if payload.removeItemIds is not None:
+        cur = set(content.get("removed_item_ids", []))
+        cur.update(payload.removeItemIds)
+        content["removed_item_ids"] = sorted(cur)
+    if payload.notes is not None:
+        content["notes"] = [n.model_dump() for n in payload.notes]
+    report.content = content
+    db.commit()
+    db.refresh(report)
+    return brief_api.serialize_brief(db, company, report)
+
+
+def _update_brief_action_impl(
+    company_id: int,
+    brief_id: int | None,
+    action_id: str,
+    payload: BriefActionPatchIn,
+    db: Session,
+) -> dict:
+    import brief
+    import brief_api
+
+    company = get_company_or_404(db, company_id)
+    if brief_id is not None:
+        report = db.get(Report, brief_id)
+        if report is None or report.company_id != company_id:
+            raise HTTPException(status_code=404, detail=f"Brief {brief_id} not found")
+    else:
+        report = db.scalar(
+            select(Report).where(Report.company_id == company_id).order_by(Report.id.desc()).limit(1)
+        )
+        if report is None:
+            raise HTTPException(status_code=404, detail="No brief found")
+
+    content = dict(report.content or {})
+    actions = list(content.get("actions", []))
+    target_idx: int | None = None
+    for idx, act in enumerate(actions):
+        aid = str(act.get("id") or f"act-{idx}")
+        if aid == action_id:
+            target_idx = idx
+            break
+    if target_idx is None:
+        raise HTTPException(status_code=404, detail=f"Action {action_id} not found")
+
+    updated = dict(actions[target_idx])
+    if payload.done is not None:
+        updated["done"] = payload.done
+    if payload.owner is not None:
+        updated["owner"] = payload.owner.strip() or "Founder"
+    if payload.dueDate is not None:
+        updated["dueDate"] = payload.dueDate or None
+    if payload.order is not None:
+        updated["order"] = payload.order
+    actions[target_idx] = updated
+    content["actions"] = actions
+    report.content = content
+    report.markdown = brief.render_markdown(content)
+    db.commit()
+    db.refresh(report)
+    ser = brief_api.serialize_brief(db, company, report)
+    return next((a for a in ser["actions"] if a["id"] == action_id), updated)
+
+
+@router.patch("/companies/{company_id}/briefs/{brief_id}/actions/{action_id}", tags=["briefs-v2"])
+def patch_brief_action_v2(
+    company_id: int,
+    brief_id: int,
+    action_id: str,
+    payload: BriefActionPatchIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    return _update_brief_action_impl(company_id, brief_id, action_id, payload, db)
+
+
+@router.patch("/companies/{company_id}/actions/{action_id}", tags=["briefs-v2"])
+def patch_company_action_v2(
+    company_id: int,
+    action_id: str,
+    payload: BriefActionPatchIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    return _update_brief_action_impl(company_id, None, action_id, payload, db)
+
+
+@router.post("/companies/{company_id}/briefs/{brief_id}/actions", status_code=201, tags=["briefs-v2"])
+def create_brief_action_v2(
+    company_id: int,
+    brief_id: int,
+    payload: BriefActionCreateIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    import brief
+    import brief_api
+
+    company = get_company_or_404(db, company_id)
+    report = db.get(Report, brief_id)
+    if report is None or report.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"Brief {brief_id} not found")
+
+    content = dict(report.content or {})
+    actions = list(content.get("actions", []))
+    new_id = f"custom-{len(actions) + 1}-{int(brief_api._utcnow().timestamp())}"
+    actions.append(
+        {
+            "id": new_id,
+            "action": payload.text.strip(),
+            "owner": payload.owner.strip() or "Founder",
+            "dueDate": payload.dueDate,
+            "effort": payload.effort,
+            "why": "",
+            "record_ids": [],
+            "done": False,
+            "isCustom": True,
+            "order": len(actions),
+        }
+    )
+    content["actions"] = actions
+    report.content = content
+    report.markdown = brief.render_markdown(content)
+    db.commit()
+    db.refresh(report)
+    ser = brief_api.serialize_brief(db, company, report)
+    return next((a for a in ser["actions"] if a["id"] == new_id), ser["actions"][-1])
+
+
+@router.get("/companies/{company_id}/briefs/{brief_id}/pdf", tags=["briefs-v2"])
+def get_brief_pdf_v2(company_id: int, brief_id: int, db: Session = Depends(get_db)) -> Response:
+    get_company_or_404(db, company_id)
+    report = db.get(Report, brief_id)
+    if report is None or report.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"Brief {brief_id} not found")
+    raise HTTPException(
+        status_code=501,
+        detail="Server PDF rendering is not enabled; use Save as PDF in the browser print dialog.",
+    )
+
+
+@router.post("/companies/{company_id}/briefs/{brief_id}/email", tags=["briefs-v2"])
+def email_brief_v2(
+    company_id: int,
+    brief_id: int,
+    payload: BriefEmailIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    import re
+
+    import brief_api
+
+    get_company_or_404(db, company_id)
+    report = db.get(Report, brief_id)
+    if report is None or report.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"Brief {brief_id} not found")
+    if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", payload.to.strip()):
+        raise HTTPException(status_code=400, detail="Enter a valid recipient email address.")
+    if not brief_api.email_configured():
+        raise HTTPException(
+            status_code=501,
+            detail="Email delivery is not configured (set SMTP_HOST or RESEND_API_KEY).",
+        )
+    content = dict(report.content or {})
+    content["status"] = "sent"
+    content["last_sent_to"] = payload.to.strip()
+    report.content = content
+    db.commit()
+    return {"sent": True, "to": payload.to.strip(), "sentAt": brief_api._utcnow().isoformat()}
+
+
+@router.post("/companies/{company_id}/briefs/{brief_id}/feedback", tags=["briefs-v2"])
+def feedback_brief_v2(
+    company_id: int,
+    brief_id: int,
+    payload: BriefFeedbackIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    import brief_api
+
+    get_company_or_404(db, company_id)
+    report = db.get(Report, brief_id)
+    if report is None or report.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"Brief {brief_id} not found")
+    content = dict(report.content or {})
+    content["feedback"] = {
+        "useful": payload.useful,
+        "comment": payload.comment.strip() if payload.comment else None,
+        "at": brief_api._utcnow().isoformat(),
+    }
+    report.content = content
+    db.commit()
+    return content["feedback"]
+
+
+@router.post("/companies/{company_id}/watchlist/{watch_id}/toggle", tags=["briefs-v2"])
+def toggle_watchlist_v2(
+    company_id: int,
+    watch_id: str,
+    db: Session = Depends(get_db),
+) -> dict:
+    company = get_company_or_404(db, company_id)
+    profile = dict(company.profile or {})
+    meta = dict(profile.get("_meta") or {})
+    wl = list(meta.get("watchlist") or [])
+    if watch_id in wl:
+        wl = [x for x in wl if x != watch_id]
+        in_wl = False
+    else:
+        wl.append(watch_id)
+        in_wl = True
+    meta["watchlist"] = wl
+    profile["_meta"] = meta
+    company.profile = profile
+    db.commit()
+    return {"watchId": watch_id, "inWatchlist": in_wl}
+
 
 
 
