@@ -16,7 +16,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from config import ca_bundle_path, get_settings
+from config import build_ssl_context, ca_bundle_path, get_settings
 
 logger = logging.getLogger("signalstack.llm")
 
@@ -53,9 +53,9 @@ def _get_client():
         import httpx
         from groq import Groq
 
-        # Honour a custom CA bundle when the network inspects TLS; verification is never disabled.
-        bundle = ca_bundle_path()
-        http_client = httpx.Client(verify=bundle) if bundle else None
+        # Honour custom CA bundle or OS native truststore; verification is never disabled.
+        verify = ca_bundle_path() or build_ssl_context()
+        http_client = httpx.Client(verify=verify)
         _client = Groq(api_key=settings.groq_api_key, http_client=http_client)
     return _client
 
@@ -104,11 +104,25 @@ def ask(
             raw = (response.choices[0].message.content or "").strip()
         except Exception as exc:  # groq raises its own APIError hierarchy
             last_error = exc
-            logger.warning("groq call failed on attempt %s: %s", attempt, exc.__class__.__name__)
+            status_code = getattr(exc, "status_code", None)
+            err_msg = str(exc).strip().splitlines()[0][:240] if str(exc).strip() else ""
+            logger.warning(
+                "groq call failed on attempt %s: %s (status=%s) %s",
+                attempt,
+                exc.__class__.__name__,
+                status_code,
+                err_msg,
+            )
+            if status_code == 401:
+                raise LLMError(f"Groq authentication failed (401 {exc.__class__.__name__}). Check GROQ_API_KEY.") from exc
             if attempt < max_attempts:
                 time.sleep(sleep_between_attempts * (2 ** (attempt - 1)))
                 continue
-            raise LLMError(f"Groq request failed after {max_attempts} attempts: {exc.__class__.__name__}") from exc
+            detail = f" ({status_code})" if status_code else ""
+            suffix = f": {err_msg}" if err_msg else ""
+            raise LLMError(
+                f"Groq request failed after {max_attempts} attempts: {exc.__class__.__name__}{detail}{suffix}"
+            ) from exc
 
         try:
             payload = json.loads(raw)
@@ -151,7 +165,7 @@ def healthcheck() -> dict:
         'Return JSON {"status": "ok", "echo": "signal-stack"}.',
         Ping,
         temperature=0.0,
-        max_tokens=50,
+        max_tokens=400,
         max_attempts=2,
     )
     return {"model": settings.groq_model, **result.model_dump()}

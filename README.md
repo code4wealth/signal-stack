@@ -7,7 +7,7 @@ executive Monday Morning Brief.
 Built for the EDXSO AI Engineer Intern assignment (Assignment 1).
 Demo companies (entered as data in `scripts/demo_companies.json`, not hardcoded): MeetUniversity, Razorpay, Zerodha.
 
-> **Build & verification status.** Backend unit/API suite: **149 passed** (`pytest -q`, mocked HTTP/LLM for external calls), TypeScript clean (`0` errors), ESLint clean (`0` warnings/errors), and all **9** Next.js routes build. Partial live-run output from Windows (`ead1782`) is committed in `run_output.txt`.
+> **Build & verification status.** Backend unit/API suite: **192 passed** (`pytest -q`, mocked HTTP/LLM for external calls), frontend Node suite: **5 passed** (`npm test`), TypeScript clean (`0` errors), ESLint clean (`0` warnings/errors), and all Next.js routes build. Partial live-run output from Windows (`ead1782`) is committed in `run_output.txt`.
 
 ## Results from live runs
 
@@ -47,6 +47,7 @@ Not implemented (see `docs/COST_AND_LIMITATIONS.md`):
 - Near-duplicate (syndicated) text detection — dedup is exact hash equality after whitespace normalisation
 - Hosting/deployment of either service; action text editing (the `done` flag is editable, the label is not)
 - Regenerating interview questions once an interview exists (deliberate: it would discard answers)
+- Anti-bot / WAF bypass or browser User-Agent spoofing: sites that block or tarpit automated HTTP clients (for example with CDN challenges or stalled/trickled responses) hit the 30 s per-page / 5 min per-job wall-clock deadlines, save any completed pages as `unverified`, and fail with an explicit error rather than spoofing browser headers or ignoring `robots.txt`
 
 ## Architecture
 ```
@@ -194,9 +195,11 @@ Six tables (`companies`, `qa`, `sources`, `records`, `reports`, `job_logs`) are 
 ## Tests
 
 ```bash
-cd backend && ../.venv/bin/pytest -q     # 133 passed
+cd backend && ../.venv/bin/pytest -q     # 192 passed
+cd frontend && npm test                  # 5 passed
 cd frontend && npx tsc --noEmit          # clean
-cd frontend && npm run build             # all 8 routes built
+cd frontend && npm run lint              # clean
+cd frontend && npm run build             # production build clean
 ```
 
 LLM calls and HTTP are mocked in tests. Fixtures are labelled `TEST_` and are never stored as intelligence records.

@@ -55,6 +55,7 @@ const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 const BACKEND_DISPLAY_URL = API_BASE || "http://127.0.0.1:8000";
 const START_BACKEND_CMD = "cd backend && uvicorn main:app --host 127.0.0.1 --port 8000";
 const JOB_POLL_INTERVAL_MS = 2000;
+export const JOB_POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 type ProbeResult = {
   reachable: boolean;
@@ -159,9 +160,21 @@ async function pollJob<T>(
   jobId: number,
   kind: JobKind,
   onPoll?: (status: JobStatusResponse<T>) => void,
+  options?: { maxWaitMs?: number; pollIntervalMs?: number },
 ): Promise<T> {
+  const maxWaitMs = options?.maxWaitMs ?? JOB_POLL_TIMEOUT_MS;
+  const pollIntervalMs = options?.pollIntervalMs ?? JOB_POLL_INTERVAL_MS;
+  const startedAt = Date.now();
+
   while (true) {
-    await sleep(JOB_POLL_INTERVAL_MS);
+    const remaining = maxWaitMs - (Date.now() - startedAt);
+    if (remaining <= 0) {
+      throw new ApiError(
+        `${kind} job #${jobId} did not finish within ${Math.round(maxWaitMs / 1000)}s.`,
+        504,
+      );
+    }
+    await sleep(Math.min(pollIntervalMs, remaining));
     const current = await get<JobStatusResponse<T>>(`/api/jobs/${jobId}`);
     onPoll?.(current);
     if (current.status === "ok") {
@@ -170,24 +183,40 @@ async function pollJob<T>(
     if (current.status === "error") {
       throw new ApiError(current.error || `${kind} job #${jobId} failed`, current.status_code ?? 500);
     }
+    if (current.status !== "running") {
+      throw new ApiError(
+        current.error || `${kind} job #${jobId} ended with status ${String(current.status)}`,
+        current.status_code ?? 500,
+      );
+    }
   }
 }
 
 async function runJob<T>(
   companyId: number,
   kind: JobKind,
-  options?: { limit?: number; onPoll?: (status: JobStatusResponse<T>) => void },
+  options?: {
+    limit?: number;
+    onPoll?: (status: JobStatusResponse<T>) => void;
+    maxWaitMs?: number;
+    pollIntervalMs?: number;
+  },
 ): Promise<T> {
   const qs = options?.limit ? `?limit=${options.limit}` : "";
   const started = await post<JobStatusResponse<T>>(`/api/companies/${companyId}/jobs/${kind}${qs}`);
   options?.onPoll?.(started);
-  return pollJob<T>(started.job_id, kind, options?.onPoll);
+  return pollJob<T>(started.job_id, kind, options?.onPoll, {
+    maxWaitMs: options?.maxWaitMs,
+    pollIntervalMs: options?.pollIntervalMs,
+  });
 }
 
 export async function startResearch(params: {
   companyName: string;
   websiteUrl: string;
   onStatus?: (status: ResearchStatus) => void;
+  maxWaitMs?: number;
+  pollIntervalMs?: number;
 }): Promise<{
   companyId: number;
   jobId: number;
@@ -224,12 +253,17 @@ export async function startResearch(params: {
       profile: import("./types").Profile;
       pages_fetched: string[];
       unverified_count: number;
-    }>(started.job_id, "research", (jobState) => {
-      if (jobState.status === "running") {
-        const nextStage = (jobState.stage as ResearchStatus | undefined) ?? "reading_website";
-        params.onStatus?.(nextStage);
-      }
-    });
+    }>(
+      started.job_id,
+      "research",
+      (jobState) => {
+        if (jobState.status === "running") {
+          const nextStage = (jobState.stage as ResearchStatus | undefined) ?? "reading_website";
+          params.onStatus?.(nextStage);
+        }
+      },
+      { maxWaitMs: params.maxWaitMs, pollIntervalMs: params.pollIntervalMs },
+    );
     params.onStatus?.("completed");
     return {
       companyId: started.company_id,

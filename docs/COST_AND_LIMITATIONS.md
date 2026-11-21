@@ -105,8 +105,7 @@ The UI and Brief v2 endpoints include several convenience features that are **no
 2. **SQLite with JSON columns** instead of the full normalised schema. Reason: time budget. `DATABASE_URL` makes
    Postgres a configuration change.
 3. **No Alembic migrations.** Schema is created with `create_all`.
-4. **JavaScript-rendered sites are not rendered**, so SPA pages yield little text. Such a site is reported as
-   "too little readable text" rather than guessed at.
+4. **JavaScript-rendered sites and anti-bot tarpits are not bypassed**, so SPA pages yield little text and sites that challenge, drop, or slow-drip automated HTTP clients hit the 30 s per-page wall-clock deadline (across redirects and retries) or the 5 min research job deadline. Completed pages are saved as `unverified` and the job fails loudly with the failing host rather than spoofing browser User-Agents or bypassing `robots.txt`.
 5. **DNS-rebinding gap** in SSRF protection: the address is validated, then the connection is made by hostname, so a
    hostile DNS answer between the two steps could still reach an internal address. Mitigated per redirect hop, not
    eliminated. The fix is connection pinning, which was out of scope.

@@ -215,3 +215,83 @@ test("HTTP 500 without JSON body probes /api/health and reports backend reachabi
     globalThis.fetch = originalFetch;
   }
 });
+
+test("startResearch stops polling on job error and enforces polling deadline cap", async () => {
+  const { startResearch } = loadTs(path.join(frontendRoot, "lib/api.ts"));
+  const originalFetch = globalThis.fetch;
+
+  // 1. Stops on terminal error status and surfaces backend error
+  let pollCount = 0;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith("/api/companies/research")) {
+      return new Response(
+        JSON.stringify({ job_id: 45, company_id: 9, job: "research", status: "running", stage: "reading_website", at: "2026-11-21T00:00:00Z" }),
+        { status: 202, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    if (url.endsWith("/api/jobs/45")) {
+      pollCount += 1;
+      return new Response(
+        JSON.stringify({
+          job_id: 45,
+          company_id: 9,
+          job: "research",
+          status: "error",
+          error: "Site did not respond within 30s: www.zomato.com",
+          status_code: 502,
+          at: "2026-11-21T00:00:30Z",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+  try {
+    await assert.rejects(
+      () =>
+        startResearch({
+          companyName: "Zomato",
+          websiteUrl: "https://zomato.com",
+          pollIntervalMs: 5,
+          maxWaitMs: 500,
+        }),
+      (err) => err.message.includes("Site did not respond within 30s: www.zomato.com"),
+    );
+    assert.equal(pollCount, 1);
+
+    // 2. Stops polling when job stays running past maxWaitMs deadline
+    let stuckPolls = 0;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/companies/research")) {
+        return new Response(
+          JSON.stringify({ job_id: 46, company_id: 9, job: "research", status: "running", stage: "reading_website", at: "2026-11-21T00:00:00Z" }),
+          { status: 202, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/jobs/46")) {
+        stuckPolls += 1;
+        return new Response(
+          JSON.stringify({ job_id: 46, company_id: 9, job: "research", status: "running", stage: "reading_website", at: "2026-11-21T00:00:00Z" }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    };
+
+    await assert.rejects(
+      () =>
+        startResearch({
+          companyName: "Zomato",
+          websiteUrl: "https://zomato.com",
+          pollIntervalMs: 10,
+          maxWaitMs: 35,
+        }),
+      (err) => err.message.includes("did not finish within"),
+    );
+    assert.ok(stuckPolls >= 1 && stuckPolls <= 5);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

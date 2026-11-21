@@ -8,6 +8,7 @@ fetched; facts citing anything else are demoted into `unverified`.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlparse
 
@@ -19,6 +20,8 @@ logger = logging.getLogger("signalstack.research")
 MAX_INTERNAL_PAGES = 5
 MAX_TEXT_PER_PAGE = 6000
 TEXT_FOR_HOME = 8000
+DEFAULT_PAGE_TOTAL_TIMEOUT_SECONDS = 30.0
+DEFAULT_JOB_TIMEOUT_SECONDS = 300.0
 
 # Generic information-architecture hints; deliberately not company specific.
 PAGE_KEYWORDS = (
@@ -84,6 +87,7 @@ class SiteContent:
     homepage: Page | None = None
     internal: list[Page] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
+    deadline_error: str | None = None
 
     @property
     def pages(self) -> list[Page]:
@@ -174,18 +178,63 @@ def _www_fallback_url(website: str) -> str | None:
     return parsed._replace(netloc=netloc).geturl()
 
 
-def collect_site(website: str) -> SiteContent:
-    """Fetch homepage + internal pages. Never raises for network problems."""
+def collect_site(
+    website: str,
+    *,
+    job_timeout: float = DEFAULT_JOB_TIMEOUT_SECONDS,
+    page_timeout: float = DEFAULT_PAGE_TOTAL_TIMEOUT_SECONDS,
+) -> SiteContent:
+    """Fetch homepage + internal pages within wall-clock deadlines. Never raises for network problems."""
     content = SiteContent()
+    job_deadline = time.monotonic() + float(job_timeout)
+
+    def _page_budget() -> float:
+        remaining = job_deadline - time.monotonic()
+        if remaining <= 0:
+            return 0.0
+        return min(float(page_timeout), remaining)
+
+    budget = _page_budget()
+    if budget <= 0:
+        content.deadline_error = f"Site did not respond within {int(round(job_timeout))}s: {urlparse(website).hostname or website}"
+        content.failures.append(f"homepage: {content.deadline_error}")
+        return content
+
     try:
-        home = safe_fetch.fetch(website)
+        home = safe_fetch.fetch(website, total_timeout=budget)
+    except safe_fetch.FetchDeadlineExceeded as exc:
+        alt_url = _www_fallback_url(website)
+        remaining = _page_budget()
+        if alt_url and remaining > 0.05:
+            try:
+                home = safe_fetch.fetch(alt_url, total_timeout=remaining)
+            except safe_fetch.FetchDeadlineExceeded as alt_exc:
+                content.deadline_error = alt_exc.message
+                content.failures.append(f"homepage: {exc.as_detail()}")
+                content.failures.append(f"homepage ({alt_url}): {alt_exc.as_detail()}")
+                return content
+            except safe_fetch.FetchError as alt_exc:
+                content.deadline_error = exc.message
+                content.failures.append(f"homepage: {exc.as_detail()}")
+                content.failures.append(f"homepage ({alt_url}): {alt_exc.as_detail()}")
+                return content
+        else:
+            content.deadline_error = exc.message
+            content.failures.append(f"homepage: {exc.as_detail()}")
+            return content
     except safe_fetch.FetchFailed as exc:
         alt_url = _www_fallback_url(website)
-        if not alt_url:
+        remaining = _page_budget()
+        if not alt_url or remaining <= 0:
             content.failures.append(f"homepage: {exc.as_detail()}")
             return content
         try:
-            home = safe_fetch.fetch(alt_url)
+            home = safe_fetch.fetch(alt_url, total_timeout=remaining)
+        except safe_fetch.FetchDeadlineExceeded as alt_exc:
+            content.deadline_error = alt_exc.message
+            content.failures.append(f"homepage: {exc.as_detail()}")
+            content.failures.append(f"homepage ({alt_url}): {alt_exc.as_detail()}")
+            return content
         except safe_fetch.FetchError as alt_exc:
             content.failures.append(f"homepage: {exc.as_detail()}")
             content.failures.append(f"homepage ({alt_url}): {alt_exc.as_detail()}")
@@ -207,8 +256,18 @@ def collect_site(website: str) -> SiteContent:
     for link in pick_internal_links(home.text, home.url):
         if link == home.url:
             continue
+        budget = _page_budget()
+        if budget <= 0:
+            host = (urlparse(link).hostname or link).lower()
+            content.deadline_error = f"Site did not respond within {int(round(job_timeout))}s: {host}"
+            content.failures.append(f"{link}: {content.deadline_error}")
+            break
         try:
-            page = safe_fetch.fetch(link)
+            page = safe_fetch.fetch(link, total_timeout=budget)
+        except safe_fetch.FetchDeadlineExceeded as exc:
+            content.deadline_error = exc.message
+            content.failures.append(f"{link}: {exc.as_detail()}")
+            break
         except safe_fetch.FetchError as exc:
             content.failures.append(f"{link}: {exc.as_detail()}")
             continue
@@ -287,15 +346,68 @@ def validate_profile(profile: Profile, fetched_urls: set[str]) -> Profile:
     return profile
 
 
-def research_company(db, company) -> dict:
+def _save_partial_unverified_profile(db, company, content: SiteContent, deadline_msg: str) -> None:
+    """Persist partial fetched pages strictly as unverified notes when a deadline cuts research short."""
+    from datetime import datetime, timezone
+
+    unverified_notes = [
+        f"[Partial unverified page: {page.title}] ({page.url}) — {page.text[:320]}"
+        for page in content.pages
+    ]
+    if content.failures:
+        unverified_notes.append(f"[Incomplete research] {deadline_msg}")
+
+    existing_meta = (company.profile or {}).get("_meta", {})
+    partial_profile = Profile(
+        summary=f"Partial research saved before timeout ({len(content.pages)} page(s) fetched; unverified).",
+        industry="",
+        unverified=unverified_notes[:30],
+    ).model_dump()
+    partial_profile["_meta"] = {
+        "pages_fetched": [page.url for page in content.pages],
+        "fetch_failures": content.failures[:20],
+        "partial": True,
+        "deadline_error": deadline_msg,
+        "researched_at": datetime.now(timezone.utc).isoformat(),
+        "confirmed_at": existing_meta.get("confirmed_at"),
+        "intelligence": (company.profile or {}).get("intelligence", {}),
+    }
+    if company.profile and company.profile.get("intelligence"):
+        partial_profile["intelligence"] = company.profile["intelligence"]
+    company.profile = partial_profile
+    db.commit()
+    db.refresh(company)
+
+
+def research_company(
+    db,
+    company,
+    *,
+    job_timeout: float = DEFAULT_JOB_TIMEOUT_SECONDS,
+    page_timeout: float = DEFAULT_PAGE_TOTAL_TIMEOUT_SECONDS,
+) -> dict:
     """Run research for a company and persist the profile. Returns the stored dict."""
     import llm
 
-    content = collect_site(company.website)
+    job_deadline = time.monotonic() + float(job_timeout)
+    content = collect_site(
+        company.website,
+        job_timeout=job_timeout,
+        page_timeout=page_timeout,
+    )
     if not content.pages:
+        if content.deadline_error:
+            raise ResearchError(content.deadline_error)
         raise ResearchError(
             "Could not fetch any page from " + company.website + ": " + "; ".join(content.failures[:3])
         )
+
+    if content.deadline_error or time.monotonic() >= job_deadline:
+        deadline_msg = content.deadline_error or (
+            f"Site did not respond within {int(round(job_timeout))}s: {urlparse(company.website).hostname or company.website}"
+        )
+        _save_partial_unverified_profile(db, company, content, deadline_msg)
+        raise ResearchError(deadline_msg)
 
     profile = build_profile(company.name, company.context, content)
     stored = profile.model_dump()
