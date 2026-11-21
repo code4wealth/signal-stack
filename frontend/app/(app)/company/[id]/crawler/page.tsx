@@ -172,7 +172,9 @@ function CrawlerInner() {
     const err = companyQuery.error ?? overviewHook.error;
     const isOffline =
       err instanceof ApiError &&
-      (err.status === 0 || err.status >= 500 || err.message.includes("Failed to fetch"));
+      (err.status === 0 ||
+        err.message.startsWith("Backend not reachable") ||
+        err.message.includes("Failed to fetch"));
     return (
       <div className="mx-auto max-w-2xl p-6 sm:p-10">
         <EmptyState

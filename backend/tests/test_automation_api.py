@@ -205,3 +205,26 @@ def test_runs_dependency_skip_and_csv_export(client):
     assert csv_res.status_code == 200
     assert "text/csv" in csv_res.headers["content-type"]
     assert "HTTP 502 upstream timeout" in csv_res.text
+
+
+def test_automation_no_platform_specific_strftime_flags() -> None:
+    """GNU '%-d' / Windows '%#d' raise ValueError cross-platform; verify all backend strftime literals."""
+    import ast
+    from pathlib import Path
+
+    backend_dir = Path(automation.__file__).resolve().parent
+    for py_file in backend_dir.glob("*.py"):
+        tree = ast.parse(py_file.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "strftime"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                fmt = node.args[0].value
+                assert "%-" not in fmt and "%#" not in fmt, f"{py_file.name}: unsafe strftime {fmt!r}"
+
+
