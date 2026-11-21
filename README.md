@@ -7,7 +7,7 @@ executive Monday Morning Brief.
 Built for the EDXSO AI Engineer Intern assignment (Assignment 1).
 Demo companies (entered as data in `scripts/demo_companies.json`, not hardcoded): MeetUniversity, Razorpay, Zerodha.
 
-> **Build & verification status.** Backend unit/API suite: **203 passed** (`pytest -q`, mocked HTTP/LLM for external calls), frontend Node suite: **5 passed** (`npm test`), TypeScript clean (`0` errors), ESLint clean (`0` warnings/errors), and all Next.js routes build. Partial live-run output from Windows (`ead1782`) is committed in `run_output.txt`.
+> **Build & verification status.** Backend unit/API suite: **209 passed** (`pytest -q`, mocked HTTP/LLM for external calls), frontend Node suite: **5 passed** (`npm test`), TypeScript clean (`0` errors), ESLint clean (`0` warnings/errors), and all Next.js routes build. Partial live-run output from Windows (`ead1782`) is committed in `run_output.txt`.
 
 ## Results from live runs
 
@@ -207,7 +207,7 @@ Six tables (`companies`, `qa`, `sources`, `records`, `reports`, `job_logs`) are 
 ## Tests
 
 ```bash
-cd backend && ../.venv/bin/pytest -q     # 203 passed
+cd backend && ../.venv/bin/pytest -q     # 209 passed
 cd frontend && npm test                  # 5 passed
 cd frontend && npx tsc --noEmit          # clean
 cd frontend && npm run lint              # clean
