@@ -314,3 +314,212 @@ def test_answers_survive_a_new_session_and_engine(engine_bundle, monkeypatch) ->
         assert state["current_idx"] == 1
     finally:
         fresh.close()
+
+
+# --------------------------------------------------------------------------- #
+# Similarity tuning & top-up loop (Razorpay-style multi-service regression)
+# --------------------------------------------------------------------------- #
+def _make_razorpay_like_company(session) -> Company:
+    services = [
+        {"text": f"TEST_Service_{i}: Razorpay Payment Suite {i}", "evidence_url": "https://razorpay.test/", "verified": True}
+        for i in range(10)
+    ]
+    competitors = [
+        {"name": f"TEST_Rival_{i}", "website": f"https://rival{i}.test/", "reason": "Payment overlap"}
+        for i in range(5)
+    ]
+    company = Company(
+        name="Razorpay",
+        website="https://razorpay.test/",
+        context="TEST full-stack payments and banking platform in India",
+        profile={
+            "summary": "Razorpay provides payment gateway, payouts, payroll, lending, and POS across India.",
+            "industry": "fintech payments",
+            "products": services,
+            "likely_competitors": competitors,
+            "_meta": {"pages_fetched": ["https://razorpay.test/", "https://razorpay.test/pricing"]},
+        },
+    )
+    session.add(company)
+    session.commit()
+    return company
+
+
+def test_same_company_different_topics_stay_distinct_and_duplicates_drop() -> None:
+    distinct_questions = [
+        "Which Razorpay payment gateway merchant segment drives the highest net revenue today?",
+        "Which Razorpay payment gateway customers churn fastest after merchant onboarding?",
+        "What checkout settlement pain points cause Razorpay payment merchants to file support tickets?",
+        "Who does Razorpay payment gateway lose enterprise merchant deals to in India?",
+        "Which RBI regulatory change could reshape Razorpay payment merchant demand this year?",
+        "What operational risk in Razorpay payment settlement would hurt merchants most over six months?",
+        "Which go-to-market channel fuels Razorpay payment merchant growth fastest right now?",
+        "What internal merchant telemetry data does Razorpay lack when scoring payment conversion?",
+        "What key pricing decisions for Razorpay payment merchants depend on this quarter's margins?",
+        "What durable moat keeps Razorpay payment merchants from switching to cheaper gateways?",
+    ]
+    common = interview.compute_common_words(distinct_questions, company_name="Razorpay")
+    assert "payment" in common
+    assert "merchants" in common or "merchant" in common
+
+    for i in range(len(distinct_questions)):
+        for j in range(i + 1, len(distinct_questions)):
+            assert not interview.questions_are_similar(
+                distinct_questions[i],
+                distinct_questions[j],
+                company_name="Razorpay",
+                common_words=common,
+            ), f"Distinct topics falsely merged:\n  {distinct_questions[i]}\n  {distinct_questions[j]}"
+
+    # Genuinely duplicate / paraphrased pairs must still be dropped
+    dup_a = "Which rival does Razorpay lose enterprise checkout deals to and what pricing advantage do they use?"
+    dup_b = "Who do you lose Razorpay enterprise checkout deals to and what is their main pricing advantage?"
+    assert interview.questions_are_similar(
+        dup_a, dup_b, company_name="Razorpay", common_words=common
+    )
+
+
+def test_razorpay_topup_loop_recovers_from_three_question_batch_and_logs(engine_bundle, monkeypatch, caplog) -> None:
+    import logging
+
+    session, _ = engine_bundle
+    company = _make_razorpay_like_company(session)
+
+    round_batches = [
+        # Round 1 (initial): only 3 usable + 1 duplicate
+        [
+            InterviewQuestion(
+                question="Which Razorpay payment tier generates the largest share of recurring revenue?",
+                topic="Growth",
+                why_asking="Razorpay lists 10 payment and banking services.",
+                evidence_urls=["https://razorpay.test/pricing"],
+            ),
+            InterviewQuestion(
+                question="Which Razorpay payment tier generates most recurring revenue share today?",
+                topic="Growth",
+                why_asking="Duplicate paraphrase that should be dropped.",
+                evidence_urls=["https://razorpay.test/pricing"],
+            ),
+            InterviewQuestion(
+                question="Which customer segment of Razorpay merchants expands fastest into RazorpayX payouts?",
+                topic="Customers",
+                why_asking="Cross-sell across 10 services.",
+                evidence_urls=["https://razorpay.test/"],
+            ),
+            InterviewQuestion(
+                question="What checkout integration pain point delays Razorpay merchant go-live most often?",
+                topic="Operations",
+                why_asking="Integration complexity across products.",
+                evidence_urls=["https://razorpay.test/"],
+            ),
+        ],
+        # Top-up round 1 (missing 7): returns 4 distinct questions
+        [
+            InterviewQuestion(
+                question="Which of the five payment rivals wins the most enterprise deals against Razorpay?",
+                topic="Competitors",
+                why_asking="5 competitors identified.",
+                evidence_urls=["https://razorpay.test/"],
+            ),
+            InterviewQuestion(
+                question="Which RBI licensing or UPI fee regulation shift threatens Razorpay margins most?",
+                topic="Market",
+                why_asking="Indian fintech regulatory exposure.",
+                evidence_urls=["https://razorpay.test/"],
+            ),
+            InterviewQuestion(
+                question="What fraud or settlement risk over the next six months would hurt merchant trust most?",
+                topic="Goals",
+                why_asking="Settlement risk focus.",
+                evidence_urls=["https://razorpay.test/"],
+            ),
+            InterviewQuestion(
+                question="Which single acquisition channel brings Razorpay the highest-LTV SMB cohorts?",
+                topic="Growth",
+                why_asking="Channel efficiency.",
+                evidence_urls=["https://razorpay.test/"],
+            ),
+        ],
+        # Top-up round 2 (missing 3): returns 3 distinct questions
+        [
+            InterviewQuestion(
+                question="What internal merchant cohort or churn data is hardest for teams to pull reliably?",
+                topic="Operations",
+                why_asking="Internal telemetry blind spots.",
+                evidence_urls=["https://razorpay.test/"],
+            ),
+            InterviewQuestion(
+                question="Which upcoming product bundling decision between gateway and banking matters most?",
+                topic="Goals",
+                why_asking="10-service bundle strategy.",
+                evidence_urls=["https://razorpay.test/"],
+            ),
+            InterviewQuestion(
+                question="What compliance or developer moat prevents enterprise merchants from multi-homing?",
+                topic="Competitors",
+                why_asking="Switching cost moat.",
+                evidence_urls=["https://razorpay.test/"],
+            ),
+        ],
+    ]
+
+    seen_prompts: list[str] = []
+
+    def fake_ask(prompt, model_cls, **_kwargs):
+        assert model_cls is QuestionBatch
+        idx = len(seen_prompts)
+        seen_prompts.append(prompt)
+        return QuestionBatch(questions=round_batches[idx])
+
+    monkeypatch.setattr("llm.ask", fake_ask)
+
+    with caplog.at_level(logging.INFO, logger="signalstack.interview"):
+        state = interview.start(session, company)
+
+    assert len(seen_prompts) == 3
+    assert "Write exactly 7 MORE distinct interview questions" in seen_prompts[1]
+    assert "Which Razorpay payment tier generates the largest share of recurring revenue?" in seen_prompts[1]
+    assert "Write exactly 3 MORE distinct interview questions" in seen_prompts[2]
+    assert len(state["questions"]) == 10
+
+    gen_logs = [r.message for r in caplog.records if "interview.generate " in r.message]
+    assert len(gen_logs) == 3
+    assert "round=initial requested=10 raw=4 empty_dropped=0 similarity_dropped=1 total_kept=3" in gen_logs[0]
+    assert "round=topup-1 requested=7 raw=4 empty_dropped=0 similarity_dropped=0 total_kept=7" in gen_logs[1]
+    assert "round=topup-2 requested=3 raw=3 empty_dropped=0 similarity_dropped=0 total_kept=10" in gen_logs[2]
+
+
+def test_topup_exhaustion_fails_without_padding_and_preserves_count(engine_bundle, monkeypatch) -> None:
+    session, _ = engine_bundle
+    company = _make_razorpay_like_company(session)
+
+    distinct_topics = [
+        "Which pricing tier generates highest annual revenue for Razorpay today?",
+        "Which enterprise customer cohort churns fastest after onboarding?",
+        "Who wins the most UPI checkout deals against Razorpay and why?",
+        "What RBI regulatory change poses the biggest compliance risk next quarter?",
+    ]
+    call_count = {"n": 0}
+
+    def stingy_ask(prompt, model_cls, **_kwargs):
+        idx = call_count["n"]
+        call_count["n"] += 1
+        return QuestionBatch(
+            questions=[
+                InterviewQuestion(
+                    question=distinct_topics[idx],
+                    topic="Goals",
+                    why_asking="Profile observation.",
+                    evidence_urls=["https://razorpay.test/"],
+                )
+            ]
+        )
+
+    monkeypatch.setattr("llm.ask", stingy_ask)
+
+    with pytest.raises(interview.InterviewError, match=r"LLM produced 4 distinct questions.*need 10"):
+        interview.start(session, company)
+
+    assert call_count["n"] == 1 + interview.MAX_TOPUP_ROUNDS
+    assert session.query(QA).filter_by(company_id=company.id).count() == 0
+

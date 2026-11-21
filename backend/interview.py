@@ -23,6 +23,177 @@ logger = logging.getLogger("signalstack.interview")
 
 QUESTION_COUNT = 10
 MAX_FOLLOWUPS = 3
+MAX_TOPUP_ROUNDS = 3
+
+STOPWORDS = frozenset(
+    {
+        "about",
+        "above",
+        "across",
+        "actually",
+        "after",
+        "against",
+        "all",
+        "also",
+        "among",
+        "and",
+        "another",
+        "any",
+        "are",
+        "around",
+        "because",
+        "been",
+        "before",
+        "being",
+        "below",
+        "between",
+        "both",
+        "but",
+        "can",
+        "cannot",
+        "cant",
+        "could",
+        "current",
+        "currently",
+        "did",
+        "do",
+        "does",
+        "doing",
+        "done",
+        "during",
+        "each",
+        "either",
+        "else",
+        "even",
+        "every",
+        "for",
+        "from",
+        "get",
+        "give",
+        "gives",
+        "had",
+        "has",
+        "have",
+        "having",
+        "here",
+        "how",
+        "however",
+        "into",
+        "its",
+        "just",
+        "keep",
+        "keeps",
+        "last",
+        "like",
+        "likely",
+        "main",
+        "make",
+        "makes",
+        "many",
+        "may",
+        "might",
+        "month",
+        "months",
+        "more",
+        "most",
+        "much",
+        "must",
+        "near",
+        "need",
+        "needs",
+        "next",
+        "not",
+        "now",
+        "off",
+        "often",
+        "once",
+        "one",
+        "only",
+        "onto",
+        "other",
+        "others",
+        "our",
+        "ours",
+        "out",
+        "over",
+        "own",
+        "past",
+        "per",
+        "primary",
+        "quarter",
+        "quarters",
+        "rather",
+        "really",
+        "right",
+        "same",
+        "see",
+        "several",
+        "she",
+        "should",
+        "since",
+        "single",
+        "some",
+        "specific",
+        "specifically",
+        "still",
+        "such",
+        "take",
+        "takes",
+        "than",
+        "that",
+        "the",
+        "their",
+        "theirs",
+        "them",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "those",
+        "though",
+        "through",
+        "today",
+        "too",
+        "under",
+        "until",
+        "upon",
+        "use",
+        "used",
+        "using",
+        "very",
+        "want",
+        "was",
+        "way",
+        "week",
+        "weeks",
+        "well",
+        "were",
+        "what",
+        "whatever",
+        "when",
+        "where",
+        "whether",
+        "which",
+        "while",
+        "who",
+        "whom",
+        "whose",
+        "why",
+        "will",
+        "with",
+        "within",
+        "without",
+        "would",
+        "year",
+        "years",
+        "you",
+        "your",
+        "yours",
+    }
+)
+
+SIMILARITY_THRESHOLD = 0.65
 
 VAGUE_MARKERS = (
     "not sure",
@@ -84,16 +255,61 @@ def _normalise(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", " ", (text or "").lower()).strip()
 
 
-def _tokens(text: str) -> set[str]:
-    return {token for token in _normalise(text).split() if len(token) > 3}
+def _company_tokens(company_name: str) -> set[str]:
+    return {tok for tok in _normalise(company_name).split() if len(tok) >= 2}
 
 
-def questions_are_similar(a: str, b: str) -> bool:
-    """Jaccard token overlap; used to guarantee a follow-up never repeats a question."""
-    ta, tb = _tokens(a), _tokens(b)
+def _tokens(
+    text: str,
+    *,
+    company_name: str = "",
+    common_words: set[str] | frozenset[str] | None = None,
+) -> set[str]:
+    ignore = set(STOPWORDS)
+    if company_name:
+        ignore |= _company_tokens(company_name)
+    if common_words:
+        ignore |= set(common_words)
+    return {
+        token
+        for token in _normalise(text).split()
+        if len(token) > 2 and token not in ignore
+    }
+
+
+def compute_common_words(questions: list[str], *, company_name: str = "") -> set[str]:
+    """Return content tokens appearing in strictly more than half of `questions`."""
+    if len(questions) < 3:
+        return set()
+    counts: dict[str, int] = {}
+    for q in questions:
+        for tok in _tokens(q, company_name=company_name):
+            counts[tok] = counts.get(tok, 0) + 1
+    threshold = len(questions) / 2.0
+    return {tok for tok, cnt in counts.items() if cnt > threshold}
+
+
+def questions_are_similar(
+    a: str,
+    b: str,
+    *,
+    company_name: str = "",
+    common_words: set[str] | frozenset[str] | None = None,
+) -> bool:
+    """Jaccard token overlap after removing stopwords, company name, and majority-common words."""
+    norm_a, norm_b = _normalise(a), _normalise(b)
+    if not norm_a or not norm_b or norm_a == norm_b:
+        return norm_a == norm_b
+
+    ta = _tokens(a, company_name=company_name, common_words=common_words)
+    tb = _tokens(b, company_name=company_name, common_words=common_words)
     if not ta or not tb:
-        return _normalise(a) == _normalise(b)
-    return len(ta & tb) / len(ta | tb) >= 0.75
+        # Fallback if all tokens were common/company words: compare without common_words filter.
+        ta = _tokens(a, company_name=company_name)
+        tb = _tokens(b, company_name=company_name)
+        if not ta or not tb:
+            return norm_a == norm_b
+    return len(ta & tb) / len(ta | tb) >= SIMILARITY_THRESHOLD
 
 
 def is_vague(answer: str) -> bool:
@@ -154,40 +370,102 @@ def _generate_questions(company, profile: dict) -> list[dict]:
         + "\n".join(f"{i + 1}. {area}" for i, area in enumerate(QUESTION_AREAS))
     )
 
-    best: list[dict] = []
+    kept: list[dict] = []
     valid_urls = set(pages_fetched)
-    for _attempt in range(2):
-        batch = llm.ask(prompt, QuestionBatch, max_tokens=2200, temperature=0.4)
-        unique: list[dict] = []
+
+    def _absorb_batch(batch: QuestionBatch, round_label: str, requested: int) -> None:
+        raw_texts = [item.question.strip() for item in batch.questions]
+        raw_count = len(raw_texts)
+        empty_dropped = sum(1 for t in raw_texts if not t)
+        corpus = [item["question"] for item in kept] + [t for t in raw_texts if t]
+        common = compute_common_words(corpus, company_name=company.name)
+
+        similarity_dropped = 0
         for item in batch.questions:
             q_text = item.question.strip()
             if not q_text:
                 continue
-            if any(questions_are_similar(q_text, seen["question"]) for seen in unique):
+            if any(
+                questions_are_similar(
+                    q_text,
+                    seen["question"],
+                    company_name=company.name,
+                    common_words=common,
+                )
+                for seen in kept
+            ):
+                similarity_dropped += 1
                 continue
             cited = [u for u in item.evidence_urls if u in valid_urls][:2]
             if not cited and pages_fetched:
                 cited = [pages_fetched[0]]
-            unique.append(
+            kept.append(
                 {
                     "question": q_text,
-                    "topic": _normalise_topic(item.topic, len(unique)),
+                    "topic": _normalise_topic(item.topic, len(kept)),
                     "why_asking": item.why_asking.strip(),
                     "evidence_urls": cited,
                     "suggested_answers": [s.strip() for s in item.suggested_answers if s.strip()][:3],
                 }
             )
-        if len(unique) > len(best):
-            best = unique
-        if len(best) >= QUESTION_COUNT:
-            return best[:QUESTION_COUNT]
-        prompt += (
-            f"\n\nYour previous list had only {len(best)} usable questions. "
-            f"Return exactly {QUESTION_COUNT} distinct questions."
+            if len(kept) >= QUESTION_COUNT:
+                break
+
+        logger.info(
+            "interview.generate company_id=%s round=%s requested=%s raw=%s empty_dropped=%s similarity_dropped=%s total_kept=%s",
+            company.id,
+            round_label,
+            requested,
+            raw_count,
+            empty_dropped,
+            similarity_dropped,
+            len(kept),
         )
 
+    batch = llm.ask(prompt, QuestionBatch, max_tokens=3200, temperature=0.4)
+    _absorb_batch(batch, "initial", QUESTION_COUNT)
+    if len(kept) >= QUESTION_COUNT:
+        return kept[:QUESTION_COUNT]
+
+    for round_idx in range(1, MAX_TOPUP_ROUNDS + 1):
+        missing = QUESTION_COUNT - len(kept)
+        kept_lines = "\n".join(
+            f"{i + 1}. [{item['topic']}] {item['question']}" for i, item in enumerate(kept)
+        )
+        covered_topics = ", ".join(dict.fromkeys(item["topic"] for item in kept)) or "(none)"
+        topup_prompt = (
+            f"Company: {company.name}\n"
+            f"What the research found: {summary}\n"
+            f"Industry: {industry or 'unclear'}\n"
+            f"Possible competitors: {competitors}\n"
+            f"Fetched page URLs available to cite: {pages_str}\n"
+            f"Founder context: {context}\n\n"
+            f"We already have {len(kept)} distinct interview questions (covering: {covered_topics}):\n"
+            f"{kept_lines}\n\n"
+            f"Write exactly {missing} MORE distinct interview questions for the founder. "
+            "Every new question MUST cover a DIFFERENT uncovered angle/topic from those already kept "
+            "(for example: revenue model, customer segments, customer pain points, competition, "
+            "industry/regulatory change, top risks, growth bottlenecks, internal data/telemetry, "
+            "or key upcoming decisions). Do not repeat or rephrase any kept question.\n"
+            "For each item provide: question, topic (Customers/Growth/Competitors/Market/Operations/Goals), "
+            "why_asking, evidence_urls (1-2 URLs from fetched page URLs above), suggested_answers.\n\n"
+            "Candidate areas to cover:\n"
+            + "\n".join(f"{i + 1}. {area}" for i, area in enumerate(QUESTION_AREAS))
+        )
+        topup_batch = llm.ask(topup_prompt, QuestionBatch, max_tokens=2500, temperature=0.4)
+        _absorb_batch(topup_batch, f"topup-{round_idx}", missing)
+        if len(kept) >= QUESTION_COUNT:
+            return kept[:QUESTION_COUNT]
+
+    logger.warning(
+        "interview.generate_short company_id=%s kept=%s need=%s rounds=%s",
+        company.id,
+        len(kept),
+        QUESTION_COUNT,
+        MAX_TOPUP_ROUNDS,
+    )
     raise InterviewError(
-        f"LLM produced {len(best)} distinct questions, need {QUESTION_COUNT}. Try again."
+        f"LLM produced {len(kept)} distinct questions after {MAX_TOPUP_ROUNDS} top-up rounds, need {QUESTION_COUNT}. Try again."
     )
 
 
@@ -390,7 +668,11 @@ def _maybe_followup(db, company, row: QA, answer_text: str) -> FollowUpDecision 
     decision = llm.ask(prompt, FollowUpDecision, max_tokens=400, temperature=0.3)
     if not decision.followup or not decision.question.strip():
         return None
-    if any(questions_are_similar(decision.question, q) for q in existing):
+    common = compute_common_words(existing + [decision.question], company_name=company.name)
+    if any(
+        questions_are_similar(decision.question, q, company_name=company.name, common_words=common)
+        for q in existing
+    ):
         logger.info("rejected duplicate follow-up for company %s", company.id)
         return None
     return decision
