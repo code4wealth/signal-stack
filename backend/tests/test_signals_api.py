@@ -228,6 +228,17 @@ def test_signals_overview_feed_patch_bulk_and_ask() -> None:
         assert miss.json()["citations"] == []
         assert miss.json()["answer"] == ""
 
+        # Greeting returns helpful grounded guidance + suggested questions without fabricating citations
+        greet = client.post(
+            f"/api/companies/{cid}/signals/ask",
+            json={"question": "hi"},
+        )
+        assert greet.status_code == 200
+        greet_json = greet.json()
+        assert greet_json["citations"] == []
+        assert "analysed signals" in greet_json["answer"]
+        assert len(greet_json["suggestedQuestions"]) >= 1
+
 
 def test_signals_analyse_endpoint(monkeypatch) -> None:
     import jobs

@@ -3317,6 +3317,40 @@ def run_signals_analysis(company_id: int, db: Session = Depends(get_db)) -> dict
     return jobs.start_company_job(db, company_id, "analyse")
 
 
+_ASK_GREETINGS = {
+    "hi",
+    "hello",
+    "hey",
+    "hey there",
+    "hi there",
+    "hello there",
+    "yo",
+    "hola",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "howdy",
+    "thanks",
+    "thank you",
+    "help",
+    "what can you do",
+    "what can i ask",
+    "who are you",
+}
+
+
+def _suggested_questions_for_rows(rows: list[tuple[Record, Source | None]]) -> list[str]:
+    suggestions: list[str] = []
+    for rec, _src in rows[:3]:
+        a = rec.analysis or {}
+        title = (a.get("title") or rec.title or "").strip()
+        if not title:
+            continue
+        short = title[:70].rstrip(" .")
+        suggestions.append(f"What is the evidence and impact of: {short}?")
+    return suggestions
+
+
 def _build_ask_card_rows(pairs: list[tuple[Record, Source | None]]) -> list[dict]:
     card_rows = []
     for rec, src in pairs:
@@ -3346,6 +3380,31 @@ def ask_company_signals(
     company = get_company_or_404(db, company_id)
     settings = get_settings()
     rows = _analysed_rows(db, company_id)
+
+    cleaned_q = " ".join(_re.sub(r"[^a-z0-9\s]", " ", (payload.question or "").lower()).split())
+    if cleaned_q in _ASK_GREETINGS and not payload.quotedText:
+        suggestions = _suggested_questions_for_rows(rows)
+        if not rows:
+            return {
+                "answer": (
+                    f"Hi! I answer questions strictly from {company.name}'s analysed signals. "
+                    "There are no analysed signals yet — run Crawl and Analyse Signals first, then ask about competitors, threats, or opportunities."
+                ),
+                "citations": [],
+                "suggestedQuestions": [],
+            }
+        top_titles = "; ".join(
+            ((rec.analysis or {}).get("title") or rec.title)[:60] for rec, _ in rows[:3]
+        )
+        return {
+            "answer": (
+                f"Hi! I answer questions strictly using {company.name}'s {len(rows)} analysed signals "
+                f"(including: {top_titles}). Ask about any competitor, threat, opportunity, or click a suggested question below."
+            ),
+            "citations": [],
+            "suggestedQuestions": suggestions,
+        }
+
     if not rows:
         return {"answer": "", "citations": [], "suggestedQuestions": []}
 
