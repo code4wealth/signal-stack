@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { getRunLogs, streamRunLogs } from "@/lib/api";
+import { getRun, getRunLogs, streamRunLogs } from "@/lib/api";
 import type { CrawlLogLine } from "@/lib/types";
 
 const MAX_LOG_BUFFER = 2000;
@@ -29,8 +29,16 @@ export function useRunLogs(
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const lastSeenIdRef = useRef<number>(0);
+  const finishedRunIdsRef = useRef<Set<number>>(new Set());
+  const wasActiveRef = useRef<{ runId: number; active: boolean } | null>(null);
   const onFinishedRef = useRef(onRunFinished);
   onFinishedRef.current = onRunFinished;
+
+  const notifyFinished = useCallback((id: number) => {
+    if (finishedRunIdsRef.current.has(id)) return;
+    finishedRunIdsRef.current.add(id);
+    onFinishedRef.current?.();
+  }, []);
 
   const appendLines = useCallback((incoming: CrawlLogLine[]) => {
     if (incoming.length === 0) return;
@@ -102,6 +110,19 @@ export function useRunLogs(
     };
   }, [appendLines, companyId, runId, useMocks]);
 
+  // If overview polling observes active -> inactive before SSE delivers "done", still trigger onRunFinished once
+  useEffect(() => {
+    const prev = wasActiveRef.current;
+    if (runId && runId > 0) {
+      if (prev && prev.runId === runId && prev.active && !isActive) {
+        notifyFinished(runId);
+      }
+      wasActiveRef.current = { runId, active: isActive };
+    } else {
+      wasActiveRef.current = null;
+    }
+  }, [isActive, notifyFinished, runId]);
+
   // SSE stream when active, with automatic 3s polling fallback
   useEffect(() => {
     if (useMocks || !runId || runId <= 0 || !isActive) {
@@ -133,6 +154,22 @@ export function useRunLogs(
           .catch(() => {
             /* keep retrying */
           });
+        void getRun(companyId, runId)
+          .then((detail) => {
+            if (closed) return;
+            const st = detail.run.status;
+            if (st !== "queued" && st !== "running") {
+              if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+              }
+              setConnection("idle");
+              notifyFinished(runId);
+            }
+          })
+          .catch(() => {
+            /* keep retrying */
+          });
       }, 3000);
     };
 
@@ -155,7 +192,7 @@ export function useRunLogs(
         if (closed) return;
         es?.close();
         setConnection("idle");
-        onFinishedRef.current?.();
+        notifyFinished(runId);
       });
 
       es.onerror = () => {
@@ -173,7 +210,7 @@ export function useRunLogs(
       es?.close();
       if (pollTimer) clearInterval(pollTimer);
     };
-  }, [appendLines, companyId, isActive, paused, runId, useMocks]);
+  }, [appendLines, companyId, isActive, notifyFinished, paused, runId, useMocks]);
 
   const loadMore = useCallback(async () => {
     if (!runId || !nextCursor || isLoadingMore) return;

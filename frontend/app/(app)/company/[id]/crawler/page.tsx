@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -130,6 +130,39 @@ function CrawlerInner() {
     void overviewHook.refetch();
     void itemsHook.refetch();
   });
+
+  // Safety net: if overview already shows collected items in lastRun while the unfiltered items
+  // list is still empty (e.g. a cached [] from before the crawl), trigger a one-shot refetch.
+  const syncedRunIdsRef = useRef<Set<number>>(new Set());
+  const lastRunId = overview?.lastRun?.id ?? null;
+  const lastRunCollected =
+    (overview?.lastRun?.counts.new ?? 0) + (overview?.lastRun?.counts.changed ?? 0);
+  const filtersAreDefault =
+    (itemsHook.filters.category ?? "all") === "all" &&
+    (itemsHook.filters.change ?? "all") === "all" &&
+    !itemsHook.filters.sourceId &&
+    !(itemsHook.filters.q ?? "").trim() &&
+    !itemsHook.filters.dateFrom &&
+    !itemsHook.filters.dateTo;
+  useEffect(() => {
+    if (
+      lastRunId &&
+      lastRunCollected > 0 &&
+      filtersAreDefault &&
+      itemsHook.items.length === 0 &&
+      !itemsHook.isLoading &&
+      !itemsHook.isFetching &&
+      !syncedRunIdsRef.current.has(lastRunId)
+    ) {
+      syncedRunIdsRef.current.add(lastRunId);
+      void itemsHook.refetch();
+    }
+  }, [
+    filtersAreDefault,
+    itemsHook,
+    lastRunCollected,
+    lastRunId,
+  ]);
 
   if (companyQuery.isLoading || (!isLocked && overviewHook.isLoading && !overview)) {
     return <CrawlerSkeleton />;
@@ -401,7 +434,7 @@ function CrawlerInner() {
           total={itemsHook.total}
           sources={stackQuery.data?.sources ?? []}
           filters={itemsHook.filters}
-          isLoading={itemsHook.isLoading}
+          isLoading={itemsHook.isLoading || (itemsHook.isFetching && itemsHook.items.length === 0)}
           hasMore={itemsHook.hasMore}
           loadingMore={itemsHook.loadingMore}
           isMock={overview.isMock}

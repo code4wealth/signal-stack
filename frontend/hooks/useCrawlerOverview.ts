@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -65,6 +65,27 @@ export function useCrawlerOverview(companyId: number, enabled = true) {
     retry: 1,
   });
 
+  // Whenever an active crawl finishes or lastRun advances, invalidate collected items & run history
+  const prevRunSigRef = useRef<{ activeId: number | null; lastKey: string | null } | null>(null);
+  useEffect(() => {
+    const data = overviewQuery.data;
+    if (!data) return;
+    const activeId = data.activeRun?.id ?? null;
+    const lastKey = data.lastRun
+      ? `${data.lastRun.id}:${data.lastRun.status}:${data.lastRun.finishedAt ?? ""}:${data.lastRun.counts.new}:${data.lastRun.counts.changed}`
+      : null;
+    const prev = prevRunSigRef.current;
+    prevRunSigRef.current = { activeId, lastKey };
+    if (!prev) return;
+
+    const activeFinished = prev.activeId !== null && activeId === null;
+    const lastRunUpdated = lastKey !== null && lastKey !== prev.lastKey;
+    if (activeFinished || lastRunUpdated) {
+      void queryClient.invalidateQueries({ queryKey: ["crawler-items", companyId] });
+      void queryClient.invalidateQueries({ queryKey: ["crawler-runs", companyId] });
+    }
+  }, [companyId, overviewQuery.data, queryClient]);
+
   const startMutation = useMutation({
     mutationFn: (sourceIds?: number[]) => startCrawl(companyId, sourceIds),
     onMutate: async (sourceIds) => {
@@ -99,6 +120,9 @@ export function useCrawlerOverview(companyId: number, enabled = true) {
       }
       void queryClient.invalidateQueries({ queryKey });
       void queryClient.invalidateQueries({ queryKey: ["crawler-runs", companyId] });
+      if (run.status !== "queued" && run.status !== "running") {
+        void queryClient.invalidateQueries({ queryKey: ["crawler-items", companyId] });
+      }
       setToast({ message: "Crawl started", tone: "ok" });
     },
     onError: (err, _vars, ctx) => {

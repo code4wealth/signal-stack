@@ -2404,6 +2404,43 @@ def stream_crawler_run_logs(
     )
 
 
+def _parse_filter_date(raw: str | None, *, end_of_day: bool = False):
+    from datetime import datetime, timezone
+    import re
+
+    value = (raw or "").strip()
+    if not value:
+        return None
+
+    date_only = False
+    dt: datetime | None = None
+
+    # Support dd-mm-yyyy and dd/mm/yyyy in addition to ISO-8601 (YYYY-MM-DD or full timestamp)
+    dmy_match = re.fullmatch(r"(\d{2})[-/](\d{2})[-/](\d{4})", value)
+    if dmy_match:
+        day, month, year = int(dmy_match.group(1)), int(dmy_match.group(2)), int(dmy_match.group(3))
+        try:
+            dt = datetime(year, month, day, tzinfo=timezone.utc)
+            date_only = True
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"invalid date filter: {raw}") from exc
+    else:
+        iso_val = value[:-1] + "+00:00" if value.endswith("Z") else value
+        try:
+            dt = datetime.fromisoformat(iso_val)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"invalid date filter: {raw}") from exc
+        date_only = len(value) == 10 and "T" not in value and " " not in value
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+
+    if end_of_day and date_only:
+        dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return dt
+
+
 @router.get("/companies/{company_id}/crawler/items", tags=["crawler"])
 def list_crawler_items(
     company_id: int,
@@ -2417,7 +2454,7 @@ def list_crawler_items(
     limit: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> dict:
-    from datetime import datetime, timezone
+    from datetime import timezone
 
     get_company_or_404(db, company_id)
     query = (
@@ -2425,26 +2462,28 @@ def list_crawler_items(
         .outerjoin(Source, Record.source_id == Source.id)
         .where(
             Record.company_id == company_id,
-            (Source.category.is_(None)) | (Source.category != "internal"),
+            (Source.category.is_(None)) | (func.lower(Source.category) != "internal"),
         )
-        .order_by(Record.id.desc())
+        .order_by(Record.discovered.desc(), Record.id.desc())
     )
     rows = db.execute(query).all()
-    from_dt = datetime.fromisoformat(dateFrom).replace(tzinfo=timezone.utc) if dateFrom else None
-    to_dt = (
-        datetime.fromisoformat(dateTo).replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
-        if dateTo
-        else None
-    )
+    from_dt = _parse_filter_date(dateFrom, end_of_day=False)
+    to_dt = _parse_filter_date(dateTo, end_of_day=True)
+    cat_filter = (category or "").strip().lower()
+    if cat_filter == "all":
+        cat_filter = ""
+    change_filter = (change or "").strip().lower()
+    if change_filter == "all":
+        change_filter = ""
     needle = (q or "").strip().lower()
 
     filtered: list[tuple[Record, Source | None]] = []
     for rec, src in rows:
-        cat = src.category if src else "market"
+        cat = (src.category or "market").strip().lower() if src else "market"
         ch = "changed" if rec.is_update else "new"
-        if category and cat != category:
+        if cat_filter and cat != cat_filter:
             continue
-        if change and ch != change:
+        if change_filter and ch != change_filter:
             continue
         if sourceId is not None and rec.source_id != sourceId:
             continue
@@ -2464,7 +2503,11 @@ def list_crawler_items(
 
     total = len(filtered)
     if cursor is not None:
-        filtered = [pair for pair in filtered if pair[0].id < cursor]
+        cursor_idx = next((idx for idx, (rec, _src) in enumerate(filtered) if rec.id == cursor), None)
+        if cursor_idx is not None:
+            filtered = filtered[cursor_idx + 1 :]
+        else:
+            filtered = [pair for pair in filtered if pair[0].id < cursor]
     page = filtered[:limit]
     has_more = len(filtered) > limit
     return {

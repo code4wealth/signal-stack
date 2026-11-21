@@ -53,6 +53,11 @@ export function useCollectedItems(companyId: number, enabled = true) {
 
   useEffect(() => {
     setExtraItems([]);
+    setNextCursor(null);
+  }, [filters]);
+
+  useEffect(() => {
+    setExtraItems([]);
     setNextCursor(itemsQuery.data?.nextCursor ?? null);
   }, [itemsQuery.data]);
 
@@ -89,6 +94,7 @@ export function useCollectedItems(companyId: number, enabled = true) {
     filters,
     setFilters,
     isLoading: itemsQuery.isLoading,
+    isFetching: itemsQuery.isFetching,
     hasMore: Boolean(nextCursor),
     loadMore,
     loadingMore,

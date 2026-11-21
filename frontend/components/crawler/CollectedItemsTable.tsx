@@ -165,7 +165,7 @@ export function CollectedItemsTable({
                   <th className="px-3 py-2.5">Category</th>
                   <th className="px-3 py-2.5">Change</th>
                   <th className="px-3 py-2.5">Published</th>
-                  <th className="px-3 py-2.5">Fetched</th>
+                  <th className="px-3 py-2.5">Discovered</th>
                   <th className="py-2.5 pl-3 text-right">Evidence</th>
                 </tr>
               </thead>
@@ -228,7 +228,10 @@ export function CollectedItemsTable({
                       <td className="px-3 py-3 font-mono text-[11px] text-[#4B5058]">
                         {item.publishedAt ? formatShortDate(item.publishedAt) : "—"}
                       </td>
-                      <td className="px-3 py-3 font-mono text-[11px] text-[#9AA0AA]">
+                      <td
+                        className="px-3 py-3 font-mono text-[11px] text-[#9AA0AA]"
+                        title={formatShortDate(item.fetchedAt)}
+                      >
                         {formatRelativeTime(item.fetchedAt)}
                       </td>
                       <td className="py-3 pl-3 text-right">
@@ -253,10 +256,17 @@ export function CollectedItemsTable({
           <ul className="space-y-2.5 md:hidden">
             {items.map((item) => (
               <li key={item.id}>
-                <button
-                  type="button"
+                <div
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onSelectItem(item.id)}
-                  className="focus-ring w-full space-y-2 rounded-2xl border border-white/80 bg-white/75 p-3.5 text-left"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelectItem(item.id);
+                    }
+                  }}
+                  className="focus-ring w-full cursor-pointer space-y-2 rounded-2xl border border-white/80 bg-white/75 p-3.5 text-left"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-xs font-semibold text-[#1F2125]">{item.title}</p>
@@ -274,13 +284,30 @@ export function CollectedItemsTable({
                     <span className="font-mono text-[#4B5058]">{item.domain}</span>
                     <CategoryBadge category={item.category} />
                   </div>
-                </button>
+                  <div className="flex items-center justify-between gap-2 pt-0.5 text-[11px]">
+                    <span className="font-mono text-[#9AA0AA]" title={formatShortDate(item.fetchedAt)}>
+                      {formatRelativeTime(item.fetchedAt)}
+                    </span>
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 font-mono text-[#2563EB] no-underline hover:underline"
+                    >
+                      Source <ArrowUpRight size={11} />
+                    </a>
+                  </div>
+                </div>
               </li>
             ))}
           </ul>
 
-          {hasMore ? (
-            <div className="pt-2 text-center">
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+            <span className="font-mono text-[11px] text-[#9AA0AA]">
+              Showing {items.length} of {total} items
+            </span>
+            {hasMore ? (
               <button
                 type="button"
                 disabled={loadingMore}
@@ -289,8 +316,8 @@ export function CollectedItemsTable({
               >
                 {loadingMore ? "Loading…" : "Load more items"}
               </button>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
         </>
       )}
     </GlassCard>
