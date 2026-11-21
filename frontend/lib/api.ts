@@ -126,7 +126,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // non-JSON or empty error body — usually the dev proxy, not FastAPI
     }
-    if (!parsed && (response.status === 502 || response.status === 503 || response.status === 504)) {
+    if (!parsed && response.status >= 500) {
       const probe =
         path === "/api/health"
           ? { reachable: false, summary: `GET ${targetUrl} returned HTTP ${response.status}` }
@@ -136,8 +136,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       } else {
         detail = `Backend up on ${BACKEND_DISPLAY_URL} (${probe.summary}), but ${method} ${path} failed (HTTP ${response.status} with no error body); see the backend terminal.`;
       }
-    } else if (!parsed && response.status >= 500) {
-      detail += " — the API returned no error body; see the backend terminal.";
     }
     throw new ApiError(detail, response.status);
   }

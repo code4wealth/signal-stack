@@ -186,3 +186,32 @@ test("Crawler hooks invalidate crawler-items on run completion without manual re
   assert.ok(runLogsSrc.includes("notifyFinished(runId)"));
   assert.ok(runLogsSrc.includes("getRun(companyId, runId)"));
 });
+
+test("HTTP 500 without JSON body probes /api/health and reports backend reachability", async () => {
+  const { startResearch } = loadTs(path.join(frontendRoot, "lib/api.ts"));
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.endsWith("/api/companies/research")) {
+      return new Response("", { status: 500, statusText: "Internal Server Error" });
+    }
+    if (url.endsWith("/api/health")) {
+      return new Response("", { status: 502, statusText: "Bad Gateway" });
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+  try {
+    await assert.rejects(
+      () => startResearch({ companyName: "Zomato", websiteUrl: "https://www.zomato.com" }),
+      (err) => {
+        assert.ok(err.message.includes("Backend not reachable"));
+        return true;
+      },
+    );
+    assert.deepEqual(calls, ["/api/companies/research", "/api/health"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
