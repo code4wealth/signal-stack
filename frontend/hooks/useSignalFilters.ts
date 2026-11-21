@@ -32,7 +32,17 @@ export function useSignalFilters() {
 
   const tab = useMemo<SignalTab>(() => {
     const raw = searchParams.get("tab") as SignalTab | null;
-    return raw && VALID_TABS.includes(raw) ? raw : "overview";
+    if (raw && VALID_TABS.includes(raw)) return raw;
+    if (
+      searchParams.get("category") ||
+      searchParams.get("classification") ||
+      searchParams.get("sourceId") ||
+      searchParams.get("status") ||
+      searchParams.get("q")
+    ) {
+      return "feed";
+    }
+    return "overview";
   }, [searchParams]);
 
   const range = useMemo<SignalRange>(() => {

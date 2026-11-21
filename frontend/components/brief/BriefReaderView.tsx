@@ -62,13 +62,11 @@ export function BriefReaderView({
 
   const companyQuery = useQuery({
     queryKey: ["company", companyId],
-    queryFn: () => api.getCompany(companyId),
+    queryFn: async () => adaptCompanyDetail(await api.getCompany(companyId)),
     enabled: Number.isFinite(companyId) && companyId > 0,
+    staleTime: 60_000,
   });
-  const company = useMemo(
-    () => (companyQuery.data ? adaptCompanyDetail(companyQuery.data) : null),
-    [companyQuery.data],
-  );
+  const company = companyQuery.data ?? null;
 
   const {
     brief,
@@ -87,6 +85,8 @@ export function BriefReaderView({
   const { generation, isGenerating, startGeneration, isStarting } =
     useBriefGeneration(companyId, () => {
       refetchAll();
+      void queryClient.invalidateQueries({ queryKey: ["company", companyId] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard", companyId] });
     });
 
   const { updateAction, createAction, isCreatingAction } = useBriefActions(

@@ -9,36 +9,64 @@ type State =
   | { status: "online"; model: string; keyConfigured: boolean }
   | { status: "offline"; reason: string };
 
+const HEALTH_CACHE_TTL_MS = 25_000;
+let cachedState: State | null = null;
+let cachedAt = 0;
+let inflight: Promise<State> | null = null;
+
+async function fetchSharedHealth(force = false): Promise<State> {
+  const now = Date.now();
+  if (!force && cachedState && cachedState.status !== "checking" && now - cachedAt < HEALTH_CACHE_TTL_MS) {
+    return cachedState;
+  }
+  if (inflight) return inflight;
+  inflight = api
+    .health()
+    .then((health): State => {
+      if (health.status === "ok") {
+        return {
+          status: "online",
+          model: health.llm.model,
+          keyConfigured: health.llm.api_key_configured,
+        };
+      }
+      return { status: "offline", reason: `API ${health.status}` };
+    })
+    .catch((caught): State => {
+      const message = caught instanceof Error ? caught.message : "Backend unreachable";
+      return { status: "offline", reason: message };
+    })
+    .then((next) => {
+      cachedState = next;
+      cachedAt = Date.now();
+      inflight = null;
+      return next;
+    });
+  return inflight;
+}
+
 export function BackendStatus() {
-  const [state, setState] = useState<State>({ status: "checking" });
+  const [state, setState] = useState<State>(() => cachedState ?? { status: "checking" });
 
   useEffect(() => {
     let active = true;
-    const poll = async () => {
-      try {
-        const health = await api.health();
-        if (!active) return;
-        if (health.status === "ok") {
-          setState({
-            status: "online",
-            model: health.llm.model,
-            keyConfigured: health.llm.api_key_configured,
-          });
-        } else {
-          setState({ status: "offline", reason: `API ${health.status}` });
-        }
-      } catch (caught) {
-        if (!active) return;
-        const message = caught instanceof Error ? caught.message : "Backend unreachable";
-        setState({ status: "offline", reason: message });
-      }
+    const poll = async (force = false) => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      const next = await fetchSharedHealth(force);
+      if (active) setState(next);
     };
 
-    void poll();
-    const timer = setInterval(() => void poll(), 10_000);
+    void poll(false);
+    const timer = setInterval(() => void poll(true), 30_000);
+    const onVisibility = () => {
+      if (!document.hidden) void poll(false);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
       active = false;
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 

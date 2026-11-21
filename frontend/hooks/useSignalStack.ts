@@ -65,6 +65,7 @@ export function useSignalStack(companyId: number, enabled = true) {
       return getSignalStack(companyId);
     },
     enabled: enabled && Number.isFinite(companyId) && companyId > 0,
+    staleTime: 30_000,
     refetchInterval: (q) => {
       const st = q.state.data?.discoveryStatus;
       return st === "queued" || st === "running" ? 3000 : false;
@@ -125,6 +126,8 @@ export function useSignalStack(companyId: number, enabled = true) {
         setToast({ message: "Source updated.", tone: "ok" });
       }
       queryClient.invalidateQueries({ queryKey: ["company", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["crawler-overview", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard", companyId] });
     },
   });
 
@@ -139,6 +142,8 @@ export function useSignalStack(companyId: number, enabled = true) {
       setToast({ message: msg, tone: "ok" });
       setLiveAnnouncement(msg);
       queryClient.invalidateQueries({ queryKey: ["company", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["crawler-overview", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard", companyId] });
     },
     onError: (err) => {
       const msg = err instanceof ApiError ? err.message : "Bulk update failed.";

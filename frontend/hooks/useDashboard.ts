@@ -28,7 +28,7 @@ export function useDashboard(
       }
       return 30_000;
     },
-    staleTime: 10_000,
+    staleTime: 30_000,
   });
 
   const crawlMutation = useMutation({

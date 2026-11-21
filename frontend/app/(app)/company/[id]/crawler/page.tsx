@@ -276,9 +276,9 @@ function CrawlerInner() {
           {/* Row 1: Activity Chart (8) + Totals Column (4) */}
           <div className="contents xl:grid xl:grid-cols-12 xl:gap-4">
             <motion.div
-              initial={reduced ? false : { opacity: 0, y: 12 }}
+              initial={reduced ? false : { opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.06 }}
+              transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.04 }}
               className="order-3 md:col-span-2 xl:order-none xl:col-span-8"
             >
               <ActivityChart
@@ -290,9 +290,9 @@ function CrawlerInner() {
             </motion.div>
 
             <motion.div
-              initial={reduced ? false : { opacity: 0, y: 12 }}
+              initial={reduced ? false : { opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.12 }}
+              transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.06 }}
               className="order-2 md:col-span-2 xl:order-none xl:col-span-4"
             >
               <TotalsColumn totals={overview.totals} range={overviewHook.range} />
@@ -303,9 +303,9 @@ function CrawlerInner() {
           <div className="contents xl:grid xl:grid-cols-12 xl:gap-4">
             {overview.budget ? (
               <motion.div
-                initial={reduced ? false : { opacity: 0, y: 12 }}
+                initial={reduced ? false : { opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.18 }}
+                transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.08 }}
                 className="order-5 md:col-span-1 xl:order-none xl:col-span-6"
               >
                 <CrawlBudgetBar
@@ -318,9 +318,9 @@ function CrawlerInner() {
             ) : null}
 
             <motion.div
-              initial={reduced ? false : { opacity: 0, y: 12 }}
+              initial={reduced ? false : { opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.24 }}
+              transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.1 }}
               className={`order-6 md:col-span-1 xl:order-none ${
                 overview.budget ? "xl:col-span-6" : "md:col-span-2 xl:col-span-12"
               }`}
@@ -336,9 +336,9 @@ function CrawlerInner() {
           {/* Row 3: Result Breakdown + Health Gauge + Category Coverage */}
           <div className="contents xl:grid xl:grid-cols-12 xl:gap-4">
             <motion.div
-              initial={reduced ? false : { opacity: 0, y: 12 }}
+              initial={reduced ? false : { opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.3 }}
+              transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.12 }}
               className="order-4 md:col-span-1 xl:order-none xl:col-span-4"
             >
               <ResultBreakdown
@@ -349,18 +349,18 @@ function CrawlerInner() {
             </motion.div>
 
             <motion.div
-              initial={reduced ? false : { opacity: 0, y: 12 }}
+              initial={reduced ? false : { opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.36 }}
+              transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.14 }}
               className="order-4 md:col-span-1 xl:order-none xl:col-span-4"
             >
               <HealthGauge health={overview.health} isMock={overview.isMock} />
             </motion.div>
 
             <motion.div
-              initial={reduced ? false : { opacity: 0, y: 12 }}
+              initial={reduced ? false : { opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.42 }}
+              transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.16 }}
               className="order-4 md:col-span-2 xl:order-none xl:col-span-4"
             >
               <CategoryCoverage
@@ -376,9 +376,9 @@ function CrawlerInner() {
         {/* Right column (3 cols on >=1280; moves below main grid on 768-1279; ordered on <768) */}
         <div className="contents md:grid md:grid-cols-2 md:gap-4 xl:col-span-3 xl:flex xl:flex-col">
           <motion.div
-            initial={reduced ? false : { opacity: 0, y: 12 }}
+            initial={reduced ? false : { opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.1 }}
+            transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.05 }}
             className="order-1 md:col-span-1 xl:order-none"
           >
             <RunControlCard
@@ -398,10 +398,11 @@ function CrawlerInner() {
           </motion.div>
 
           <motion.div
-            initial={reduced ? false : { opacity: 0, y: 12 }}
+            id="runs"
+            initial={reduced ? false : { opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.2 }}
-            className="order-7 md:col-span-1 xl:order-none"
+            transition={{ ...BASE_TRANSITION, delay: reduced ? 0 : 0.1 }}
+            className="order-7 scroll-mt-20 md:col-span-1 xl:order-none"
           >
             <RunHistoryList
               companyId={companyId}
@@ -416,16 +417,18 @@ function CrawlerInner() {
       </div>
 
       {/* Full-width Live Log Terminal */}
-      <LiveLogTerminal
-        lines={logsHook.lines}
-        connection={logsHook.connection}
-        paused={logsHook.paused}
-        hasMore={logsHook.hasMore}
-        isLoadingMore={logsHook.isLoadingMore}
-        onTogglePaused={logsHook.togglePaused}
-        onClearView={logsHook.clearView}
-        onLoadMore={() => void logsHook.loadMore()}
-      />
+      <div id="logs" className="scroll-mt-20">
+        <LiveLogTerminal
+          lines={logsHook.lines}
+          connection={logsHook.connection}
+          paused={logsHook.paused}
+          hasMore={logsHook.hasMore}
+          isLoadingMore={logsHook.isLoadingMore}
+          onTogglePaused={logsHook.togglePaused}
+          onClearView={logsHook.clearView}
+          onLoadMore={() => void logsHook.loadMore()}
+        />
+      </div>
 
       {/* Full-width Collected Evidence Table */}
       <div id="collected-evidence-section">

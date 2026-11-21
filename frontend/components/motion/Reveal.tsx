@@ -20,14 +20,16 @@ export function Reveal({
   const { reduced } = useMotionSafe();
   const variants = fadeUp(reduced);
 
+  const effectiveDelay = reduced ? 0 : Math.min(delay, 0.15);
+
   if (belowFold) {
     return (
       <motion.div
         variants={variants}
         initial="hidden"
         whileInView="visible"
-        viewport={{ once: true, margin: "-80px" }}
-        transition={{ delay: reduced ? 0 : delay }}
+        viewport={{ once: true, margin: "80px 0px" }}
+        transition={{ delay: effectiveDelay }}
         className={className}
       >
         {children}
@@ -40,7 +42,7 @@ export function Reveal({
       variants={variants}
       initial="hidden"
       animate="visible"
-      transition={{ delay: reduced ? 0 : delay }}
+      transition={{ delay: effectiveDelay }}
       className={className}
     >
       {children}

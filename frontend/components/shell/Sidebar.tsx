@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -109,6 +109,24 @@ export function Sidebar({
   const isCrawlerRoute = pathname === `${base}/crawler`;
   const [crawlerOpen, setCrawlerOpen] = useState<boolean>(isCrawlerRoute);
   const [crawlerHash, setCrawlerHash] = useState<string>("");
+  const [searchCat, setSearchCat] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isCrawlerRoute) setCrawlerOpen(true);
+    const syncLocation = () => {
+      if (typeof window === "undefined") return;
+      setCrawlerHash(window.location.hash || "");
+      const params = new URLSearchParams(window.location.search);
+      setSearchCat(params.get("category"));
+    };
+    syncLocation();
+    window.addEventListener("hashchange", syncLocation);
+    window.addEventListener("popstate", syncLocation);
+    return () => {
+      window.removeEventListener("hashchange", syncLocation);
+      window.removeEventListener("popstate", syncLocation);
+    };
+  }, [pathname, isCrawlerRoute]);
 
   const crawlerOverviewQuery = useQuery({
     queryKey: ["crawler-overview", companyId, "7d"],
@@ -117,7 +135,8 @@ export function Sidebar({
       Number.isFinite(companyId) &&
       companyId > 0 &&
       process.env.NEXT_PUBLIC_USE_MOCKS !== "true",
-    staleTime: 30_000,
+    staleTime: 60_000,
+    refetchOnMount: false,
     retry: 0,
   });
 
@@ -142,7 +161,8 @@ export function Sidebar({
       Number.isFinite(companyId) &&
       companyId > 0 &&
       workflow.signals !== "locked",
-    staleTime: 30_000,
+    staleTime: 60_000,
+    refetchOnMount: false,
     retry: 0,
   });
 
@@ -154,7 +174,8 @@ export function Sidebar({
       companyId > 0 &&
       workflow.sources !== "locked" &&
       process.env.NEXT_PUBLIC_USE_MOCKS !== "true",
-    staleTime: 30_000,
+    staleTime: 60_000,
+    refetchOnMount: false,
     retry: 0,
   });
 
@@ -173,7 +194,8 @@ export function Sidebar({
       Number.isFinite(companyId) &&
       companyId > 0 &&
       workflow.briefs !== "locked",
-    staleTime: 30_000,
+    staleTime: 60_000,
+    refetchOnMount: false,
     retry: 0,
   });
 
@@ -249,6 +271,7 @@ export function Sidebar({
       Icon: Users,
       color: "text-[#0D9488]",
       count: counts.customers,
+      active: pathname === `${base}/signal-stack` && searchCat === "customers",
     },
     {
       label: "Competitors",
@@ -256,20 +279,23 @@ export function Sidebar({
       Icon: Swords,
       color: "text-[#EA580C]",
       count: counts.competitors,
+      active: pathname === `${base}/competitors`,
     },
     {
       label: "Market",
-      href: `${base}/signals?category=market`,
+      href: `${base}/signals?tab=feed&category=market`,
       Icon: Globe,
       color: "text-[#2563EB]",
       count: counts.market,
+      active: pathname === `${base}/signals` && searchCat === "market",
     },
     {
       label: "Internal",
-      href: `${base}/automation`,
+      href: `${base}/signal-stack?category=internal`,
       Icon: FileSpreadsheet,
       color: "text-[#7C3AED]",
       count: counts.internal,
+      active: pathname === `${base}/signal-stack` && searchCat === "internal",
     },
   ];
 
@@ -281,7 +307,12 @@ export function Sidebar({
   ];
 
   const operationsBefore = [
-    { label: "Internal Data", href: `${base}/automation`, Icon: FileSpreadsheet },
+    {
+      label: "Internal Data",
+      href: `${base}/signal-stack?category=internal`,
+      Icon: FileSpreadsheet,
+      active: pathname === `${base}/signal-stack` && searchCat === "internal",
+    },
   ];
   const operationsAfter = [
     { label: "Automation", href: `${base}/automation`, Icon: Activity },
@@ -481,12 +512,28 @@ export function Sidebar({
             {intelligenceItems.map((item) => {
               const Icon = item.Icon;
               return (
-                <li key={item.label}>
+                <li key={item.label} className="relative">
+                  {item.active ? (
+                    <motion.span
+                      layoutId={reduced ? undefined : "sidebar-intel-pill"}
+                      transition={FAST_TRANSITION}
+                      className="absolute inset-0 rounded-xl border border-white/80 bg-white shadow-[0_4px_14px_rgba(31,33,37,0.06)]"
+                    />
+                  ) : null}
                   <Link
                     href={item.href}
-                    onClick={onCloseMobile}
+                    onClick={() => {
+                      const qIdx = item.href.indexOf("category=");
+                      setSearchCat(qIdx >= 0 ? item.href.slice(qIdx + 9) : null);
+                      onCloseMobile();
+                    }}
+                    aria-current={item.active ? "page" : undefined}
                     title={item.label}
-                    className="focus-ring flex items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-[13px] font-medium text-[#4B5058] no-underline transition-colors hover:bg-white/50 hover:text-[#1F2125] md:justify-center xl:justify-between"
+                    className={`focus-ring relative z-10 flex items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-[13px] font-medium no-underline transition-colors md:justify-center xl:justify-between ${
+                      item.active
+                        ? "text-[#1F2125]"
+                        : "text-[#4B5058] hover:bg-white/50 hover:text-[#1F2125]"
+                    }`}
                   >
                     <span className="flex items-center gap-2.5">
                       <Icon size={16} strokeWidth={1.75} className={item.color} aria-hidden="true" />
@@ -516,7 +563,10 @@ export function Sidebar({
                 <li key={item.label}>
                   <Link
                     href={item.href}
-                    onClick={onCloseMobile}
+                    onClick={() => {
+                      setSearchCat("internal");
+                      onCloseMobile();
+                    }}
                     title={item.label}
                     className="focus-ring flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] font-medium text-[#4B5058] no-underline transition-colors hover:bg-white/50 hover:text-[#1F2125] md:justify-center xl:justify-start"
                   >

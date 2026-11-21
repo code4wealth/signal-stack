@@ -1,7 +1,8 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { useMotionSafe } from "@/hooks/useMotionSafe";
 import { getSignalsOverview, runAnalysis } from "@/lib/api";
 import type { SignalRange, SignalsOverviewResponse } from "@/lib/types";
 
@@ -12,13 +13,16 @@ export function useSignalsOverview(
   onNotify?: (tone: "ok" | "error", msg: string) => void,
 ) {
   const queryClient = useQueryClient();
+  const { isDocumentHidden } = useMotionSafe();
 
   const query = useQuery<SignalsOverviewResponse>({
     queryKey: ["signals-overview", companyId, range],
     queryFn: () => getSignalsOverview(companyId, range),
     enabled: Number.isFinite(companyId) && companyId > 0 && enabled,
-    refetchInterval: (q) => (q.state.data?.analysisStatus === "running" ? 3000 : false),
-    staleTime: 10_000,
+    placeholderData: keepPreviousData,
+    refetchInterval: (q) =>
+      !isDocumentHidden && q.state.data?.analysisStatus === "running" ? 3000 : false,
+    staleTime: 30_000,
   });
 
   const analyseMutation = useMutation({
@@ -28,6 +32,7 @@ export function useSignalsOverview(
       void queryClient.invalidateQueries({ queryKey: ["signals-overview", companyId] });
       void queryClient.invalidateQueries({ queryKey: ["signals-feed", companyId] });
       void queryClient.invalidateQueries({ queryKey: ["company", companyId] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard", companyId] });
     },
     onError: (err: Error) => {
       onNotify?.("error", err.message || "Could not start analysis.");

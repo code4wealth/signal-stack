@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, RotateCcw } from "lucide-react";
+import { AlertCircle, ArrowRight, RotateCcw } from "lucide-react";
 
 import { EvidenceDrawer } from "@/components/crawler/EvidenceDrawer";
 import {
@@ -29,7 +29,6 @@ import { useAskSignals } from "@/hooks/useAskSignals";
 import { useDashboard } from "@/hooks/useDashboard";
 import { api, patchSignal } from "@/lib/api";
 import { adaptCompanyDetail, extractDomain } from "@/lib/company-adapter";
-import { tabCrossfade } from "@/lib/motion";
 import type {
   CollectedItem,
   DashboardRange,
@@ -290,79 +289,104 @@ export default function DashboardPage() {
                 onChange={(nextCat) => updateUrl({ category: nextCat })}
               />
 
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={activeCategory ?? "all"}
-                  variants={tabCrossfade()}
-                  initial="hidden"
-                  animate="visible"
-                  exit="exit"
-                  className="space-y-5"
-                >
-                  <Reveal>
-                    <PriorityHero
-                      companyId={companyId}
-                      priorities={data.topPriorities}
-                      evidenceById={data.evidenceById}
-                      totalSignals={data.totalSignalsInRange}
-                      lastUpdatedAt={data.lastUpdatedAt}
-                      brief={data.brief}
-                      onOpenSignal={setSelectedSignalId}
-                      onOpenEvidence={setSelectedEvidence}
+              {activeCategory ? (
+                <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
+                  <Link
+                    href={`/company/${companyId}/signal-stack?category=${activeCategory}`}
+                    className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-white/85 bg-white/75 px-3 py-1 font-medium text-[#1F2125] no-underline transition-colors hover:bg-white hover:text-[#4F46E5]"
+                  >
+                    <span>
+                      {activeCategory === "internal"
+                        ? "Upload internal docs"
+                        : `Manage ${activeCategory} sources`}
+                    </span>
+                    <ArrowRight size={12} aria-hidden="true" />
+                  </Link>
+                  <Link
+                    href={`/company/${companyId}/signals?tab=feed&category=${activeCategory}`}
+                    className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-white/85 bg-white/75 px-3 py-1 font-medium text-[#1F2125] no-underline transition-colors hover:bg-white hover:text-[#4F46E5]"
+                  >
+                    <span>View {activeCategory} signals</span>
+                    <ArrowRight size={12} aria-hidden="true" />
+                  </Link>
+                  {activeCategory === "competitors" ? (
+                    <Link
+                      href={`/company/${companyId}/competitors`}
+                      className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-white/85 bg-white/75 px-3 py-1 font-medium text-[#1F2125] no-underline transition-colors hover:bg-white hover:text-[#4F46E5]"
+                    >
+                      <span>Competitor profiles</span>
+                      <ArrowRight size={12} aria-hidden="true" />
+                    </Link>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div
+                className={`space-y-5 transition-opacity duration-150 ${
+                  dashboard.isFetching && !dashboard.isLoading ? "opacity-80" : "opacity-100"
+                }`}
+              >
+                <PriorityHero
+                  companyId={companyId}
+                  priorities={data.topPriorities}
+                  evidenceById={data.evidenceById}
+                  totalSignals={data.totalSignalsInRange}
+                  lastUpdatedAt={data.lastUpdatedAt}
+                  brief={data.brief}
+                  onOpenSignal={setSelectedSignalId}
+                  onOpenEvidence={setSelectedEvidence}
+                />
+
+                <CategoryKpiRow
+                  kpis={data.kpis}
+                  activeCategory={activeCategory}
+                  onSelectCategory={(cat) =>
+                    updateUrl({ category: activeCategory === cat ? null : cat })
+                  }
+                />
+
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+                  <div className="lg:col-span-5">
+                    <PublishHeatmap
+                      cells={data.heatmap}
+                      max={data.heatmapMax}
+                      insight={data.heatmapInsight}
                     />
-                  </Reveal>
-
-                  <CategoryKpiRow
-                    kpis={data.kpis}
-                    activeCategory={activeCategory}
-                    onSelectCategory={(cat) =>
-                      updateUrl({ category: activeCategory === cat ? null : cat })
-                    }
-                  />
-
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-                    <div className="lg:col-span-5">
-                      <PublishHeatmap
-                        cells={data.heatmap}
-                        max={data.heatmapMax}
-                        insight={data.heatmapInsight}
-                      />
-                    </div>
-                    <div className="lg:col-span-7">
-                      <TrendChart
-                        companyId={companyId}
-                        trend={data.trend}
-                        range={range}
-                      />
-                    </div>
                   </div>
-
-                  <Reveal belowFold>
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                      <MixDonut mix={data.mix} />
-                      <RecentSignals
-                        companyId={companyId}
-                        signals={data.recentSignals}
-                        onOpenSignal={setSelectedSignalId}
-                      />
-                      <AutomationHealthCard
-                        companyId={companyId}
-                        jobs={data.jobs}
-                        health={data.health}
-                      />
-                    </div>
-                  </Reveal>
-
-                  <Reveal belowFold>
-                    <SourcePerformanceTable
+                  <div className="lg:col-span-7">
+                    <TrendChart
                       companyId={companyId}
-                      rows={data.sourcePerformance}
-                      onManageSource={setManagingSourceId}
-                      onRecheckSource={(sid) => dashboard.runCrawl([sid])}
+                      trend={data.trend}
+                      range={range}
                     />
-                  </Reveal>
-                </motion.div>
-              </AnimatePresence>
+                  </div>
+                </div>
+
+                <Reveal belowFold>
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                    <MixDonut mix={data.mix} />
+                    <RecentSignals
+                      companyId={companyId}
+                      signals={data.recentSignals}
+                      onOpenSignal={setSelectedSignalId}
+                    />
+                    <AutomationHealthCard
+                      companyId={companyId}
+                      jobs={data.jobs}
+                      health={data.health}
+                    />
+                  </div>
+                </Reveal>
+
+                <Reveal belowFold>
+                  <SourcePerformanceTable
+                    companyId={companyId}
+                    rows={data.sourcePerformance}
+                    onManageSource={setManagingSourceId}
+                    onRecheckSource={(sid) => dashboard.runCrawl([sid])}
+                  />
+                </Reveal>
+              </div>
             </>
           ) : null}
         </div>

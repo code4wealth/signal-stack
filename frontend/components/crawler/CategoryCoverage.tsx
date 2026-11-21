@@ -98,15 +98,20 @@ export function CategoryCoverage({
           return (
             <li key={row.category} className="space-y-1.5">
               <div className="flex items-center justify-between gap-2 text-xs">
-                <div className="flex items-center gap-2.5">
+                <Link
+                  href={`/company/${companyId}/signal-stack?category=${row.category}`}
+                  className="focus-ring group flex items-center gap-2.5 rounded-lg no-underline"
+                >
                   <span
                     className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xl ${cfg.tileClass}`}
                     aria-hidden="true"
                   >
                     <Icon size={14} strokeWidth={1.75} />
                   </span>
-                  <span className="font-medium text-[#1F2125]">{cfg.label}</span>
-                </div>
+                  <span className="font-medium text-[#1F2125] transition-colors group-hover:text-[#4F46E5]">
+                    {cfg.label}
+                  </span>
+                </Link>
                 <span className="tabular font-mono text-[11px] text-[#4B5058]">
                   {isInternal
                     ? `${row.checked}/${row.approved} analysed`

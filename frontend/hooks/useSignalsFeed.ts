@@ -85,6 +85,7 @@ export function useSignalsFeed(
       void queryClient.invalidateQueries({ queryKey: ["signals-feed", companyId] });
       void queryClient.invalidateQueries({ queryKey: ["signals-overview", companyId] });
       void queryClient.invalidateQueries({ queryKey: ["signal-detail", companyId] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard", companyId] });
     },
   });
 
@@ -101,6 +102,7 @@ export function useSignalsFeed(
       onNotify?.("ok", `${res.updatedCount} signal(s) ${label}.`);
       void queryClient.invalidateQueries({ queryKey: ["signals-feed", companyId] });
       void queryClient.invalidateQueries({ queryKey: ["signals-overview", companyId] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard", companyId] });
     },
     onError: (err: Error) => {
       onNotify?.("error", err.message || "Bulk update failed.");
