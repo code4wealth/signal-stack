@@ -1106,5 +1106,252 @@ export type WorkspaceSearchResponse = {
   }[];
 };
 
+// ---------------------------------------------------------------------------
+// Automation & Scheduler Control Plane (Step 6)
+// ---------------------------------------------------------------------------
+
+export type JobType = "crawl" | "analysis" | "weekly_brief" | "source_audit";
+export type ScheduleFrequency = "hourly" | "daily" | "weekly" | "monthly" | "custom";
+export type OverrideType = "pause" | "skip" | "reschedule" | "run_once" | "blackout";
+
+export type ScheduleOptionField = {
+  key: string;
+  label: string;
+  type: "number" | "boolean" | "select";
+  min?: number;
+  max?: number;
+  default?: number | boolean | string;
+  options?: string[];
+  help?: string;
+};
+
+export type AutomationRunStep = {
+  label: string;
+  startedAt: string;
+  durationMs: number;
+};
+
+export type AutomationRunOutput = {
+  type: "brief" | "crawl_run" | "audit" | "analysis";
+  id: string;
+  counts?: Record<string, number>;
+};
+
+export type AutomationRun = {
+  id: number;
+  scheduleId: number;
+  jobType: JobType;
+  jobName: string;
+  trigger: "scheduled" | "manual" | "retry";
+  scheduledFor: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  durationMs?: number | null;
+  status: "queued" | "running" | "success" | "failed" | "skipped" | "missed";
+  lateByMs?: number | null;
+  skippedReason?: string | null;
+  error?: string | null;
+  steps?: AutomationRunStep[];
+  output?: AutomationRunOutput | null;
+  schedulerJobId: string;
+};
+
+export type Schedule = {
+  id: number;
+  companyId: number;
+  jobType: JobType;
+  name: string;
+  enabled: boolean;
+  frequency: ScheduleFrequency;
+  cron: string;
+  timezone: string;
+  humanReadable: string;
+  runsPerPeriodLabel: string;
+  daysOfWeek?: number[] | null;
+  timeOfDay?: string | null;
+  intervalHours?: number | null;
+  dayOfMonth?: number | "last" | null;
+  nextRuns: string[];
+  dependsOn?: string | null;
+  misfire: {
+    policy: "run_late" | "skip";
+    graceSeconds: number;
+  };
+  retries: {
+    max: number;
+    delaySeconds: number;
+  };
+  noOverlap: boolean;
+  delivery?: {
+    email: boolean;
+    recipients: string[];
+  } | null;
+  options?: Record<string, unknown>;
+  optionsSchema?: ScheduleOptionField[];
+  pausedUntil?: string | null;
+  pausedSince?: string | null;
+  status: "enabled" | "paused" | "running" | "failing";
+  lastRun?: AutomationRun | null;
+  lastError?: string | null;
+  lastAuditChangedSources?: number | null;
+  schedulerJobId: string;
+  isCustom?: boolean;
+};
+
+export type Override = {
+  id: number;
+  scheduleId?: number | null;
+  type: OverrideType;
+  startsAt: string;
+  endsAt?: string | null;
+  newTime?: string | null;
+  reason?: string | null;
+  createdBy?: string | null;
+};
+
+export type CalendarDayRun = {
+  scheduleId: number;
+  jobType: JobType;
+  jobName: string;
+  time: string;
+  state: "scheduled" | "success" | "failed" | "skipped" | "missed" | "running";
+  runId?: string | null;
+};
+
+export type CalendarDay = {
+  date: string;
+  runs: CalendarDayRun[];
+  overrides: Override[];
+  isOffDay?: boolean;
+};
+
+export type UpcomingChange = {
+  id: string;
+  date: string;
+  label: string;
+  subLabel: string;
+  kind: "pause" | "skip" | "reschedule" | "audit" | "blackout";
+};
+
+export type SchedulerHealth = {
+  engine: "running" | "stopped";
+  lastHeartbeatAt: string;
+  jobStore: string;
+  jobsRegistered: number;
+  timezone: string;
+  missedRuns30d: number;
+  avgStartDelayMs: number;
+  misfireSummary: string;
+  successByDay: {
+    date: string;
+    success: number;
+    failed: number;
+  }[];
+  reason?: string | null;
+};
+
+export type AutomationPipelineNode = {
+  jobType: JobType;
+  name: string;
+  nextRunAt?: string | null;
+  lastStatus?: string | null;
+  blockedBy?: string | null;
+  enabled?: boolean;
+};
+
+export type AutomationOverview = {
+  schedules: Schedule[];
+  upcomingChanges: UpcomingChange[];
+  pipeline: AutomationPipelineNode[];
+  health: SchedulerHealth;
+  overrides: Override[];
+  capabilities: {
+    emailConfigured: boolean;
+    customCron: boolean;
+    canCreateSchedule?: boolean;
+  };
+  isMock?: boolean;
+};
+
+export type ScheduleDraft = {
+  jobType: JobType;
+  name: string;
+  enabled: boolean;
+  frequency: ScheduleFrequency;
+  cron?: string;
+  timezone: string;
+  daysOfWeek?: number[];
+  timeOfDay?: string;
+  intervalHours?: number;
+  dayOfMonth?: number | "last";
+  dependsOn?: string | null;
+  misfire: {
+    policy: "run_late" | "skip";
+    graceSeconds: number;
+  };
+  retries: {
+    max: number;
+    delaySeconds: number;
+  };
+  noOverlap: boolean;
+  delivery?: {
+    email: boolean;
+    recipients: string[];
+  };
+  options?: Record<string, unknown>;
+};
+
+export type SchedulePreviewResponse = {
+  valid: boolean;
+  cron: string;
+  error?: string | null;
+  humanReadable?: string | null;
+  runsPerPeriodLabel?: string | null;
+  nextRuns: string[];
+};
+
+export type OverrideDraft = {
+  scheduleId?: number | null;
+  type: OverrideType;
+  startsAt: string;
+  endsAt?: string | null;
+  newTime?: string | null;
+  reason?: string;
+};
+
+export type OverridePreviewResponse = {
+  summary: string;
+  affectedRuns: {
+    scheduleId: number;
+    jobType: JobType;
+    jobName: string;
+    scheduledFor: string;
+  }[];
+  conflicts: string[];
+};
+
+export type AutomationRunsFilters = {
+  job?: string;
+  status?: string;
+  trigger?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  q?: string;
+};
+
+export type AutomationRunsResponse = {
+  items: AutomationRun[];
+  total: number;
+  nextCursor: string | null;
+  isMock?: boolean;
+};
+
+export type AutomationRunDetailResponse = {
+  run: AutomationRun;
+  logs: CrawlLogLine[];
+  isMock?: boolean;
+};
+
+
 
 

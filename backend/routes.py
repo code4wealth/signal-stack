@@ -12,7 +12,18 @@ from sqlalchemy.orm import Session
 
 import interview
 import research
-from db import Company, JobLog, QA, Record, Report, Source, get_db
+from db import (
+    AutomationOverride,
+    AutomationRun,
+    AutomationSchedule,
+    Company,
+    JobLog,
+    QA,
+    Record,
+    Report,
+    Source,
+    get_db,
+)
 from schemas import (
     AuditApplyIn,
     CompanyCreate,
@@ -20,7 +31,10 @@ from schemas import (
     CompanyUpdate,
     CrawlRunStartIn,
     CrawlerSettingsPatchIn,
+    OverrideDraftIn,
     ProfilePatch,
+    ScheduleDraftIn,
+    SchedulePatchIn,
     SignalPatchIn,
     SignalsAskIn,
     SignalsAskLLMOut,
@@ -3760,6 +3774,595 @@ def search_company_workspace(
                 break
 
     return {"signals": matched_signals, "sources": matched_sources}
+
+
+# --------------------------------------------------------------------------- #
+# Automation & Scheduler Control Plane (Step 6)
+# --------------------------------------------------------------------------- #
+def _parse_iso_dt(raw: str, field_name: str) -> "datetime":
+    from datetime import datetime, timezone
+
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid {field_name} ISO timestamp: {raw}") from exc
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+@router.get("/companies/{company_id}/automation", tags=["automation-v2"])
+def get_company_automation(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import automation
+
+    company = get_company_or_404(db, company_id)
+    return automation.build_overview(db, company)
+
+
+@router.get("/companies/{company_id}/automation/calendar", tags=["automation-v2"])
+def get_company_automation_calendar(
+    company_id: int,
+    from_date: str = Query(..., alias="from"),
+    to_date: str = Query(..., alias="to"),
+    db: Session = Depends(get_db),
+) -> dict:
+    from datetime import date
+
+    import automation
+
+    company = get_company_or_404(db, company_id)
+    automation.ensure_default_schedules(db, company)
+    try:
+        d_from = date.fromisoformat(from_date[:10])
+        d_to = date.fromisoformat(to_date[:10])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="from and to must be YYYY-MM-DD dates") from exc
+    if d_to < d_from or (d_to - d_from).days > 45:
+        raise HTTPException(status_code=400, detail="Date range must be 1..45 days")
+    return {"days": automation.build_calendar(db, company_id, d_from, d_to)}
+
+
+@router.post("/companies/{company_id}/automation/schedules/preview", tags=["automation-v2"])
+def preview_automation_schedule(
+    company_id: int,
+    payload: ScheduleDraftIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    import automation
+
+    get_company_or_404(db, company_id)
+    try:
+        cron_str = automation.build_cron_from_fields(
+            payload.frequency,
+            cron=payload.cron,
+            time_of_day=payload.timeOfDay,
+            days_of_week=payload.daysOfWeek,
+            interval_hours=payload.intervalHours,
+            day_of_month=payload.dayOfMonth,
+        )
+        next_runs = automation.compute_next_runs(cron_str, payload.timezone, count=5)
+        human, per_period = automation.describe_schedule(
+            cron_str,
+            payload.timezone,
+            frequency=payload.frequency,
+            days_of_week=payload.daysOfWeek,
+            interval_hours=payload.intervalHours,
+            day_of_month=payload.dayOfMonth,
+            time_of_day=payload.timeOfDay,
+        )
+    except ValueError as exc:
+        return {
+            "valid": False,
+            "cron": payload.cron or "",
+            "error": str(exc),
+            "humanReadable": None,
+            "runsPerPeriodLabel": None,
+            "nextRuns": [],
+        }
+
+    return {
+        "valid": True,
+        "cron": cron_str,
+        "error": None,
+        "humanReadable": human,
+        "runsPerPeriodLabel": per_period,
+        "nextRuns": [dt.isoformat() for dt in next_runs],
+    }
+
+
+@router.post("/companies/{company_id}/automation/schedules", status_code=201, tags=["automation-v2"])
+def create_automation_schedule(
+    company_id: int,
+    payload: ScheduleDraftIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    import automation
+    import scheduler
+
+    company = get_company_or_404(db, company_id)
+    existing = automation.ensure_default_schedules(db, company)
+    if len(existing) >= 12:
+        raise HTTPException(status_code=400, detail="Maximum number of schedules (12) reached")
+
+    try:
+        cron_str = automation.build_cron_from_fields(
+            payload.frequency,
+            cron=payload.cron,
+            time_of_day=payload.timeOfDay,
+            days_of_week=payload.daysOfWeek,
+            interval_hours=payload.intervalHours,
+            day_of_month=payload.dayOfMonth,
+        )
+        automation.parse_cron_trigger(cron_str, payload.timezone)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    job_id = f"c{company_id}_{payload.jobType}_{int(automation.utcnow().timestamp())}"
+    sched = AutomationSchedule(
+        company_id=company_id,
+        job_type=payload.jobType,
+        name=payload.name.strip(),
+        enabled=payload.enabled,
+        frequency=payload.frequency,
+        cron=cron_str,
+        timezone=payload.timezone,
+        days_of_week=payload.daysOfWeek,
+        time_of_day=payload.timeOfDay,
+        interval_hours=payload.intervalHours,
+        day_of_month=str(payload.dayOfMonth) if payload.dayOfMonth is not None else None,
+        depends_on=payload.dependsOn,
+        misfire_policy=payload.misfire.policy,
+        grace_seconds=payload.misfire.graceSeconds,
+        max_retries=payload.retries.max,
+        retry_delay_seconds=payload.retries.delaySeconds,
+        no_overlap=payload.noOverlap,
+        delivery=payload.delivery.model_dump() if payload.delivery else None,
+        options=payload.options or {},
+        scheduler_job_id=job_id,
+        is_custom=True,
+    )
+    db.add(sched)
+    db.commit()
+    db.refresh(sched)
+    scheduler.sync_schedule(sched)
+    return automation.serialize_schedule(sched, None)
+
+
+@router.patch("/companies/{company_id}/automation/schedules/{schedule_id}", tags=["automation-v2"])
+def update_automation_schedule(
+    company_id: int,
+    schedule_id: int,
+    payload: SchedulePatchIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    import automation
+    import scheduler
+
+    get_company_or_404(db, company_id)
+    sched = db.get(AutomationSchedule, schedule_id)
+    if sched is None or sched.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
+
+    if payload.name is not None:
+        sched.name = payload.name.strip()
+    if payload.enabled is not None:
+        sched.enabled = payload.enabled
+        sched.paused_at = None if payload.enabled else automation.utcnow()
+    if payload.frequency is not None:
+        sched.frequency = payload.frequency
+    if payload.daysOfWeek is not None:
+        sched.days_of_week = payload.daysOfWeek
+    if payload.timeOfDay is not None:
+        sched.time_of_day = payload.timeOfDay
+    if payload.intervalHours is not None:
+        sched.interval_hours = payload.intervalHours
+    if payload.dayOfMonth is not None:
+        sched.day_of_month = str(payload.dayOfMonth)
+    if payload.timezone is not None:
+        try:
+            automation.validate_timezone(payload.timezone)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        sched.timezone = payload.timezone
+    if payload.dependsOn is not None:
+        sched.depends_on = payload.dependsOn or None
+    if payload.misfire is not None:
+        sched.misfire_policy = payload.misfire.policy
+        sched.grace_seconds = payload.misfire.graceSeconds
+    if payload.retries is not None:
+        sched.max_retries = payload.retries.max
+        sched.retry_delay_seconds = payload.retries.delaySeconds
+    if payload.noOverlap is not None:
+        sched.no_overlap = payload.noOverlap
+    if payload.delivery is not None:
+        sched.delivery = payload.delivery.model_dump()
+    if payload.options is not None:
+        sched.options = payload.options
+    if payload.pausedUntil is not None:
+        sched.paused_until = _parse_iso_dt(payload.pausedUntil, "pausedUntil") if payload.pausedUntil else None
+
+    # Recompute cron if schedule fields changed
+    if any(
+        x is not None
+        for x in (
+            payload.frequency,
+            payload.cron,
+            payload.timeOfDay,
+            payload.daysOfWeek,
+            payload.intervalHours,
+            payload.dayOfMonth,
+            payload.timezone,
+        )
+    ):
+        try:
+            dom_arg = sched.day_of_month
+            cron_str = automation.build_cron_from_fields(
+                sched.frequency,
+                cron=payload.cron if payload.cron is not None else sched.cron,
+                time_of_day=sched.time_of_day,
+                days_of_week=sched.days_of_week,
+                interval_hours=sched.interval_hours,
+                day_of_month=dom_arg,
+            )
+            automation.parse_cron_trigger(cron_str, sched.timezone)
+            sched.cron = cron_str
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    sched.updated = automation.utcnow()
+    db.commit()
+    db.refresh(sched)
+    scheduler.sync_schedule(sched)
+
+    latest_run = db.scalar(
+        select(AutomationRun)
+        .where(AutomationRun.schedule_id == sched.id)
+        .order_by(AutomationRun.id.desc())
+    )
+    return automation.serialize_schedule(sched, latest_run)
+
+
+@router.delete("/companies/{company_id}/automation/schedules/{schedule_id}", status_code=204, tags=["automation-v2"])
+def delete_automation_schedule(
+    company_id: int,
+    schedule_id: int,
+    db: Session = Depends(get_db),
+) -> Response:
+    import scheduler
+
+    get_company_or_404(db, company_id)
+    sched = db.get(AutomationSchedule, schedule_id)
+    if sched is None or sched.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
+    if not sched.is_custom:
+        raise HTTPException(status_code=400, detail="Default schedules cannot be deleted; pause or disable instead.")
+    job_id = sched.scheduler_job_id
+    db.delete(sched)
+    db.commit()
+    scheduler.remove_schedule_job(job_id)
+    return Response(status_code=204)
+
+
+@router.post("/companies/{company_id}/automation/schedules/{schedule_id}/run", status_code=202, tags=["automation-v2"])
+def run_automation_schedule_now(
+    company_id: int,
+    schedule_id: int,
+    db: Session = Depends(get_db),
+) -> dict:
+    import automation
+
+    get_company_or_404(db, company_id)
+    sched = db.get(AutomationSchedule, schedule_id)
+    if sched is None or sched.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
+    run = automation.trigger_schedule_run(db, company_id, sched, trigger="manual", spawn=True)
+    return automation._serialize_run_summary(run)
+
+
+def _filter_automation_runs(
+    db: Session,
+    company_id: int,
+    *,
+    job: str | None = None,
+    status: str | None = None,
+    trigger: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    q: str | None = None,
+) -> list[AutomationRun]:
+    query = select(AutomationRun).where(AutomationRun.company_id == company_id).order_by(AutomationRun.id.desc())
+    rows = list(db.scalars(query).all())
+    out: list[AutomationRun] = []
+    from_dt = _parse_iso_dt(f"{date_from}T00:00:00+00:00", "dateFrom") if date_from else None
+    to_dt = _parse_iso_dt(f"{date_to}T23:59:59+00:00", "dateTo") if date_to else None
+    needle = (q or "").strip().lower()
+    for r in rows:
+        if job and job != "all" and r.job_type != job and str(r.schedule_id) != job:
+            continue
+        if status and status != "all" and r.status != status:
+            continue
+        if trigger and trigger != "all" and r.trigger != trigger:
+            continue
+        s_dt = r.scheduled_for
+        if s_dt.tzinfo is None:
+            from datetime import timezone as _tz
+            s_dt = s_dt.replace(tzinfo=_tz.utc)
+        if from_dt and s_dt < from_dt:
+            continue
+        if to_dt and s_dt > to_dt:
+            continue
+        if needle:
+            hay = f"{r.id} {r.job_name} {r.job_type} {r.scheduler_job_id} {r.error or ''} {r.skipped_reason or ''}".lower()
+            if needle not in hay:
+                continue
+        out.append(r)
+    return out
+
+
+@router.get("/companies/{company_id}/automation/runs", tags=["automation-v2"])
+def list_automation_runs(
+    company_id: int,
+    job: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    trigger: str | None = Query(default=None),
+    dateFrom: str | None = Query(default=None),
+    dateTo: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+    cursor: int | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> dict:
+    import automation
+
+    get_company_or_404(db, company_id)
+    filtered = _filter_automation_runs(
+        db,
+        company_id,
+        job=job,
+        status=status,
+        trigger=trigger,
+        date_from=dateFrom,
+        date_to=dateTo,
+        q=q,
+    )
+    if cursor is not None:
+        filtered = [r for r in filtered if r.id < cursor]
+    has_more = len(filtered) > limit
+    page = filtered[:limit]
+    return {
+        "items": [automation._serialize_run_summary(r) for r in page],
+        "total": len(filtered),
+        "nextCursor": str(page[-1].id) if has_more and page else None,
+    }
+
+
+@router.get("/companies/{company_id}/automation/runs/export", tags=["automation-v2"])
+def export_automation_runs(
+    company_id: int,
+    job: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    trigger: str | None = Query(default=None),
+    dateFrom: str | None = Query(default=None),
+    dateTo: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> Response:
+    import automation
+
+    get_company_or_404(db, company_id)
+    runs = _filter_automation_runs(
+        db,
+        company_id,
+        job=job,
+        status=status,
+        trigger=trigger,
+        date_from=dateFrom,
+        date_to=dateTo,
+        q=q,
+    )
+    csv_text = automation.export_runs_csv(runs)
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="company-{company_id}-automation-runs.csv"'},
+    )
+
+
+@router.get("/companies/{company_id}/automation/runs/{run_id}", tags=["automation-v2"])
+def get_automation_run(
+    company_id: int,
+    run_id: int,
+    db: Session = Depends(get_db),
+) -> dict:
+    import automation
+
+    get_company_or_404(db, company_id)
+    run = db.get(AutomationRun, run_id)
+    if run is None or run.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"Automation run {run_id} not found")
+    return {
+        "run": automation._serialize_run_summary(run),
+        "logs": list(run.logs or []),
+    }
+
+
+@router.post("/companies/{company_id}/automation/runs/{run_id}/retry", status_code=202, tags=["automation-v2"])
+def retry_automation_run(
+    company_id: int,
+    run_id: int,
+    db: Session = Depends(get_db),
+) -> dict:
+    import automation
+
+    get_company_or_404(db, company_id)
+    run = db.get(AutomationRun, run_id)
+    if run is None or run.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"Automation run {run_id} not found")
+    sched = db.get(AutomationSchedule, run.schedule_id)
+    if sched is None:
+        raise HTTPException(status_code=404, detail="Schedule for this run no longer exists")
+    retried = automation.trigger_schedule_run(db, company_id, sched, trigger="retry", spawn=True)
+    return automation._serialize_run_summary(retried)
+
+
+@router.get("/companies/{company_id}/automation/runs/{run_id}/logs", tags=["automation-v2"])
+def get_automation_run_logs(
+    company_id: int,
+    run_id: int,
+    cursor: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> dict:
+    get_company_or_404(db, company_id)
+    run = db.get(AutomationRun, run_id)
+    if run is None or run.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"Automation run {run_id} not found")
+    logs = list(run.logs or [])
+    if cursor is not None:
+        logs = [ln for ln in logs if int(ln.get("id", 0)) > cursor]
+    return {"items": logs, "nextCursor": None}
+
+
+@router.get("/companies/{company_id}/automation/runs/{run_id}/logs/stream", tags=["automation-v2"])
+def stream_automation_run_logs(
+    company_id: int,
+    run_id: int,
+    request: Request,
+    afterId: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    import json as _json
+    import time as _time
+    import db as db_mod
+
+    get_company_or_404(db, company_id)
+    run = db.get(AutomationRun, run_id)
+    if run is None or run.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"Automation run {run_id} not found")
+
+    last_id_hdr = request.headers.get("last-event-id")
+    start_after = int(last_id_hdr) if (last_id_hdr and last_id_hdr.isdigit()) else afterId
+
+    def event_stream():
+        cursor_id = start_after
+        ticks = 0
+        max_ticks = 300
+        while ticks < max_ticks:
+            with db_mod.SessionLocal() as s:
+                row = s.get(AutomationRun, run_id)
+                if row is None:
+                    yield 'event: done\ndata: {"status": "unknown"}\n\n'
+                    return
+                for ln in list(row.logs or []):
+                    lid = int(ln.get("id", 0))
+                    if lid > cursor_id:
+                        cursor_id = lid
+                        yield f"id: {lid}\nevent: log\ndata: {_json.dumps(ln)}\n\n"
+                if row.status not in ("queued", "running"):
+                    yield f"event: done\ndata: {_json.dumps({'status': row.status})}\n\n"
+                    return
+            ticks += 1
+            if ticks % 15 == 0:
+                yield ": keepalive\n\n"
+            _time.sleep(0.35)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/companies/{company_id}/automation/overrides", tags=["automation-v2"])
+def list_automation_overrides(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import automation
+
+    get_company_or_404(db, company_id)
+    rows = list(
+        db.scalars(
+            select(AutomationOverride)
+            .where(AutomationOverride.company_id == company_id)
+            .order_by(AutomationOverride.starts_at.asc())
+        ).all()
+    )
+    return {"items": [automation.serialize_override(r) for r in rows]}
+
+
+@router.post("/companies/{company_id}/automation/overrides/preview", tags=["automation-v2"])
+def preview_automation_override(
+    company_id: int,
+    payload: OverrideDraftIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    import automation
+
+    get_company_or_404(db, company_id)
+    starts_dt = _parse_iso_dt(payload.startsAt, "startsAt")
+    ends_dt = _parse_iso_dt(payload.endsAt, "endsAt") if payload.endsAt else None
+    new_dt = _parse_iso_dt(payload.newTime, "newTime") if payload.newTime else None
+    try:
+        return automation.preview_override(
+            db,
+            company_id,
+            ov_type=payload.type,
+            schedule_id=payload.scheduleId,
+            starts_at=starts_dt,
+            ends_at=ends_dt,
+            new_time=new_dt,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/automation/overrides", status_code=201, tags=["automation-v2"])
+def create_automation_override(
+    company_id: int,
+    payload: OverrideDraftIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    import automation
+
+    get_company_or_404(db, company_id)
+    if payload.scheduleId is not None:
+        sched = db.get(AutomationSchedule, payload.scheduleId)
+        if sched is None or sched.company_id != company_id:
+            raise HTTPException(status_code=404, detail=f"Schedule {payload.scheduleId} not found")
+
+    starts_dt = _parse_iso_dt(payload.startsAt, "startsAt")
+    ends_dt = _parse_iso_dt(payload.endsAt, "endsAt") if payload.endsAt else None
+    new_dt = _parse_iso_dt(payload.newTime, "newTime") if payload.newTime else None
+
+    ov = AutomationOverride(
+        company_id=company_id,
+        schedule_id=payload.scheduleId,
+        type=payload.type,
+        starts_at=starts_dt,
+        ends_at=ends_dt,
+        new_time=new_dt,
+        reason=payload.reason.strip() if payload.reason else None,
+        created_by="Founder",
+    )
+    db.add(ov)
+    db.commit()
+    db.refresh(ov)
+    return automation.serialize_override(ov)
+
+
+@router.delete("/companies/{company_id}/automation/overrides/{override_id}", status_code=204, tags=["automation-v2"])
+def delete_automation_override(
+    company_id: int,
+    override_id: int,
+    db: Session = Depends(get_db),
+) -> Response:
+    get_company_or_404(db, company_id)
+    ov = db.get(AutomationOverride, override_id)
+    if ov is None or ov.company_id != company_id:
+        raise HTTPException(status_code=404, detail=f"Override {override_id} not found")
+    db.delete(ov)
+    db.commit()
+    return Response(status_code=204)
+
 
 
 

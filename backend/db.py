@@ -38,6 +38,10 @@ class Base(DeclarativeBase):
     pass
 
 
+class AutomationBase(DeclarativeBase):
+    pass
+
+
 class Company(Base):
     __tablename__ = "companies"
 
@@ -165,6 +169,90 @@ class JobLog(Base):
     __table_args__ = (Index("ix_job_logs_company_id", "company_id"),)
 
 
+class AutomationSchedule(AutomationBase):
+    __tablename__ = "automation_schedules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    job_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    frequency: Mapped[str] = mapped_column(String(24), default="weekly", nullable=False)
+    cron: Mapped[str] = mapped_column(String(120), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), default="UTC", nullable=False)
+    days_of_week: Mapped[list | None] = mapped_column(JSON, default=None, nullable=True)
+    time_of_day: Mapped[str | None] = mapped_column(String(16), default=None, nullable=True)
+    interval_hours: Mapped[int | None] = mapped_column(Integer, default=None, nullable=True)
+    day_of_month: Mapped[str | None] = mapped_column(String(16), default=None, nullable=True)
+    depends_on: Mapped[str | None] = mapped_column(String(64), default=None, nullable=True)
+    misfire_policy: Mapped[str] = mapped_column(String(24), default="run_late", nullable=False)
+    grace_seconds: Mapped[int] = mapped_column(Integer, default=1800, nullable=False)
+    max_retries: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    retry_delay_seconds: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
+    no_overlap: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    delivery: Mapped[dict | None] = mapped_column(JSON, default=None, nullable=True)
+    options: Mapped[dict | None] = mapped_column(JSON, default=None, nullable=True)
+    paused_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    scheduler_job_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    is_custom: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text, default=None, nullable=True)
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (Index("ix_automation_schedules_company_id", "company_id"),)
+
+
+class AutomationOverride(AutomationBase):
+    __tablename__ = "automation_overrides"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    schedule_id: Mapped[int | None] = mapped_column(
+        ForeignKey("automation_schedules.id", ondelete="CASCADE"), default=None, nullable=True
+    )
+    type: Mapped[str] = mapped_column(String(24), nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    new_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    reason: Mapped[str | None] = mapped_column(Text, default=None, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(120), default="Founder", nullable=False)
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (Index("ix_automation_overrides_company_id", "company_id"),)
+
+
+class AutomationRun(AutomationBase):
+    __tablename__ = "automation_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    schedule_id: Mapped[int] = mapped_column(
+        ForeignKey("automation_schedules.id", ondelete="CASCADE"), nullable=False
+    )
+    job_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    job_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    trigger: Mapped[str] = mapped_column(String(24), default="scheduled", nullable=False)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, default=None, nullable=True)
+    status: Mapped[str] = mapped_column(String(24), default="queued", nullable=False)
+    late_by_ms: Mapped[int | None] = mapped_column(Integer, default=None, nullable=True)
+    skipped_reason: Mapped[str | None] = mapped_column(Text, default=None, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, default=None, nullable=True)
+    steps: Mapped[list | None] = mapped_column(JSON, default=None, nullable=True)
+    output: Mapped[dict | None] = mapped_column(JSON, default=None, nullable=True)
+    logs: Mapped[list | None] = mapped_column(JSON, default=None, nullable=True)
+    scheduler_job_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_automation_runs_company_id", "company_id"),
+        Index("ix_automation_runs_schedule_id", "schedule_id"),
+    )
+
+
 settings = get_settings()
 
 _connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
@@ -208,6 +296,7 @@ def _ensure_sqlite_columns() -> None:
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    AutomationBase.metadata.create_all(bind=engine)
     _ensure_sqlite_columns()
 
 

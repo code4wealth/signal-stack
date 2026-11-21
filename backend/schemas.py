@@ -369,3 +369,66 @@ class SignalsAskLLMOut(BaseModel):
     recommendation: str | None = None
 
 
+class MisfirePolicyIn(BaseModel):
+    policy: Literal["run_late", "skip"] = "run_late"
+    graceSeconds: int = Field(default=1800, ge=60, le=86400)
+
+
+class RetryPolicyIn(BaseModel):
+    max: int = Field(default=1, ge=0, le=3)
+    delaySeconds: int = Field(default=120, ge=10, le=3600)
+
+
+class DeliveryPolicyIn(BaseModel):
+    email: bool = False
+    recipients: list[str] = Field(default_factory=list, max_length=20)
+
+
+class ScheduleDraftIn(BaseModel):
+    jobType: Literal["crawl", "analysis", "weekly_brief", "source_audit"]
+    name: str = Field(min_length=2, max_length=160)
+    enabled: bool = True
+    frequency: Literal["hourly", "daily", "weekly", "monthly", "custom"]
+    cron: str | None = Field(default=None, max_length=120)
+    timezone: str = Field(default="UTC", max_length=64)
+    daysOfWeek: list[int] | None = None
+    timeOfDay: str | None = Field(default=None, max_length=16)
+    intervalHours: int | None = Field(default=None, ge=1, le=24)
+    dayOfMonth: int | str | None = None
+    dependsOn: str | None = Field(default=None, max_length=64)
+    misfire: MisfirePolicyIn = Field(default_factory=MisfirePolicyIn)
+    retries: RetryPolicyIn = Field(default_factory=RetryPolicyIn)
+    noOverlap: bool = True
+    delivery: DeliveryPolicyIn | None = None
+    options: dict | None = None
+
+
+class SchedulePatchIn(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=160)
+    enabled: bool | None = None
+    frequency: Literal["hourly", "daily", "weekly", "monthly", "custom"] | None = None
+    cron: str | None = Field(default=None, max_length=120)
+    timezone: str | None = Field(default=None, max_length=64)
+    daysOfWeek: list[int] | None = None
+    timeOfDay: str | None = Field(default=None, max_length=16)
+    intervalHours: int | None = Field(default=None, ge=1, le=24)
+    dayOfMonth: int | str | None = None
+    dependsOn: str | None = Field(default=None, max_length=64)
+    misfire: MisfirePolicyIn | None = None
+    retries: RetryPolicyIn | None = None
+    noOverlap: bool | None = None
+    delivery: DeliveryPolicyIn | None = None
+    options: dict | None = None
+    pausedUntil: str | None = None
+
+
+class OverrideDraftIn(BaseModel):
+    scheduleId: int | None = None
+    type: Literal["pause", "skip", "reschedule", "run_once", "blackout"]
+    startsAt: str
+    endsAt: str | None = None
+    newTime: str | None = None
+    reason: str | None = Field(default=None, max_length=500)
+
+
+

@@ -182,3 +182,33 @@ export const commandDialogMotion = (reduced = false): Variants => ({
     transition: { duration: 0.12 },
   },
 });
+
+export const weekSlideVariants = (direction: number, reduced = false): Variants => ({
+  hidden: { opacity: 0, x: reduced ? 0 : direction * 24 },
+  visible: {
+    opacity: 1,
+    x: 0,
+    transition: reduced ? FAST_TRANSITION : springSoft,
+  },
+  exit: {
+    opacity: 0,
+    x: reduced ? 0 : direction * -24,
+    transition: FAST_TRANSITION,
+  },
+});
+
+export const timelineMarkerGrow = (delaySec = 0, reduced = false): Variants => ({
+  hidden: { scaleX: reduced ? 1 : 0, opacity: reduced ? 1 : 0.4 },
+  visible: {
+    scaleX: 1,
+    opacity: 1,
+    transition: reduced
+      ? { duration: 0.15 }
+      : {
+          duration: DURATIONS.base,
+          delay: delaySec,
+          ease: MOTION_EASE,
+        },
+  },
+});
+

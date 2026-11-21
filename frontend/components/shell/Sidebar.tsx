@@ -30,7 +30,7 @@ import {
   X,
 } from "lucide-react";
 
-import { getCrawlerOverview, getSignalsOverview } from "@/lib/api";
+import { getAutomation, getCrawlerOverview, getSignalsOverview } from "@/lib/api";
 import type { Company, CompanyRecord, WorkflowStepState } from "@/lib/types";
 import { extractDomain } from "@/lib/company-adapter";
 import { FAST_TRANSITION } from "@/lib/motion";
@@ -145,6 +145,24 @@ export function Sidebar({
     staleTime: 30_000,
     retry: 0,
   });
+
+  const automationQuery = useQuery({
+    queryKey: ["automation-overview", companyId],
+    queryFn: () => getAutomation(companyId),
+    enabled:
+      Number.isFinite(companyId) &&
+      companyId > 0 &&
+      workflow.sources !== "locked" &&
+      process.env.NEXT_PUBLIC_USE_MOCKS !== "true",
+    staleTime: 30_000,
+    retry: 0,
+  });
+
+  const automationSchedules = automationQuery.data?.schedules ?? [];
+  const isAutomationRunning = automationSchedules.some((s) => s.status === "running");
+  const hasAutomationAlert = automationSchedules.some(
+    (s) => s.status === "failing" || s.lastRun?.status === "failed" || s.lastRun?.status === "missed",
+  );
 
   const unreviewedSignalsCount = signalsOverviewQuery.data?.countsByStatus?.new ?? 0;
 
@@ -571,16 +589,47 @@ export function Sidebar({
 
             {operationsAfter.map((item) => {
               const Icon = item.Icon;
+              const isAutoItem = item.label === "Automation";
+              const isAutoActive = isAutoItem && pathname === `${base}/automation`;
               return (
-                <li key={item.label}>
+                <li key={item.label} className="relative">
+                  {isAutoActive ? (
+                    <motion.span
+                      layoutId={reduced ? undefined : "sidebar-active-pill"}
+                      transition={FAST_TRANSITION}
+                      className="absolute inset-0 rounded-xl border border-white/80 bg-white shadow-[0_4px_14px_rgba(31,33,37,0.06)]"
+                    />
+                  ) : null}
                   <Link
                     href={item.href}
                     onClick={onCloseMobile}
                     title={item.label}
-                    className="focus-ring flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] font-medium text-[#4B5058] no-underline transition-colors hover:bg-white/50 hover:text-[#1F2125] md:justify-center xl:justify-start"
+                    aria-current={isAutoActive ? "page" : undefined}
+                    className={`focus-ring relative z-10 flex items-center justify-between gap-2.5 rounded-xl px-2.5 py-2 text-[13px] font-medium no-underline transition-colors md:justify-center xl:justify-between ${
+                      isAutoActive
+                        ? "text-[#1F2125]"
+                        : "text-[#4B5058] hover:bg-white/50 hover:text-[#1F2125]"
+                    }`}
                   >
-                    <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
-                    <span className="md:hidden xl:inline">{item.label}</span>
+                    <span className="flex items-center gap-2.5">
+                      <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
+                      <span className="md:hidden xl:inline">{item.label}</span>
+                    </span>
+                    {isAutoItem ? (
+                      <span className="md:hidden xl:inline-flex items-center gap-1">
+                        {isAutomationRunning ? (
+                          <span
+                            className={`h-2 w-2 rounded-full bg-[#4F46E5] ${reduced ? "" : "animate-pulse"}`}
+                            title="Scheduled job running"
+                          />
+                        ) : hasAutomationAlert ? (
+                          <span
+                            className="h-2 w-2 rounded-full bg-[#EA580C]"
+                            title="A scheduled job failed or missed its last run"
+                          />
+                        ) : null}
+                      </span>
+                    ) : null}
                   </Link>
                 </li>
               );

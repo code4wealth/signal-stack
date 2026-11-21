@@ -1068,4 +1068,222 @@ export async function searchWorkspace(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Automation & Scheduler Control Plane (Step 6)
+// ---------------------------------------------------------------------------
+
+export async function getAutomation(
+  companyId: number,
+): Promise<import("./types").AutomationOverview> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockAutomationOverview } = await import("@/lib/automation-mocks");
+    return mockAutomationOverview();
+  }
+  return get<import("./types").AutomationOverview>(
+    `/api/companies/${companyId}/automation`,
+  );
+}
+
+export async function getCalendar(
+  companyId: number,
+  from: string,
+  to: string,
+): Promise<import("./types").CalendarDay[]> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockCalendarDays } = await import("@/lib/automation-mocks");
+    return mockCalendarDays(from, to);
+  }
+  const params = new URLSearchParams({ from, to });
+  const res = await get<{ days: import("./types").CalendarDay[] }>(
+    `/api/companies/${companyId}/automation/calendar?${params.toString()}`,
+  );
+  return res.days;
+}
+
+export async function previewSchedule(
+  companyId: number,
+  draft: import("./types").ScheduleDraft,
+): Promise<import("./types").SchedulePreviewResponse> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockPreviewSchedule } = await import("@/lib/automation-mocks");
+    return mockPreviewSchedule(draft);
+  }
+  return post<import("./types").SchedulePreviewResponse>(
+    `/api/companies/${companyId}/automation/schedules/preview`,
+    draft,
+  );
+}
+
+export async function createSchedule(
+  companyId: number,
+  draft: import("./types").ScheduleDraft,
+): Promise<import("./types").Schedule> {
+  return post<import("./types").Schedule>(
+    `/api/companies/${companyId}/automation/schedules`,
+    draft,
+  );
+}
+
+export async function updateSchedule(
+  companyId: number,
+  scheduleId: number,
+  patchBody: Partial<import("./types").ScheduleDraft> & { pausedUntil?: string | null },
+): Promise<import("./types").Schedule> {
+  return patch<import("./types").Schedule>(
+    `/api/companies/${companyId}/automation/schedules/${scheduleId}`,
+    patchBody,
+  );
+}
+
+export async function deleteSchedule(
+  companyId: number,
+  scheduleId: number,
+): Promise<void> {
+  return del<void>(`/api/companies/${companyId}/automation/schedules/${scheduleId}`);
+}
+
+export async function runScheduleNow(
+  companyId: number,
+  scheduleId: number,
+): Promise<import("./types").AutomationRun> {
+  return post<import("./types").AutomationRun>(
+    `/api/companies/${companyId}/automation/schedules/${scheduleId}/run`,
+  );
+}
+
+export async function listAutomationRuns(
+  companyId: number,
+  filters: import("./types").AutomationRunsFilters = {},
+  cursor?: string | null,
+): Promise<import("./types").AutomationRunsResponse> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockAutomationRuns } = await import("@/lib/automation-mocks");
+    return mockAutomationRuns(filters);
+  }
+  const params = new URLSearchParams();
+  if (filters.job && filters.job !== "all") params.set("job", filters.job);
+  if (filters.status && filters.status !== "all") params.set("status", filters.status);
+  if (filters.trigger && filters.trigger !== "all") params.set("trigger", filters.trigger);
+  if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
+  if (filters.dateTo) params.set("dateTo", filters.dateTo);
+  if (filters.q) params.set("q", filters.q);
+  if (cursor) params.set("cursor", cursor);
+  const qs = params.toString();
+  return get<import("./types").AutomationRunsResponse>(
+    `/api/companies/${companyId}/automation/runs${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export async function getAutomationRun(
+  companyId: number,
+  runId: number,
+): Promise<import("./types").AutomationRunDetailResponse> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockAutomationRunDetail } = await import("@/lib/automation-mocks");
+    return mockAutomationRunDetail(runId);
+  }
+  return get<import("./types").AutomationRunDetailResponse>(
+    `/api/companies/${companyId}/automation/runs/${runId}`,
+  );
+}
+
+export async function retryRun(
+  companyId: number,
+  runId: number,
+): Promise<import("./types").AutomationRun> {
+  return post<import("./types").AutomationRun>(
+    `/api/companies/${companyId}/automation/runs/${runId}/retry`,
+  );
+}
+
+export async function getAutomationRunLogs(
+  companyId: number,
+  runId: number,
+  cursor?: string | null,
+): Promise<{ items: import("./types").CrawlLogLine[]; nextCursor: string | null }> {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  const qs = params.toString();
+  return get<{ items: import("./types").CrawlLogLine[]; nextCursor: string | null }>(
+    `/api/companies/${companyId}/automation/runs/${runId}/logs${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export function streamAutomationRunLogs(
+  companyId: number,
+  runId: number,
+  afterId = 0,
+): EventSource {
+  const qs = afterId > 0 ? `?afterId=${afterId}` : "";
+  return new EventSource(
+    `${API_BASE}/api/companies/${companyId}/automation/runs/${runId}/logs/stream${qs}`,
+  );
+}
+
+export async function listOverrides(
+  companyId: number,
+): Promise<{ items: import("./types").Override[] }> {
+  return get<{ items: import("./types").Override[] }>(
+    `/api/companies/${companyId}/automation/overrides`,
+  );
+}
+
+export async function createOverride(
+  companyId: number,
+  draft: import("./types").OverrideDraft,
+): Promise<import("./types").Override> {
+  return post<import("./types").Override>(
+    `/api/companies/${companyId}/automation/overrides`,
+    draft,
+  );
+}
+
+export async function deleteOverride(
+  companyId: number,
+  overrideId: number,
+): Promise<void> {
+  return del<void>(`/api/companies/${companyId}/automation/overrides/${overrideId}`);
+}
+
+export async function previewOverride(
+  companyId: number,
+  draft: import("./types").OverrideDraft,
+): Promise<import("./types").OverridePreviewResponse> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockPreviewOverride } = await import("@/lib/automation-mocks");
+    return mockPreviewOverride(draft);
+  }
+  return post<import("./types").OverridePreviewResponse>(
+    `/api/companies/${companyId}/automation/overrides/preview`,
+    draft,
+  );
+}
+
+export function exportRunsCsvUrl(
+  companyId: number,
+  filters: import("./types").AutomationRunsFilters = {},
+): string {
+  const params = new URLSearchParams();
+  if (filters.job && filters.job !== "all") params.set("job", filters.job);
+  if (filters.status && filters.status !== "all") params.set("status", filters.status);
+  if (filters.trigger && filters.trigger !== "all") params.set("trigger", filters.trigger);
+  if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
+  if (filters.dateTo) params.set("dateTo", filters.dateTo);
+  if (filters.q) params.set("q", filters.q);
+  const qs = params.toString();
+  return `${API_BASE}/api/companies/${companyId}/automation/runs/export${qs ? `?${qs}` : ""}`;
+}
+
+export async function exportRunsCsv(
+  companyId: number,
+  filters: import("./types").AutomationRunsFilters = {},
+): Promise<string> {
+  const res = await fetch(exportRunsCsvUrl(companyId, filters), { cache: "no-store" });
+  if (!res.ok) {
+    throw new ApiError(`Failed to export CSV (HTTP ${res.status})`, res.status);
+  }
+  return res.text();
+}
+
+
 

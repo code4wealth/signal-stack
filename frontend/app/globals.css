@@ -355,6 +355,61 @@ a:hover {
   animation: signalSlideIn 1.2s cubic-bezier(0.22, 1, 0.36, 1) 1;
 }
 
+@keyframes automationMarchingAnts {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+.automation-marching-ants {
+  animation: automationMarchingAnts 1.2s linear infinite;
+}
+
+.ambient-blobs-paused .automation-marching-ants,
+html.tab-hidden .automation-marching-ants {
+  animation-play-state: paused;
+}
+
+@keyframes automationTodayPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.38);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(79, 70, 229, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(79, 70, 229, 0);
+  }
+}
+
+.automation-today-pulse {
+  animation: automationTodayPulse 600ms cubic-bezier(0.22, 1, 0.36, 1) 1;
+}
+
+.pattern-hatch {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(79, 70, 229, 0.25),
+    rgba(79, 70, 229, 0.25) 3px,
+    rgba(79, 70, 229, 0.72) 3px,
+    rgba(79, 70, 229, 0.72) 6px
+  );
+}
+
+.pattern-dots {
+  background-color: rgba(79, 70, 229, 0.22);
+  background-image: radial-gradient(rgba(79, 70, 229, 0.85) 1.3px, transparent 1.3px);
+  background-size: 5px 5px;
+}
+
+.pattern-grid {
+  background-color: rgba(100, 116, 139, 0.16);
+  background-image:
+    linear-gradient(to right, rgba(79, 70, 229, 0.45) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(79, 70, 229, 0.45) 1px, transparent 1px);
+  background-size: 5px 5px;
+}
+
 .tabular {
   font-variant-numeric: tabular-nums;
 }
@@ -375,7 +430,9 @@ a:hover {
   .ambient-blobs-active .bg-blob-tc,
   .ambient-blobs-active .bg-blob-br,
   .hero-shimmer-once,
-  .signal-row-fresh {
+  .signal-row-fresh,
+  .automation-marching-ants,
+  .automation-today-pulse {
     animation: none;
   }
   .text-shimmer {

@@ -22,7 +22,7 @@ function resolveStepLabel(pathname: string, companyId: number): string {
   if (pathname === `${base}/briefs` || pathname === `${base}/brief`) {
     return "Step 6 of 6: Monday Morning Brief";
   }
-  if (pathname === `${base}/automation`) return "Operations: Automation & documents";
+  if (pathname === `${base}/automation`) return "Step 6 of 6: Automate your intelligence";
   return "Signal Stack workspace";
 }
 
