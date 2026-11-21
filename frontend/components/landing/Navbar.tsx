@@ -7,7 +7,6 @@ import { ArrowRight } from "lucide-react";
 const NAV_ITEMS = [
   { label: "How it works", href: "#how-it-works" },
   { label: "Signals", href: "#signals" },
-  { label: "Briefs", href: "/sample-brief" },
   { label: "Sources", href: "#sources" },
 ];
 

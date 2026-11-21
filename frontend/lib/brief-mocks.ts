@@ -281,7 +281,6 @@ const MOCK_BRIEF_V2: Brief = {
     model: "llama-3.3-70b",
   },
   removedUnsupportedClaims: 1,
-  capabilities: { emailConfigured: false },
   isMock: true,
 };
 
@@ -289,7 +288,6 @@ export function mockLatestBrief(companyId: number): BriefLatestResponse {
   return {
     brief: { ...MOCK_BRIEF_V2, companyId },
     prerequisites: { ready: true, signalsCount: 14, completedCrawls: 3 },
-    capabilities: { emailConfigured: false },
     isMock: true,
   };
 }
@@ -322,7 +320,7 @@ export function mockBriefList(): { items: BriefSummary[]; nextCursor: string | n
         id: "mock-brief-1",
         weekStart: "2026-11-09",
         weekEnd: "2026-11-15",
-        status: "sent",
+        status: "ready",
         signals: 10,
         actionsDonePct: 80,
         trigger: "scheduled",

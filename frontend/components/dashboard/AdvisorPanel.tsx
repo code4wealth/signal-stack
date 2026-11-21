@@ -201,6 +201,29 @@ export function AdvisorPanel({
             <ThinkingState status="Checking signal evidence..." />
           </div>
         ) : null}
+
+        {messages.length > 0 &&
+        !isPending &&
+        suggestedQuestions.length > 0 &&
+        !(messages[messages.length - 1]?.citations?.length) ? (
+          <div className="mr-2 space-y-1.5 rounded-2xl border border-white/85 bg-white/75 p-3">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-[#9AA0AA]">
+              Try asking about your signals
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {suggestedQuestions.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => onSend(q)}
+                  className="focus-ring rounded-xl border border-[#1F2125]/10 bg-white px-3 py-2 text-left text-xs text-[#1F2125] transition-colors hover:border-[#4F46E5]/40 hover:bg-indigo-50/40"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* Follow-up composer */}

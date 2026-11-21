@@ -23,13 +23,14 @@ import {
 
 import { useMotionSafe } from "@/hooks/useMotionSafe";
 import { runAnalysis, searchWorkspace, startCrawl } from "@/lib/api";
+import { extractDomain } from "@/lib/company-adapter";
 import { commandDialogMotion, FAST_TRANSITION } from "@/lib/motion";
-import type { WorkspaceSearchResponse } from "@/lib/types";
+import type { Company, WorkspaceSearchResponse } from "@/lib/types";
 import { CategoryBadge, ClassificationPill } from "@/components/ui-shared";
 
 type PaletteItem = {
   id: string;
-  group: "Navigate" | "Actions" | "Signals" | "Sources";
+  group: "Companies" | "Navigate" | "Actions" | "Signals" | "Sources";
   label: string;
   subtitle?: string;
   href?: string;
@@ -44,10 +45,12 @@ const RECENT_KEY_PREFIX = "signalstack:cmd_recent:";
 
 export function CommandPalette({
   companyId,
+  companies = [],
   open,
   onClose,
 }: {
   companyId: number;
+  companies?: Company[];
   open: boolean;
   onClose: () => void;
 }) {
@@ -158,10 +161,34 @@ export function CommandPalette({
         href: `${base}/brief`,
         Icon: FileSpreadsheet,
       },
+      {
+        id: "act-new-company",
+        group: "Actions",
+        label: "Research a new company",
+        subtitle: "Search and create a workspace for any company",
+        href: "/",
+        Icon: Search,
+      },
     ];
     const actionItems = actionBase.filter(
       (item) => !qLower || `${item.label} ${item.subtitle ?? ""}`.toLowerCase().includes(qLower),
     );
+
+    const companyItems: PaletteItem[] = companies
+      .filter(
+        (c) =>
+          !qLower ||
+          `${c.name} ${c.website} ${c.context ?? ""}`.toLowerCase().includes(qLower),
+      )
+      .slice(0, 8)
+      .map((c) => ({
+        id: `co-${c.id}`,
+        group: "Companies",
+        label: c.name,
+        subtitle: `${extractDomain(c.website)}${c.id === companyId ? " · current" : ""}`,
+        href: `/company/${c.id}/dashboard`,
+        Icon: Building2,
+      }));
 
     const signalItems: PaletteItem[] = results.signals.map((sig) => ({
       id: `sig-${sig.id}`,
@@ -184,8 +211,8 @@ export function CommandPalette({
       Icon: Layers,
     }));
 
-    return [...signalItems, ...sourceItems, ...actionItems, ...navItems];
-  }, [base, companyId, query, results.signals, results.sources, router]);
+    return [...signalItems, ...sourceItems, ...companyItems, ...actionItems, ...navItems];
+  }, [base, companies, companyId, query, results.signals, results.sources, router]);
 
   const executeItem = (item: PaletteItem) => {
     const trimmed = query.trim();
@@ -232,7 +259,7 @@ export function CommandPalette({
 
   if (!open) return null;
 
-  const grouped = (["Signals", "Sources", "Actions", "Navigate"] as const)
+  const grouped = (["Signals", "Sources", "Companies", "Actions", "Navigate"] as const)
     .map((groupName) => ({
       groupName,
       entries: items

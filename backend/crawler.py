@@ -24,7 +24,7 @@ from sqlalchemy import select
 import safe_fetch
 from config import get_settings
 from db import JobLog, Record, Source
-from research import extract_text, normalise_url
+from research import canonical_url_key, extract_text, normalise_url
 
 logger = logging.getLogger("signalstack.crawler")
 settings = get_settings()
@@ -177,9 +177,12 @@ def fetch_source(source: Source, *, max_items: int = MAX_ITEMS_PER_SOURCE) -> So
     if feed_error:
         result.error = f"feed: {feed_error}"
 
+    seen_item_urls = {canonical_url_key(response.url)}
     for entry in feed_items[:max_items]:
-        if normalise_url(entry["url"]) == normalise_url(response.url):
+        entry_key = canonical_url_key(entry["url"])
+        if entry_key in seen_item_urls:
             continue
+        seen_item_urls.add(entry_key)
         item = _page_item(entry["url"], fallback=entry)
         if item:
             items.append(item)
@@ -193,10 +196,10 @@ def fetch_source(source: Source, *, max_items: int = MAX_ITEMS_PER_SOURCE) -> So
 
 
 def _existing_by_url(db, company_id: int, url: str) -> Record | None:
-    key = normalise_url(url)
+    key = canonical_url_key(url)
     rows = db.scalars(select(Record).where(Record.company_id == company_id)).all()
     for row in rows:
-        if normalise_url(row.url) == key:
+        if canonical_url_key(row.url) == key:
             return row
     return None
 

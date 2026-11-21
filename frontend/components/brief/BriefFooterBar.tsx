@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, Mail, RefreshCw } from "lucide-react";
+import { ArrowLeft, CheckCircle2, RefreshCw } from "lucide-react";
 
 import type { Brief } from "@/lib/types";
 
@@ -12,17 +12,14 @@ export function BriefFooterBar({
   isPatching,
   onRegenerate,
   isRegenerating,
-  onOpenEmail,
 }: {
   brief: Brief;
   onMarkReady: () => void;
   isPatching: boolean;
   onRegenerate: () => void;
   isRegenerating: boolean;
-  onOpenEmail: () => void;
 }) {
   const [confirmRegen, setConfirmRegen] = useState(false);
-  const emailConfigured = Boolean(brief.capabilities?.emailConfigured);
 
   return (
     <footer className="brief-sticky-footer no-print sticky bottom-3 z-20 mx-auto mt-8 max-w-[1160px]">
@@ -98,21 +95,6 @@ export function BriefFooterBar({
               </div>
             ) : null}
           </div>
-
-          <button
-            type="button"
-            disabled={!emailConfigured}
-            title={
-              emailConfigured
-                ? "Send this brief by email"
-                : "Email delivery not configured (set SMTP_HOST or RESEND_API_KEY)"
-            }
-            onClick={onOpenEmail}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-xl bg-[#1C1D21] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#1C1D21]/90 disabled:cursor-not-allowed disabled:opacity-55"
-          >
-            <Mail size={13} aria-hidden="true" />
-            {emailConfigured ? "Email me this" : "Email unavailable"}
-          </button>
         </div>
       </div>
     </footer>

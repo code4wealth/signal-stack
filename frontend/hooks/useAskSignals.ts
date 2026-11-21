@@ -28,7 +28,9 @@ export function useAskSignals(companyId: number, initialSuggested: string[] = []
       setQuotedText(null);
     },
     onSuccess: (res) => {
-      const noEvidence = !res.citations || res.citations.length === 0;
+      const hasCitations = Boolean(res.citations && res.citations.length > 0);
+      const hasAnswer = Boolean(res.answer && res.answer.trim().length > 0);
+      const noEvidence = !hasCitations && !hasAnswer;
       const assistantMsg: AskMessage = {
         id: `a-${Date.now()}`,
         role: "assistant",
@@ -36,8 +38,8 @@ export function useAskSignals(companyId: number, initialSuggested: string[] = []
           ? "No supporting evidence found in your collected signals for that question."
           : res.answer,
         citations: res.citations ?? [],
-        answerCard: noEvidence ? null : (res.answerCard ?? null),
-        recommendation: noEvidence ? null : (res.recommendation ?? null),
+        answerCard: hasCitations ? (res.answerCard ?? null) : null,
+        recommendation: hasCitations ? (res.recommendation ?? null) : null,
         noEvidence,
         createdAt: new Date().toISOString(),
       };

@@ -35,7 +35,7 @@ def test_backend_env_is_loaded_when_present(tmp_path: Path) -> None:
     _clean("TEST_DOTENV_BACKEND")
     try:
         loaded = config.load_env_files(tmp_path)
-        assert [str(path.relative_to(tmp_path)) for path in loaded] == ["backend/.env"]
+        assert [path.relative_to(tmp_path) for path in loaded] == [Path("backend") / ".env"]
         assert os.environ["TEST_DOTENV_BACKEND"] == "from-backend"
     finally:
         _clean("TEST_DOTENV_BACKEND")

@@ -118,6 +118,7 @@ def _run_job_worker(job_id: int, company_id: int, kind: str, limit: int | None) 
         session.commit()
     except Exception as exc:
         logger.error("Background job %s (%s) failed: %s", job_id, kind, exc, exc_info=True)
+        session.rollback()
         error_text = str(exc) or exc.__class__.__name__
         target_url: str | None = None
         if isinstance(exc, LLMError):
@@ -128,8 +129,7 @@ def _run_job_worker(job_id: int, company_id: int, kind: str, limit: int | None) 
         if _is_transport_error(error_text) and "[net_diag:" not in error_text:
             import net_diag
 
-            error_text = f"{error_text} {net_diag.format_transport_hint(target_url)}"
-        session.rollback()
+            error_text = f"{error_text} {net_diag.format_transport_env_hint(target_url)}"
         row = session.get(db.JobLog, job_id)
         if row is not None:
             row.status = "error"

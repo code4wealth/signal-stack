@@ -231,7 +231,7 @@ export function DayDrawer({
                               )
                             }
                           >
-                            {run.state}
+                            {run.state === "scheduler_off" ? "Scheduler off" : run.state}
                           </StatusPill>
 
                           <div className="flex flex-wrap items-center gap-1.5">

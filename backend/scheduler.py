@@ -181,9 +181,13 @@ def remove_schedule_job(job_id: str) -> None:
         _scheduler.remove_job(job_id)
 
 
+def is_enabled() -> bool:
+    return os.getenv("ENABLE_SCHEDULER", "0") == "1"
+
+
 def get_health_status() -> tuple[str, str, str | None]:
     """Return (engine_state, lastHeartbeatAt_iso, reason_or_none)."""
-    enabled = os.getenv("ENABLE_SCHEDULER", "0") == "1"
+    enabled = is_enabled()
     if _scheduler is not None and _scheduler.running:
         hb = (_last_heartbeat_at or _utcnow()).isoformat()
         return "running", hb, None
@@ -191,7 +195,7 @@ def get_health_status() -> tuple[str, str, str | None]:
     if _lock_conflict:
         return "stopped", hb, "Another process already holds the scheduler lock; duplicate scheduler prevented."
     reason = (
-        "Scheduler is disabled (ENABLE_SCHEDULER=0). Set ENABLE_SCHEDULER=1 to execute cron jobs automatically."
+        "Scheduler is off (ENABLE_SCHEDULER=0). Past days are not marked missed; set ENABLE_SCHEDULER=1 (or pass -EnableScheduler to scripts\\start_local.ps1) to execute cron jobs automatically."
         if not enabled
         else "Scheduler process is not running."
     )

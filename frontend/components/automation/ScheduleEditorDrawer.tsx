@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, Plus, Trash2, X } from "lucide-react";
+import { AlertTriangle, Trash2, X } from "lucide-react";
 
 import { useMotionSafe } from "@/hooks/useMotionSafe";
 import { useSchedulePreview } from "@/hooks/useSchedulePreview";
@@ -85,7 +85,6 @@ export function ScheduleEditorDrawer({
   open,
   schedule,
   allSchedules,
-  emailConfigured,
   showLocalTime,
   isSaving,
   onClose,
@@ -96,7 +95,6 @@ export function ScheduleEditorDrawer({
   open: boolean;
   schedule: Schedule | null;
   allSchedules: Schedule[];
-  emailConfigured: boolean;
   showLocalTime: boolean;
   isSaving: boolean;
   onClose: () => void;
@@ -108,8 +106,6 @@ export function ScheduleEditorDrawer({
 
   const [draft, setDraft] = useState<ScheduleDraft>(() => initialDraftFromSchedule(schedule));
   const [initialJson, setInitialJson] = useState<string>("");
-  const [recipientInput, setRecipientInput] = useState("");
-  const [recipientError, setRecipientError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmDisableBrief, setConfirmDisableBrief] = useState(false);
   const [confirmUnsaved, setConfirmUnsaved] = useState(false);
@@ -119,8 +115,6 @@ export function ScheduleEditorDrawer({
     const init = initialDraftFromSchedule(schedule);
     setDraft(init);
     setInitialJson(JSON.stringify(init));
-    setRecipientInput("");
-    setRecipientError(null);
     setConfirmDelete(false);
     setConfirmDisableBrief(false);
     setConfirmUnsaved(false);
@@ -170,24 +164,6 @@ export function ScheduleEditorDrawer({
   const optionsSchema = schedule?.optionsSchema ?? [];
   const nameInvalid = draft.name.trim().length < 2;
   const cronInvalid = preview ? !preview.valid : false;
-
-  const addRecipient = () => {
-    const email = recipientInput.trim();
-    if (!email) return;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setRecipientError("Enter a valid email address.");
-      return;
-    }
-    setRecipientError(null);
-    const cur = draft.delivery?.recipients ?? [];
-    if (!cur.includes(email)) {
-      setDraft({
-        ...draft,
-        delivery: { email: draft.delivery?.email ?? true, recipients: [...cur, email] },
-      });
-    }
-    setRecipientInput("");
-  };
 
   const handleSave = async () => {
     if (nameInvalid || cronInvalid) return;
@@ -585,81 +561,11 @@ export function ScheduleEditorDrawer({
                   Brief delivery
                 </p>
                 <div className="flex items-center justify-between">
-                  <span className="text-[#1F2125]">In-app notification</span>
+                  <span className="text-[#1F2125]">In-app brief & Markdown/Print export</span>
                   <span className="rounded-full bg-[#059669]/12 px-2 py-0.5 font-mono text-[10px] font-medium text-[#059669]">
                     Always on
                   </span>
                 </div>
-                <label className="flex cursor-pointer items-center justify-between gap-2">
-                  <span className="text-[#1F2125]">Email delivery</span>
-                  <input
-                    type="checkbox"
-                    disabled={!emailConfigured}
-                    checked={Boolean(draft.delivery?.email)}
-                    onChange={(e) =>
-                      setDraft({
-                        ...draft,
-                        delivery: {
-                          email: e.target.checked,
-                          recipients: draft.delivery?.recipients ?? [],
-                        },
-                      })
-                    }
-                    className="accent-[#4F46E5] disabled:opacity-45"
-                  />
-                </label>
-                {!emailConfigured ? (
-                  <p className="text-[11px] text-[#9AA0AA]">
-                    Email delivery disabled: configure SMTP_HOST or RESEND_API_KEY on the backend.
-                  </p>
-                ) : (
-                  <div className="space-y-1.5">
-                    <div className="flex gap-1.5">
-                      <input
-                        type="email"
-                        value={recipientInput}
-                        onChange={(e) => setRecipientInput(e.target.value)}
-                        placeholder="founder@company.com"
-                        className="focus-ring h-8 flex-1 rounded-xl border border-white/85 bg-white/85 px-2.5 text-xs"
-                      />
-                      <button
-                        type="button"
-                        onClick={addRecipient}
-                        className="focus-ring inline-flex h-8 items-center gap-1 rounded-xl bg-[#1C1D21] px-2.5 text-[11px] font-medium text-white"
-                      >
-                        <Plus size={11} /> Add
-                      </button>
-                    </div>
-                    {recipientError ? (
-                      <p className="text-[11px] text-[#DC2626]">{recipientError}</p>
-                    ) : null}
-                    <div className="flex flex-wrap gap-1.5">
-                      {(draft.delivery?.recipients ?? []).map((email) => (
-                        <span
-                          key={email}
-                          className="inline-flex items-center gap-1 rounded-full border border-white/85 bg-white px-2 py-0.5 font-mono text-[10.5px]"
-                        >
-                          {email}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDraft({
-                                ...draft,
-                                delivery: {
-                                  email: Boolean(draft.delivery?.email),
-                                  recipients: (draft.delivery?.recipients ?? []).filter((x) => x !== email),
-                                },
-                              })
-                            }
-                            aria-label={`Remove ${email}`}
-                          >
-                            <X size={10} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             ) : null}
 

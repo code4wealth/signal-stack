@@ -615,6 +615,10 @@ def build_calendar(
         ).all()
     )
 
+    import scheduler as scheduler_mod
+
+    engine_state, _, _ = scheduler_mod.get_health_status()
+    scheduler_running = engine_state == "running"
     now = utcnow()
     day_map: dict[str, dict[str, Any]] = {}
     cursor_d = from_date
@@ -688,7 +692,12 @@ def build_calendar(
 
             if d_key not in day_map:
                 continue
-            state = suppressed_state if suppressed_state == "skipped" else ("missed" if occ < now - timedelta(minutes=30) else "scheduled")
+            if suppressed_state == "skipped":
+                state = "skipped"
+            elif occ < now - timedelta(minutes=30):
+                state = "missed" if scheduler_running else "scheduler_off"
+            else:
+                state = "scheduled"
             day_map[d_key]["runs"].append(
                 {
                     "scheduleId": sched.id,
@@ -912,6 +921,7 @@ def build_health(
 
     return {
         "engine": engine_state,
+        "enabled": scheduler_mod.is_enabled(),
         "lastHeartbeatAt": heartbeat_at,
         "jobStore": job_store,
         "jobsRegistered": len([s for s in schedules if s.enabled]),
@@ -972,7 +982,6 @@ def build_overview(db: Session, company: Company) -> dict[str, Any]:
         "health": build_health(db, company.id, schedules),
         "overrides": [serialize_override(ov) for ov in overrides],
         "capabilities": {
-            "emailConfigured": bool(os.getenv("SMTP_HOST") or os.getenv("RESEND_API_KEY")),
             "customCron": True,
             "canCreateSchedule": len(schedules) < 12,
         },
@@ -1364,3 +1373,244 @@ def export_runs_csv(runs: list[AutomationRun]) -> str:
             ]
         )
     return buf.getvalue()
+
+
+def _derive_monitoring_frequency(crawl_sched: AutomationSchedule | None) -> str:
+    if crawl_sched is None:
+        return "daily"
+    if crawl_sched.frequency == "weekly":
+        return "weekly"
+    if crawl_sched.frequency == "hourly":
+        hrs = int(crawl_sched.interval_hours or 6)
+        return "12h" if hrs >= 12 else "6h"
+    return "daily"
+
+
+def get_company_settings(db: Session, company: Company) -> dict[str, Any]:
+    import scheduler as scheduler_mod
+
+    schedules = ensure_default_schedules(db, company)
+    by_type = {s.job_type: s for s in schedules}
+    brief_sched = by_type.get("weekly_brief")
+    crawl_sched = by_type.get("crawl")
+    audit_sched = by_type.get("source_audit")
+
+    profile = dict(company.profile or {})
+    saved_settings = dict(profile.get("settings") or {})
+
+    tz_name = (
+        saved_settings.get("timezone")
+        or (brief_sched.timezone if brief_sched else None)
+        or "Asia/Kolkata"
+    )
+    briefing_day = (
+        brief_sched.days_of_week[0]
+        if brief_sched and brief_sched.days_of_week
+        else int(saved_settings.get("briefingDay", 0))
+    )
+    briefing_time = (
+        brief_sched.time_of_day
+        if brief_sched and brief_sched.time_of_day
+        else str(saved_settings.get("briefingTime", "07:00"))
+    )
+    monitoring_freq = str(
+        saved_settings.get("monitoringFrequency") or _derive_monitoring_frequency(crawl_sched)
+    )
+    source_refresh_freq = str(
+        saved_settings.get("sourceRefreshFrequency")
+        or ((crawl_sched.options or {}).get("sourceRefreshFrequency") if crawl_sched else None)
+        or "weekly"
+    )
+    monthly_health = bool(audit_sched.enabled) if audit_sched else bool(
+        saved_settings.get("monthlySourceHealthCheck", True)
+    )
+    health_dom_raw = (audit_sched.day_of_month if audit_sched else None) or saved_settings.get(
+        "healthCheckDayOfMonth", 1
+    )
+    try:
+        health_dom = max(1, min(28, int(health_dom_raw)))
+    except (TypeError, ValueError):
+        health_dom = 1
+
+    engine_state, _, reason = scheduler_mod.get_health_status()
+    next_brief_runs = (
+        compute_next_runs(brief_sched.cron, brief_sched.timezone, count=1, paused_until=brief_sched.paused_until)
+        if brief_sched and brief_sched.enabled
+        else []
+    )
+
+    return {
+        "companyId": company.id,
+        "briefingDay": briefing_day,
+        "briefingTime": briefing_time,
+        "timezone": tz_name,
+        "monitoringFrequency": monitoring_freq,
+        "sourceRefreshFrequency": source_refresh_freq,
+        "monthlySourceHealthCheck": monthly_health,
+        "healthCheckDayOfMonth": health_dom,
+        "nextBriefRunAt": next_brief_runs[0].isoformat() if next_brief_runs else None,
+        "schedulerEnabled": scheduler_mod.is_enabled(),
+        "schedulerEngine": engine_state,
+        "schedulerReason": reason,
+        "profile": {
+            "companyName": company.name,
+            "website": company.website,
+            "context": company.context or "",
+            "summary": str(profile.get("summary") or ""),
+            "industry": str(profile.get("industry") or ""),
+            "targetCustomers": str(profile.get("target_customers") or ""),
+            "valueProposition": str(profile.get("value_proposition") or ""),
+        },
+    }
+
+
+def update_company_settings(db: Session, company: Company, payload: Any) -> dict[str, Any]:
+    import scheduler as scheduler_mod
+
+    schedules = ensure_default_schedules(db, company)
+    by_type = {s.job_type: s for s in schedules}
+    current = get_company_settings(db, company)
+
+    tz_name = payload.timezone if payload.timezone is not None else current["timezone"]
+    validate_timezone(tz_name)
+
+    briefing_day = payload.briefingDay if payload.briefingDay is not None else current["briefingDay"]
+    briefing_time = payload.briefingTime if payload.briefingTime is not None else current["briefingTime"]
+    monitoring_freq = (
+        payload.monitoringFrequency
+        if payload.monitoringFrequency is not None
+        else current["monitoringFrequency"]
+    )
+    source_refresh_freq = (
+        payload.sourceRefreshFrequency
+        if payload.sourceRefreshFrequency is not None
+        else current["sourceRefreshFrequency"]
+    )
+    monthly_health = (
+        payload.monthlySourceHealthCheck
+        if payload.monthlySourceHealthCheck is not None
+        else current["monthlySourceHealthCheck"]
+    )
+    health_dom = (
+        payload.healthCheckDayOfMonth
+        if payload.healthCheckDayOfMonth is not None
+        else current["healthCheckDayOfMonth"]
+    )
+
+    # Validate time format using build_cron_from_fields
+    brief_cron = build_cron_from_fields(
+        "weekly", time_of_day=briefing_time, days_of_week=[briefing_day]
+    )
+
+    updated_schedules: list[AutomationSchedule] = []
+    brief_sched = by_type.get("weekly_brief")
+    if brief_sched:
+        brief_sched.frequency = "weekly"
+        brief_sched.days_of_week = [briefing_day]
+        brief_sched.time_of_day = briefing_time
+        brief_sched.timezone = tz_name
+        brief_sched.cron = brief_cron
+        updated_schedules.append(brief_sched)
+
+    crawl_sched = by_type.get("crawl")
+    analysis_sched = by_type.get("analysis")
+    if monitoring_freq in ("6h", "12h"):
+        hrs = 6 if monitoring_freq == "6h" else 12
+        if crawl_sched:
+            crawl_sched.frequency = "hourly"
+            crawl_sched.interval_hours = hrs
+            crawl_sched.timezone = tz_name
+            crawl_sched.cron = build_cron_from_fields("hourly", interval_hours=hrs)
+            updated_schedules.append(crawl_sched)
+        if analysis_sched:
+            analysis_sched.frequency = "hourly"
+            analysis_sched.interval_hours = hrs
+            analysis_sched.timezone = tz_name
+            analysis_sched.cron = f"30 */{hrs} * * *"
+            updated_schedules.append(analysis_sched)
+    elif monitoring_freq == "daily":
+        if crawl_sched:
+            crawl_sched.frequency = "daily"
+            crawl_sched.time_of_day = "05:30"
+            crawl_sched.timezone = tz_name
+            crawl_sched.cron = build_cron_from_fields("daily", time_of_day="05:30")
+            updated_schedules.append(crawl_sched)
+        if analysis_sched:
+            analysis_sched.frequency = "daily"
+            analysis_sched.time_of_day = "06:15"
+            analysis_sched.timezone = tz_name
+            analysis_sched.cron = build_cron_from_fields("daily", time_of_day="06:15")
+            updated_schedules.append(analysis_sched)
+    elif monitoring_freq == "weekly":
+        if crawl_sched:
+            crawl_sched.frequency = "weekly"
+            crawl_sched.days_of_week = [briefing_day]
+            crawl_sched.time_of_day = "05:30"
+            crawl_sched.timezone = tz_name
+            crawl_sched.cron = build_cron_from_fields(
+                "weekly", time_of_day="05:30", days_of_week=[briefing_day]
+            )
+            updated_schedules.append(crawl_sched)
+        if analysis_sched:
+            analysis_sched.frequency = "weekly"
+            analysis_sched.days_of_week = [briefing_day]
+            analysis_sched.time_of_day = "06:15"
+            analysis_sched.timezone = tz_name
+            analysis_sched.cron = build_cron_from_fields(
+                "weekly", time_of_day="06:15", days_of_week=[briefing_day]
+            )
+            updated_schedules.append(analysis_sched)
+
+    if crawl_sched:
+        opts = dict(crawl_sched.options or {})
+        opts["sourceRefreshFrequency"] = source_refresh_freq
+        crawl_sched.options = opts
+
+    audit_sched = by_type.get("source_audit")
+    if audit_sched:
+        audit_sched.enabled = monthly_health
+        audit_sched.frequency = "monthly"
+        audit_sched.day_of_month = str(health_dom)
+        audit_sched.timezone = tz_name
+        audit_sched.cron = build_cron_from_fields(
+            "monthly",
+            time_of_day=audit_sched.time_of_day or "06:30",
+            day_of_month=health_dom,
+        )
+        updated_schedules.append(audit_sched)
+
+    # Update company + profile
+    if payload.companyName is not None:
+        company.name = payload.companyName.strip()
+    if payload.website is not None:
+        company.website = payload.website.strip()
+    if payload.context is not None:
+        company.context = payload.context.strip()
+
+    profile = dict(company.profile or {})
+    if payload.summary is not None:
+        profile["summary"] = payload.summary.strip()
+    if payload.industry is not None:
+        profile["industry"] = payload.industry.strip()
+    if payload.targetCustomers is not None:
+        profile["target_customers"] = payload.targetCustomers.strip()
+    if payload.valueProposition is not None:
+        profile["value_proposition"] = payload.valueProposition.strip()
+    profile["settings"] = {
+        "briefingDay": briefing_day,
+        "briefingTime": briefing_time,
+        "timezone": tz_name,
+        "monitoringFrequency": monitoring_freq,
+        "sourceRefreshFrequency": source_refresh_freq,
+        "monthlySourceHealthCheck": monthly_health,
+        "healthCheckDayOfMonth": health_dom,
+    }
+    company.profile = profile
+
+    db.commit()
+    for s in updated_schedules:
+        db.refresh(s)
+        scheduler_mod.sync_schedule(s)
+
+    return get_company_settings(db, company)
+

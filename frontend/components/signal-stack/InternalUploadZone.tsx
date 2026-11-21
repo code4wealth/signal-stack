@@ -66,7 +66,7 @@ export function InternalUploadZone({
               key={label}
               className="inline-flex items-center gap-1 rounded-full border border-[#7C3AED]/20 bg-white/80 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-[#6D28D9]"
             >
-              {label === "CSV" ? <FileSpreadsheet size={11} /> : <FileText size={11} />}
+              {label === "CSV" || label === "XLSX" ? <FileSpreadsheet size={11} /> : <FileText size={11} />}
               {label}
             </span>
           ))}

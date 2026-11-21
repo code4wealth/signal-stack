@@ -11,7 +11,6 @@ import {
   FileText,
   Globe,
   ListOrdered,
-  Mail,
   Printer,
   Sparkles,
   Swords,
@@ -53,16 +52,16 @@ export function BriefTableOfContents({
   activeId,
   onSelectSection,
   onDownloadPdf,
+  onDownloadMarkdown,
   onCopyMarkdown,
-  onOpenEmail,
   onPrint,
 }: {
   brief: Brief;
   activeId: string;
   onSelectSection: (sectionId: string) => void;
   onDownloadPdf: () => void;
+  onDownloadMarkdown: () => void;
   onCopyMarkdown: () => void;
-  onOpenEmail: () => void;
   onPrint: () => void;
 }) {
   const { reduced } = useMotionSafe();
@@ -181,11 +180,11 @@ export function BriefTableOfContents({
               </button>
               <button
                 type="button"
-                onClick={onOpenEmail}
+                onClick={onDownloadMarkdown}
                 className="focus-ring flex items-center justify-center gap-1 rounded-lg border border-[#1F2125]/10 bg-white/85 px-2 py-1.5 text-[11px] font-medium text-[#4B5058] hover:bg-white hover:text-[#1F2125]"
               >
-                <Mail size={11} aria-hidden="true" />
-                Email
+                <Download size={11} aria-hidden="true" />
+                Markdown
               </button>
               <button
                 type="button"

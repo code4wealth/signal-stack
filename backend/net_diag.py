@@ -19,6 +19,7 @@ import shutil
 import ssl
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from typing import Any, Callable
 from urllib.parse import urlparse
@@ -168,8 +169,7 @@ def diagnose_network(
         if not any(_host_of(u) == target_host and urlparse(u).path == urlparse(norm_target).path for u in urls):
             urls.append(norm_target)
 
-    results: list[HostProbeResult] = []
-    for url in urls:
+    def _probe_one(url: str) -> HostProbeResult:
         host = _host_of(url)
         started = time.monotonic()
         ok, status_code, error_type, error_detail = py_probe(url, timeout)
@@ -177,18 +177,19 @@ def diagnose_network(
         system_ok: bool | None = None
         if not ok:
             system_ok = sys_probe(url, timeout)
-        results.append(
-            HostProbeResult(
-                url=url,
-                host=host,
-                ok=ok,
-                status_code=status_code,
-                elapsed_ms=elapsed_ms,
-                error_type=error_type,
-                error_detail=error_detail,
-                system_ok=system_ok,
-            )
+        return HostProbeResult(
+            url=url,
+            host=host,
+            ok=ok,
+            status_code=status_code,
+            elapsed_ms=elapsed_ms,
+            error_type=error_type,
+            error_detail=error_detail,
+            system_ok=system_ok,
         )
+
+    with ThreadPoolExecutor(max_workers=max(1, len(urls))) as pool:
+        results = list(pool.map(_probe_one, urls))
 
     verdict, hint = _compute_verdict(results, target_host=target_host)
     env_info = collect_environment_info()
@@ -200,6 +201,19 @@ def diagnose_network(
         "hint": hint,
         "ok": verdict == "all-ok",
     }
+
+
+def format_transport_env_hint(target_url: str | None = None) -> str:
+    """Return a zero-I/O diagnostic hint for background workers without blocking status commits."""
+    env_info = collect_environment_info()
+    flags = env_info.get("env_flags") or {}
+    active_flags = [k for k in ENV_FLAG_NAMES if flags.get(k)]
+    flag_note = f"env={','.join(active_flags)}" if active_flags else "env=clean"
+    target_note = f" target={_host_of(_normalise_target_url(target_url))}" if target_url and target_url.strip() else ""
+    return (
+        f"[net_diag: transport-error] trust={env_info.get('trust_source', 'certifi')} "
+        f"{flag_note}{target_note}; run GET /api/net-diag for live host probes."
+    )
 
 
 def format_transport_hint(target_url: str | None = None, *, timeout: float = 3.0) -> str:

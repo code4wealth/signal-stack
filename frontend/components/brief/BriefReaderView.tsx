@@ -28,7 +28,6 @@ import { BriefHero } from "./BriefHero";
 import { BriefRightRail } from "./BriefRightRail";
 import { BriefTableOfContents } from "./BriefTableOfContents";
 import { CategoryIntelligenceSection } from "./CategoryIntelligenceSection";
-import { EmailBriefPopover } from "./EmailBriefPopover";
 import { ExecutiveSummarySection } from "./ExecutiveSummarySection";
 import { GenerationState } from "./GenerationState";
 import { HistoryDrawer } from "./HistoryDrawer";
@@ -96,7 +95,6 @@ export function BriefReaderView({
   );
 
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [emailOpen, setEmailOpen] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [activeSignalId, setActiveSignalId] = useState<number | null>(null);
   const [activeEvidence, setActiveEvidence] = useState<CollectedItem | null>(null);
@@ -159,6 +157,18 @@ export function BriefReaderView({
     if (!brief) return;
     await navigator.clipboard.writeText(briefToMarkdown(brief));
     showToast("Copied");
+  };
+
+  const handleDownloadMarkdown = () => {
+    if (!brief) return;
+    const blob = new Blob([briefToMarkdown(brief)], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `monday-brief-v${brief.version}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("Markdown exported");
   };
 
   const handleDownloadPdf = async () => {
@@ -322,8 +332,8 @@ export function BriefReaderView({
                 activeId={activeSectionId}
                 onSelectSection={scrollToSection}
                 onDownloadPdf={handleDownloadPdf}
+                onDownloadMarkdown={handleDownloadMarkdown}
                 onCopyMarkdown={handleCopyMarkdown}
-                onOpenEmail={() => setEmailOpen(true)}
                 onPrint={handlePrint}
               />
 
@@ -332,9 +342,9 @@ export function BriefReaderView({
                 <BriefHero
                   brief={brief}
                   onCopyMarkdown={handleCopyMarkdown}
+                  onDownloadMarkdown={handleDownloadMarkdown}
                   onDownloadPdf={handleDownloadPdf}
                   onPrint={handlePrint}
-                  onOpenEmail={() => setEmailOpen(true)}
                   onOpenHistory={() => setHistoryOpen(true)}
                   onOpenRunDrawer={(rid) => setActiveRunId(rid)}
                   pdfLoading={pdfLoading}
@@ -406,6 +416,7 @@ export function BriefReaderView({
                 {/* 06. Opportunities */}
                 <OpportunitiesSection
                   items={brief.opportunities}
+                  opportunitiesNote={brief.opportunitiesNote}
                   sources={brief.sources}
                   isMock={brief.isMock}
                   onJumpToSource={jumpToSource}
@@ -490,7 +501,6 @@ export function BriefReaderView({
               isPatching={isPatching}
               onRegenerate={handleRegenerate}
               isRegenerating={isStarting || isGenerating}
-              onOpenEmail={() => setEmailOpen(true)}
             />
           </motion.div>
         </AnimatePresence>
@@ -502,15 +512,6 @@ export function BriefReaderView({
         currentBriefId={brief.id}
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
-      />
-
-      <EmailBriefPopover
-        companyId={companyId}
-        briefId={brief.id}
-        emailConfigured={Boolean(brief.capabilities?.emailConfigured)}
-        open={emailOpen}
-        onClose={() => setEmailOpen(false)}
-        onSuccess={(to) => showToast(`Brief sent to ${to}`)}
       />
 
       <SignalDrawer

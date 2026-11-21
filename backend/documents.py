@@ -1,4 +1,4 @@
-"""Phase 8b - internal document upload (TXT and CSV only, 2 MB cap).
+"""Phase 8b - internal document upload (TXT, CSV, XLSX, PDF; 2 MB cap).
 
 Uploads are labelled "user-provided" everywhere, stored as an `internal` source,
 and become records immediately (there is no URL to crawl). They are still subject
@@ -11,14 +11,17 @@ from __future__ import annotations
 import hashlib
 import io
 import re
+import zipfile
 
 from sqlalchemy import select
 
 from db import Record, Source
 
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024
-ALLOWED_EXTENSIONS = (".txt", ".csv")
+ALLOWED_EXTENSIONS = (".txt", ".csv", ".xlsx", ".pdf")
 MIN_TEXT_CHARS = 40
+MAX_PDF_PAGES = 200
+MAX_EXTRACTED_CHARS = 400_000
 DOCUMENT_TYPES = ("general", "support_tickets", "sales_objections", "lost_deals", "product_requests")
 
 _INSIGHT_PATTERNS = {
@@ -77,16 +80,116 @@ def _sanitise(filename: str) -> str:
     return re.sub(r"[^A-Za-z0-9._ -]", "_", base)[:120] or "upload.txt"
 
 
+def _extract_pdf_text(raw: bytes) -> str:
+    if not raw.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"%PDF-"):
+        raise UploadError("file content does not match .pdf header (%PDF-)")
+    try:
+        import fitz
+    except ImportError as exc:  # pragma: no cover - installed in requirements
+        raise UploadError("PDF support is not installed on the server") from exc
+
+    try:
+        doc = fitz.open(stream=raw, filetype="pdf")
+    except Exception as exc:
+        raise UploadError(f"PDF could not be parsed: {exc.__class__.__name__}") from exc
+
+    try:
+        if doc.is_encrypted and not doc.authenticate(""):
+            raise UploadError("encrypted PDFs are not supported")
+        parts: list[str] = []
+        total_len = 0
+        for page_index in range(min(len(doc), MAX_PDF_PAGES)):
+            page_text = (doc.load_page(page_index).get_text("text") or "").strip()
+            if page_text:
+                parts.append(page_text)
+                total_len += len(page_text)
+                if total_len >= MAX_EXTRACTED_CHARS:
+                    break
+        text = "\n\n".join(parts)[:MAX_EXTRACTED_CHARS].strip()
+    except UploadError:
+        raise
+    except Exception as exc:
+        raise UploadError(f"PDF text extraction failed: {exc.__class__.__name__}") from exc
+    finally:
+        doc.close()
+
+    if len(text) < MIN_TEXT_CHARS:
+        raise UploadError(
+            f"PDF has less than {MIN_TEXT_CHARS} characters of extractable text (scanned images without OCR are not supported)"
+        )
+    return text
+
+
+def _extract_xlsx_text(raw: bytes) -> str:
+    if not raw.startswith(b"PK\x03\x04"):
+        raise UploadError("file content does not match .xlsx archive signature")
+    try:
+        import openpyxl
+    except ImportError as exc:  # pragma: no cover - installed in requirements
+        raise UploadError("Excel (.xlsx) support is not installed on the server") from exc
+
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    except (zipfile.BadZipFile, Exception) as exc:
+        raise UploadError(f"XLSX could not be parsed: {exc.__class__.__name__}") from exc
+
+    lines: list[str] = []
+    try:
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            rows_iter = ws.iter_rows(values_only=True)
+            headers: list[str] | None = None
+            sheet_lines: list[str] = []
+            for row in rows_iter:
+                cleaned = ["" if v is None else str(v).strip() for v in row]
+                if not any(cleaned):
+                    continue
+                if headers is None:
+                    headers = [h or f"col_{idx + 1}" for idx, h in enumerate(cleaned)]
+                    sheet_lines.append(", ".join(headers))
+                else:
+                    pairs = []
+                    for idx, val in enumerate(cleaned):
+                        if not val:
+                            continue
+                        col = headers[idx] if idx < len(headers) else f"col_{idx + 1}"
+                        pairs.append(f"{col}: {val}")
+                    if pairs:
+                        sheet_lines.append(", ".join(pairs))
+                if len(sheet_lines) >= 2000:
+                    break
+            if sheet_lines:
+                lines.append(f"[Sheet: {sheet_name}]")
+                lines.extend(sheet_lines)
+    except Exception as exc:
+        raise UploadError(f"XLSX could not be read: {exc.__class__.__name__}") from exc
+    finally:
+        wb.close()
+
+    text = "\n".join(lines)[:MAX_EXTRACTED_CHARS].strip()
+    if len(text) < MIN_TEXT_CHARS:
+        raise UploadError(f"XLSX has less than {MIN_TEXT_CHARS} characters of text")
+    return text
+
+
 def validate_upload(filename: str, raw: bytes) -> tuple[str, str]:
     """Return (clean filename, extracted text) or raise UploadError."""
     name = _sanitise(filename)
     lower = name.lower()
     if not lower.endswith(ALLOWED_EXTENSIONS):
-        raise UploadError("only .txt and .csv files are accepted")
+        raise UploadError("only .txt, .csv, .xlsx, and .pdf files are accepted")
     if not raw:
         raise UploadError("file is empty")
     if len(raw) > MAX_UPLOAD_BYTES:
         raise UploadError(f"file is larger than the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit")
+
+    if lower.endswith(".pdf"):
+        return name, _extract_pdf_text(raw)
+    if lower.endswith(".xlsx"):
+        return name, _extract_xlsx_text(raw)
+
+    if raw.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"%PDF-") or raw.startswith(b"PK\x03\x04"):
+        raise UploadError("file content does not match text/CSV extension")
 
     try:
         text = raw.decode("utf-8")

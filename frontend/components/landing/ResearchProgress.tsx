@@ -26,6 +26,8 @@ export function ResearchProgress({
   error,
   onRetry,
   onEdit,
+  onContinueAnyway,
+  continuingAnyway = false,
 }: {
   companyName: string;
   websiteUrl: string;
@@ -33,6 +35,8 @@ export function ResearchProgress({
   error: string | null;
   onRetry: () => void;
   onEdit: () => void;
+  onContinueAnyway?: () => void;
+  continuingAnyway?: boolean;
 }) {
   const activeIdx = stepIndex(status);
 
@@ -111,6 +115,16 @@ export function ResearchProgress({
             <Button variant="secondary" size="sm" onClick={onEdit}>
               Edit details
             </Button>
+            {onContinueAnyway ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onContinueAnyway}
+                disabled={continuingAnyway}
+              >
+                {continuingAnyway ? "Creating…" : "Continue to workspace"}
+              </Button>
+            ) : null}
             <Button size="sm" onClick={onRetry}>
               <RotateCcw size={13} /> Retry
             </Button>

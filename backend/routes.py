@@ -28,11 +28,11 @@ from schemas import (
     AuditApplyIn,
     BriefActionCreateIn,
     BriefActionPatchIn,
-    BriefEmailIn,
     BriefFeedbackIn,
     BriefPatchIn,
     CompanyCreate,
     CompanyOut,
+    CompanySettingsPatchIn,
     CompanyUpdate,
     CrawlRunStartIn,
     CrawlerSettingsPatchIn,
@@ -132,15 +132,35 @@ def create_company(payload: CompanyCreate, db: Session = Depends(get_db)) -> Com
 @router.post("/companies/research", status_code=202, tags=["companies", "research", "jobs"])
 def create_company_and_start_research(payload: CompanyResearchIn, db: Session = Depends(get_db)) -> dict:
     import jobs
+    from research import canonical_url_key
 
     raw_url = payload.websiteUrl.strip()
     if not raw_url.lower().startswith(("http://", "https://")):
         raw_url = f"https://{raw_url}"
     website = _validate_http_url(raw_url, field="websiteUrl")
+    clean_name = payload.companyName.strip()
+    clean_context = payload.context.strip()
+    target_key = canonical_url_key(website)
+
+    existing = next(
+        (
+            c
+            for c in db.scalars(select(Company).order_by(Company.id.asc())).all()
+            if (c.name or "").strip().lower() == clean_name.lower()
+            and canonical_url_key(c.website) == target_key
+        ),
+        None,
+    )
+    if existing is not None:
+        if clean_context and not existing.context:
+            existing.context = clean_context
+            db.commit()
+        return jobs.start_company_job(db, existing.id, "research")
+
     company = Company(
-        name=payload.companyName.strip(),
+        name=clean_name,
         website=website,
-        context=payload.context.strip(),
+        context=clean_context,
     )
     db.add(company)
     db.commit()
@@ -150,12 +170,27 @@ def create_company_and_start_research(payload: CompanyResearchIn, db: Session = 
 
 @router.get("/companies", tags=["companies"])
 def list_companies(
+    q: str | None = Query(default=None, description="Optional case-insensitive filter across company name, website, context, or industry"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> dict:
-    total = db.scalar(select(func.count()).select_from(Company)) or 0
-    rows = db.scalars(select(Company).order_by(Company.id).limit(limit).offset(offset)).all()
+    needle = (q or "").strip().lower()
+    if needle:
+        all_rows = db.scalars(select(Company).order_by(Company.id)).all()
+        matched = [
+            c
+            for c in all_rows
+            if needle in (c.name or "").lower()
+            or needle in (c.website or "").lower()
+            or needle in (c.context or "").lower()
+            or needle in str(((c.profile or {}).get("industry")) or "").lower()
+        ]
+        total = len(matched)
+        rows = matched[offset : offset + limit]
+    else:
+        total = db.scalar(select(func.count()).select_from(Company)) or 0
+        rows = db.scalars(select(Company).order_by(Company.id).limit(limit).offset(offset)).all()
     return {
         "items": [_company_out(company).model_dump(mode="json") for company in rows],
         "total": total,
@@ -716,6 +751,7 @@ def discover_sources(company_id: int, db: Session = Depends(get_db)) -> dict:
 @router.post("/companies/{company_id}/sources", status_code=201, tags=["sources"])
 def add_source(company_id: int, payload: SourceCreate, db: Session = Depends(get_db)):
     import discovery
+    from research import canonical_url_key
 
     company = get_company_or_404(db, company_id)
     raw_url = payload.url.strip()
@@ -723,10 +759,13 @@ def add_source(company_id: int, payload: SourceCreate, db: Session = Depends(get
         raw_url = f"https://{raw_url}"
     _validate_http_url(raw_url, "url")
     existing = db.scalars(select(Source).where(Source.company_id == company_id)).all()
-    if any(source.url.rstrip("/") == raw_url.rstrip("/") for source in existing):
+    existing_keys = {canonical_url_key(source.url) for source in existing}
+    if canonical_url_key(raw_url) in existing_keys:
         raise HTTPException(status_code=409, detail="this source already exists for the company")
 
     ok, detail, final_url, feed_url = discovery.verify_candidate(raw_url)
+    if canonical_url_key(final_url) in existing_keys:
+        raise HTTPException(status_code=409, detail="this source already exists for the company")
     detail_lower = (detail or "").lower()
     robots_blocked = "robots" in detail_lower
     validation = {
@@ -1681,18 +1720,33 @@ def apply_signal_stack_audit(
                 if row and row.company_id == company_id:
                     row.status = "rejected"
             elif action == "add" and src_data.get("url"):
-                db.add(
-                    Source(
-                        company_id=company_id,
-                        name=src_data.get("name") or src_data["url"],
-                        url=src_data["url"],
-                        category=src_data.get("category") or "market",
-                        source_type=src_data.get("type") or "webpage",
-                        reason=prop.get("reasoning") or "Proposed by monthly source audit",
-                        status="approved",
-                        health="ok",
-                    )
+                from research import canonical_url_key
+
+                target_key = canonical_url_key(src_data["url"])
+                existing_match = next(
+                    (
+                        s
+                        for s in db.scalars(select(Source).where(Source.company_id == company_id)).all()
+                        if canonical_url_key(s.url) == target_key
+                    ),
+                    None,
                 )
+                if existing_match is not None:
+                    existing_match.status = "approved"
+                    existing_match.health = "ok"
+                else:
+                    db.add(
+                        Source(
+                            company_id=company_id,
+                            name=src_data.get("name") or src_data["url"],
+                            url=src_data["url"],
+                            category=src_data.get("category") or "market",
+                            source_type=src_data.get("type") or "webpage",
+                            reason=prop.get("reasoning") or "Proposed by monthly source audit",
+                            status="approved",
+                            health="ok",
+                        )
+                    )
 
     profile["audit_proposals"] = remaining
     company.profile = profile
@@ -3302,6 +3356,56 @@ def run_signals_analysis(company_id: int, db: Session = Depends(get_db)) -> dict
     return jobs.start_company_job(db, company_id, "analyse")
 
 
+_ASK_GREETINGS = {
+    "hi",
+    "hello",
+    "hey",
+    "hey there",
+    "hi there",
+    "hello there",
+    "yo",
+    "hola",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "howdy",
+    "thanks",
+    "thank you",
+    "help",
+    "what can you do",
+    "what can i ask",
+    "who are you",
+}
+
+
+def _suggested_questions_for_rows(rows: list[tuple[Record, Source | None]]) -> list[str]:
+    suggestions: list[str] = []
+    for rec, _src in rows[:3]:
+        a = rec.analysis or {}
+        title = (a.get("title") or rec.title or "").strip()
+        if not title:
+            continue
+        short = title[:70].rstrip(" .")
+        suggestions.append(f"What is the evidence and impact of: {short}?")
+    return suggestions
+
+
+def _build_ask_card_rows(pairs: list[tuple[Record, Source | None]]) -> list[dict]:
+    card_rows = []
+    for rec, src in pairs:
+        a = rec.analysis or {}
+        title = (a.get("title") or rec.title)[:90]
+        cat = _map_category(src, a)
+        card_rows.append(
+            {
+                "label": title[:54],
+                "value": f"P{_priority_level(float(rec.total or 0))} · {(a.get('classification') or 'neutral').title()}",
+                "category": cat,
+            }
+        )
+    return card_rows
+
+
 @router.post("/companies/{company_id}/signals/ask", tags=["signals"])
 def ask_company_signals(
     company_id: int,
@@ -3315,6 +3419,31 @@ def ask_company_signals(
     company = get_company_or_404(db, company_id)
     settings = get_settings()
     rows = _analysed_rows(db, company_id)
+
+    cleaned_q = " ".join(_re.sub(r"[^a-z0-9\s]", " ", (payload.question or "").lower()).split())
+    if cleaned_q in _ASK_GREETINGS and not payload.quotedText:
+        suggestions = _suggested_questions_for_rows(rows)
+        if not rows:
+            return {
+                "answer": (
+                    f"Hi! I answer questions strictly from {company.name}'s analysed signals. "
+                    "There are no analysed signals yet — run Crawl and Analyse Signals first, then ask about competitors, threats, or opportunities."
+                ),
+                "citations": [],
+                "suggestedQuestions": [],
+            }
+        top_titles = "; ".join(
+            ((rec.analysis or {}).get("title") or rec.title)[:60] for rec, _ in rows[:3]
+        )
+        return {
+            "answer": (
+                f"Hi! I answer questions strictly using {company.name}'s {len(rows)} analysed signals "
+                f"(including: {top_titles}). Ask about any competitor, threat, opportunity, or click a suggested question below."
+            ),
+            "citations": [],
+            "suggestedQuestions": suggestions,
+        }
+
     if not rows:
         return {"answer": "", "citations": [], "suggestedQuestions": []}
 
@@ -3351,6 +3480,7 @@ def ask_company_signals(
                 + "\nRules:\n"
                 "- Answer strictly using ONLY the records below.\n"
                 "- Populate cited_record_ids with the exact integer Record IDs you relied on.\n"
+                "- Populate answer_card with a concise title and up to 3 supporting rows when evidence supports it, and recommendation with a concrete next step.\n"
                 "- If none of the records answer the question, return empty cited_record_ids.\n\n"
                 + evidence_context
             )
@@ -3368,12 +3498,20 @@ def ask_company_signals(
                 }
                 for rid in cited
             ]
+            fallback_rows = _build_ask_card_rows([rec_lookup[rid] for rid in cited[:3]])
+            answer_card = (
+                llm_out.answer_card.model_dump()
+                if (llm_out.answer_card and llm_out.answer_card.rows)
+                else ({"title": "Matched signal breakdown", "rows": fallback_rows} if fallback_rows else None)
+            )
+            top_rec_action = ((rec_lookup[cited[0]][0].analysis or {}).get("recommended_action") or "").strip()
+            recommendation = (llm_out.recommendation or "").strip() or top_rec_action or None
             return {
                 "answer": llm_out.answer,
                 "citations": citations,
                 "suggestedQuestions": llm_out.suggested_questions,
-                "answerCard": llm_out.answer_card.model_dump() if llm_out.answer_card else None,
-                "recommendation": llm_out.recommendation,
+                "answerCard": answer_card,
+                "recommendation": recommendation,
             }
         except Exception:
             pass
@@ -3381,22 +3519,15 @@ def ask_company_signals(
     # Deterministic grounded fallback using strictly verified stored summaries
     bullets = []
     citations = []
-    card_rows = []
-    for _, rec, src in top_matches[:3]:
+    matched_pairs = [(rec, src) for _, rec, src in top_matches[:3]]
+    for rec, src in matched_pairs:
         a = rec.analysis or {}
         title = (a.get("title") or rec.title)[:90]
         summary = (a.get("summary") or rec.text[:220]).strip()
         domain = _domain_of(src.url if src else rec.url)
-        cat = _map_category(src, a)
         bullets.append(f"• {title} ({domain}): {summary}")
         citations.append({"signalId": str(rec.id), "evidenceId": str(rec.id), "label": title})
-        card_rows.append(
-            {
-                "label": title[:54],
-                "value": f"P{_priority_level(float(rec.total or 0))} · {(a.get('classification') or 'neutral').title()}",
-                "category": cat,
-            }
-        )
+    card_rows = _build_ask_card_rows(matched_pairs)
 
     top_rec_action = ((top_matches[0][1].analysis or {}).get("recommended_action") or "").strip()
     return {
@@ -3874,6 +4005,29 @@ def _parse_iso_dt(raw: str, field_name: str) -> "datetime":
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+@router.get("/companies/{company_id}/settings", tags=["settings"])
+def get_company_settings_route(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import automation
+
+    company = get_company_or_404(db, company_id)
+    return automation.get_company_settings(db, company)
+
+
+@router.patch("/companies/{company_id}/settings", tags=["settings"])
+def patch_company_settings_route(
+    company_id: int,
+    payload: CompanySettingsPatchIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    import automation
+
+    company = get_company_or_404(db, company_id)
+    try:
+        return automation.update_company_settings(db, company, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/companies/{company_id}/automation", tags=["automation-v2"])
@@ -4465,12 +4619,10 @@ def get_latest_brief_v2(company_id: int, db: Session = Depends(get_db)) -> dict:
         return {
             "brief": None,
             "prerequisites": prereq,
-            "capabilities": {"emailConfigured": brief_api.email_configured()},
         }
     return {
         "brief": brief_api.serialize_brief(db, company, latest),
         "prerequisites": prereq,
-        "capabilities": {"emailConfigured": brief_api.email_configured()},
     }
 
 
@@ -4699,36 +4851,6 @@ def get_brief_pdf_v2(company_id: int, brief_id: int, db: Session = Depends(get_d
         status_code=501,
         detail="Server PDF rendering is not enabled; use Save as PDF in the browser print dialog.",
     )
-
-
-@router.post("/companies/{company_id}/briefs/{brief_id}/email", tags=["briefs-v2"])
-def email_brief_v2(
-    company_id: int,
-    brief_id: int,
-    payload: BriefEmailIn,
-    db: Session = Depends(get_db),
-) -> dict:
-    import re
-
-    import brief_api
-
-    get_company_or_404(db, company_id)
-    report = db.get(Report, brief_id)
-    if report is None or report.company_id != company_id:
-        raise HTTPException(status_code=404, detail=f"Brief {brief_id} not found")
-    if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", payload.to.strip()):
-        raise HTTPException(status_code=400, detail="Enter a valid recipient email address.")
-    if not brief_api.email_configured():
-        raise HTTPException(
-            status_code=501,
-            detail="Email delivery is not configured (set SMTP_HOST or RESEND_API_KEY).",
-        )
-    content = dict(report.content or {})
-    content["status"] = "sent"
-    content["last_sent_to"] = payload.to.strip()
-    report.content = content
-    db.commit()
-    return {"sent": True, "to": payload.to.strip(), "sentAt": brief_api._utcnow().isoformat()}
 
 
 @router.post("/companies/{company_id}/briefs/{brief_id}/feedback", tags=["briefs-v2"])

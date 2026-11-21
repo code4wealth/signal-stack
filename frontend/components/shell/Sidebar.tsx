@@ -105,6 +105,7 @@ export function Sidebar({
   const pathname = usePathname();
   const reduced = Boolean(useReducedMotion());
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [switcherQuery, setSwitcherQuery] = useState("");
   const base = `/company/${companyId}`;
   const isCrawlerRoute = pathname === `${base}/crawler`;
   const [crawlerOpen, setCrawlerOpen] = useState<boolean>(isCrawlerRoute);
@@ -345,30 +346,55 @@ export function Sidebar({
 
           {switcherOpen ? (
             <div className="glass-strong absolute left-0 right-0 top-full z-40 mt-2 space-y-1 rounded-2xl p-2">
-              {companies.map((c) => (
-                <Link
-                  key={c.id}
-                  href={`/company/${c.id}/dashboard`}
-                  onClick={() => {
-                    setSwitcherOpen(false);
-                    onCloseMobile();
-                  }}
-                  className={`flex items-center gap-2 rounded-xl px-2.5 py-2 text-xs font-medium no-underline transition-colors ${
-                    c.id === companyId
-                      ? "bg-[#1C1D21] text-white"
-                      : "text-[#1F2125] hover:bg-white/75"
-                  }`}
-                >
-                  <span className="truncate flex-1">{c.name}</span>
-                  <span className={`font-mono text-[10px] ${c.id === companyId ? "text-white/75" : "text-[#9AA0AA]"}`}>
-                    {extractDomain(c.website)}
-                  </span>
-                </Link>
-              ))}
+              {companies.length > 3 ? (
+                <div className="px-1 pb-1">
+                  <input
+                    type="search"
+                    value={switcherQuery}
+                    onChange={(e) => setSwitcherQuery(e.target.value)}
+                    placeholder="Filter companies…"
+                    aria-label="Filter companies"
+                    className="focus-ring w-full rounded-lg border border-[#1F2125]/10 bg-white/80 px-2.5 py-1 text-xs text-[#1F2125] placeholder:text-[#9AA0AA]"
+                  />
+                </div>
+              ) : null}
+              <div className="max-h-56 space-y-1 overflow-y-auto">
+                {companies
+                  .filter((c) => {
+                    const q = switcherQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    return (
+                      c.name.toLowerCase().includes(q) ||
+                      c.website.toLowerCase().includes(q)
+                    );
+                  })
+                  .map((c) => (
+                    <Link
+                      key={c.id}
+                      href={`/company/${c.id}/dashboard`}
+                      onClick={() => {
+                        setSwitcherOpen(false);
+                        setSwitcherQuery("");
+                        onCloseMobile();
+                      }}
+                      className={`flex items-center gap-2 rounded-xl px-2.5 py-2 text-xs font-medium no-underline transition-colors ${
+                        c.id === companyId
+                          ? "bg-[#1C1D21] text-white"
+                          : "text-[#1F2125] hover:bg-white/75"
+                      }`}
+                    >
+                      <span className="truncate flex-1">{c.name}</span>
+                      <span className={`font-mono text-[10px] ${c.id === companyId ? "text-white/75" : "text-[#9AA0AA]"}`}>
+                        {extractDomain(c.website)}
+                      </span>
+                    </Link>
+                  ))}
+              </div>
               <Link
                 href="/"
                 onClick={() => {
                   setSwitcherOpen(false);
+                  setSwitcherQuery("");
                   onCloseMobile();
                 }}
                 className="flex items-center gap-2 rounded-xl border-t border-[#1F2125]/8 px-2.5 py-2 text-xs font-medium text-[#4F46E5] no-underline hover:bg-white/75"
@@ -716,22 +742,27 @@ export function Sidebar({
       <div className="space-y-2 border-t border-white/70 pt-3">
         <div className="space-y-0.5">
           <Link
-            href={`${base}/automation`}
+            href={`${base}/settings`}
             onClick={onCloseMobile}
             title="Settings"
-            className="focus-ring flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-xs font-medium text-[#4B5058] no-underline hover:bg-white/50 hover:text-[#1F2125] md:justify-center xl:justify-start"
+            aria-current={pathname.startsWith(`${base}/settings`) ? "page" : undefined}
+            className={`focus-ring flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-xs font-medium no-underline md:justify-center xl:justify-start ${
+              pathname.startsWith(`${base}/settings`)
+                ? "bg-white/80 text-[#1F2125] shadow-sm"
+                : "text-[#4B5058] hover:bg-white/50 hover:text-[#1F2125]"
+            }`}
           >
             <Settings size={15} strokeWidth={1.75} aria-hidden="true" />
             <span className="md:hidden xl:inline">Settings</span>
           </Link>
           <Link
-            href="/sample-brief"
+            href={`${base}/brief`}
             onClick={onCloseMobile}
-            title="Help"
+            title="Monday Morning Briefs"
             className="focus-ring flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-xs font-medium text-[#4B5058] no-underline hover:bg-white/50 hover:text-[#1F2125] md:justify-center xl:justify-start"
           >
             <HelpCircle size={15} strokeWidth={1.75} aria-hidden="true" />
-            <span className="md:hidden xl:inline">Help</span>
+            <span className="md:hidden xl:inline">Briefs</span>
           </Link>
         </div>
 

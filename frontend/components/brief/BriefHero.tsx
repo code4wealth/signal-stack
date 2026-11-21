@@ -14,9 +14,7 @@ import {
   Download,
   FileEdit,
   History,
-  Mail,
   Printer,
-  Send,
   ShieldCheck,
 } from "lucide-react";
 
@@ -39,11 +37,6 @@ const STATUS_BADGE: Record<
     Icon: CheckCircle2,
     cls: "border-emerald-300/45 bg-emerald-400/20 text-emerald-100",
   },
-  sent: {
-    label: "Sent",
-    Icon: Send,
-    cls: "border-indigo-200/45 bg-indigo-400/25 text-indigo-100",
-  },
 };
 
 function ComparisonChip({ label, delta }: { label: string; delta: number }) {
@@ -63,18 +56,18 @@ function ComparisonChip({ label, delta }: { label: string; delta: number }) {
 export function BriefHero({
   brief,
   onCopyMarkdown,
+  onDownloadMarkdown,
   onDownloadPdf,
   onPrint,
-  onOpenEmail,
   onOpenHistory,
   onOpenRunDrawer,
   pdfLoading,
 }: {
   brief: Brief;
   onCopyMarkdown: () => void;
+  onDownloadMarkdown: () => void;
   onDownloadPdf: () => void;
   onPrint: () => void;
-  onOpenEmail: () => void;
   onOpenHistory: () => void;
   onOpenRunDrawer?: (runId: number) => void;
   pdfLoading?: boolean;
@@ -233,11 +226,11 @@ export function BriefHero({
           </button>
           <button
             type="button"
-            onClick={onOpenEmail}
+            onClick={onDownloadMarkdown}
             className="focus-ring inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-white/25 bg-white/12 px-3.5 text-xs font-medium text-white transition-colors hover:bg-white/20"
           >
-            <Mail size={13} aria-hidden="true" />
-            Email me this
+            <Download size={13} aria-hidden="true" />
+            Export .md
           </button>
           <button
             type="button"

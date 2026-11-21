@@ -462,7 +462,7 @@ export function buildDevMockSignalStack(companyId: number): import("@/lib/types"
     discoveryStage: null,
     discoveryError: null,
     maxUploadBytes: 2 * 1024 * 1024,
-    allowedExtensions: [".txt", ".csv"],
+    allowedExtensions: [".txt", ".csv", ".xlsx", ".pdf"],
     confirmedAt: null,
     isMock: true,
     counts: {

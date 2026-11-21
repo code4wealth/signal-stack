@@ -437,7 +437,7 @@ class BriefNoteIn(BaseModel):
 
 
 class BriefPatchIn(BaseModel):
-    status: Literal["draft", "ready", "sent"] | None = None
+    status: Literal["draft", "ready"] | None = None
     removeItemIds: list[str] | None = None
     notes: list[BriefNoteIn] | None = None
 
@@ -456,13 +456,27 @@ class BriefActionCreateIn(BaseModel):
     effort: Literal["low", "medium", "high"] = "medium"
 
 
-class BriefEmailIn(BaseModel):
-    to: str = Field(min_length=3, max_length=254)
-
-
 class BriefFeedbackIn(BaseModel):
     useful: bool
     comment: str | None = Field(default=None, max_length=1000)
+
+
+class CompanySettingsPatchIn(BaseModel):
+    briefingDay: int | None = Field(default=None, ge=0, le=6)
+    briefingTime: str | None = Field(default=None, max_length=5)
+    timezone: str | None = Field(default=None, max_length=64)
+    monitoringFrequency: Literal["6h", "12h", "daily", "weekly"] | None = None
+    sourceRefreshFrequency: Literal["daily", "weekly", "biweekly", "monthly"] | None = None
+    monthlySourceHealthCheck: bool | None = None
+    healthCheckDayOfMonth: int | None = Field(default=None, ge=1, le=28)
+    companyName: str | None = Field(default=None, min_length=1, max_length=200)
+    website: str | None = Field(default=None, min_length=1, max_length=500)
+    context: str | None = Field(default=None, max_length=4000)
+    summary: str | None = Field(default=None, max_length=2000)
+    industry: str | None = Field(default=None, max_length=200)
+    targetCustomers: str | None = Field(default=None, max_length=1000)
+    valueProposition: str | None = Field(default=None, max_length=1000)
+
 
 
 

@@ -27,6 +27,7 @@ export function QuickFillChips({
       </p>
 
       <div className="flex w-full items-center justify-start gap-2 overflow-x-auto pb-1 sm:justify-center">
+        <span className="shrink-0 text-xs text-[#9AA0AA]">Quick examples:</span>
         {SAMPLES.map((sample) => (
           <button
             key={sample.name}

@@ -228,3 +228,85 @@ def test_automation_no_platform_specific_strftime_flags() -> None:
                 assert "%-" not in fmt and "%#" not in fmt, f"{py_file.name}: unsafe strftime {fmt!r}"
 
 
+def test_scheduler_off_reports_honest_status_and_does_not_mark_past_slots_missed(client, monkeypatch):
+    monkeypatch.setenv("ENABLE_SCHEDULER", "0")
+    cid = _create_company(client)
+
+    auto_res = client.get(f"/api/companies/{cid}/automation")
+    assert auto_res.status_code == 200
+    health = auto_res.json()["health"]
+    assert health["engine"] == "stopped"
+    assert health["enabled"] is False
+    assert "Scheduler is off" in (health["reason"] or "")
+
+    # Query a past 7-day window where no runs ran
+    past_end = date.today() - timedelta(days=1)
+    past_start = past_end - timedelta(days=6)
+    cal_res = client.get(
+        f"/api/companies/{cid}/automation/calendar?from={past_start.isoformat()}&to={past_end.isoformat()}"
+    )
+    assert cal_res.status_code == 200
+    states = [
+        run["state"]
+        for day in cal_res.json()["days"]
+        for run in day["runs"]
+    ]
+    assert states, "expected projected schedule occurrences in past week"
+    assert "missed" not in states
+    assert "scheduler_off" in states
+
+
+def test_company_settings_persist_and_drive_automation_schedules(client):
+    cid = _create_company(client)
+
+    get_res = client.get(f"/api/companies/{cid}/settings")
+    assert get_res.status_code == 200
+    initial = get_res.json()
+    assert initial["profile"]["companyName"] == "Acme Robotics"
+
+    patch_res = client.patch(
+        f"/api/companies/{cid}/settings",
+        json={
+            "briefingDay": 4,
+            "briefingTime": "08:30",
+            "timezone": "America/New_York",
+            "monitoringFrequency": "12h",
+            "sourceRefreshFrequency": "biweekly",
+            "monthlySourceHealthCheck": False,
+            "healthCheckDayOfMonth": 15,
+            "companyName": "Acme Robotics Inc.",
+            "summary": "Warehouse automation hardware + fleet orchestration software.",
+            "industry": "Robotics",
+            "targetCustomers": "3PL fulfillment centers",
+        },
+    )
+    assert patch_res.status_code == 200, patch_res.text
+    updated = patch_res.json()
+    assert updated["briefingDay"] == 4
+    assert updated["briefingTime"] == "08:30"
+    assert updated["timezone"] == "America/New_York"
+    assert updated["monitoringFrequency"] == "12h"
+    assert updated["sourceRefreshFrequency"] == "biweekly"
+    assert updated["monthlySourceHealthCheck"] is False
+    assert updated["healthCheckDayOfMonth"] == 15
+    assert updated["profile"]["companyName"] == "Acme Robotics Inc."
+    assert updated["profile"]["industry"] == "Robotics"
+
+    # Re-read settings and confirm AutomationSchedule rows reflect the changes
+    re_read = client.get(f"/api/companies/{cid}/settings").json()
+    assert re_read["briefingDay"] == 4
+    assert re_read["timezone"] == "America/New_York"
+
+    auto_res = client.get(f"/api/companies/{cid}/automation").json()
+    by_type = {s["jobType"]: s for s in auto_res["schedules"]}
+    assert by_type["weekly_brief"]["daysOfWeek"] == [4]
+    assert by_type["weekly_brief"]["timeOfDay"] == "08:30"
+    assert by_type["weekly_brief"]["timezone"] == "America/New_York"
+    assert by_type["crawl"]["frequency"] == "hourly"
+    assert by_type["crawl"]["intervalHours"] == 12
+    assert by_type["crawl"]["options"]["sourceRefreshFrequency"] == "biweekly"
+    assert by_type["source_audit"]["enabled"] is False
+    assert by_type["source_audit"]["dayOfMonth"] == 15
+
+
+

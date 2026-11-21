@@ -375,3 +375,30 @@ def test_redirect_and_retries_log_every_hop_and_attempt(monkeypatch, caplog) -> 
     assert all("url=https://other.test/hang" in msg and "error=ReadTimeout" in msg for msg in retry_logs)
 
 
+def test_403_uses_honest_user_agent_and_does_not_bypass(router, monkeypatch) -> None:
+    monkeypatch.setattr(safe_fetch.time, "sleep", lambda _s: None)
+    router.get("https://public.test/robots.txt").mock(return_value=httpx.Response(404))
+    route = router.get("https://public.test/blocked").mock(
+        return_value=httpx.Response(403, text="Forbidden")
+    )
+
+    with pytest.raises(FetchFailed, match=r"site blocked automated access") as excinfo:
+        fetch("https://public.test/blocked", max_attempts=3)
+
+    assert excinfo.value.status == 403
+    assert route.call_count == 1
+    sent_ua = route.calls[0].request.headers.get("user-agent", "")
+    assert "SignalStackBot" in sent_ua
+    assert "Mozilla/5.0" not in sent_ua
+
+
+def test_safe_fetch_has_no_browser_impersonation_fallback() -> None:
+    import inspect
+
+    src = inspect.getsource(safe_fetch)
+    assert "curl_cffi" not in src
+    assert "_request_once_browser" not in src
+    assert "Chrome/131" not in src
+
+
+

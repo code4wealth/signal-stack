@@ -297,7 +297,7 @@ def _robots_for(
 
     parser: urllib.robotparser.RobotFileParser | None = None
     robots_url = origin + "/robots.txt"
-    robots_timeout = min(10.0, float(settings.fetch_timeout_seconds))
+    robots_timeout = min(4.0, float(settings.fetch_timeout_seconds))
     if deadline is not None:
         left = deadline - time.monotonic()
         if left <= 0:
@@ -355,19 +355,36 @@ def _raw_get(
 # --------------------------------------------------------------------------- #
 # HTTP plumbing
 # --------------------------------------------------------------------------- #
+def _h2_available() -> bool:
+    try:
+        import h2  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def _verify():
     """Verified TLS: explicit CA bundle path -> OS native truststore -> certifi."""
     return ca_bundle_path() or build_ssl_context()
+
+
+def _build_timeout(timeout: float) -> httpx.Timeout:
+    t = max(0.05, float(timeout))
+    return httpx.Timeout(t, connect=min(5.0, t))
 
 
 def _client(
     timeout: float,
     *,
     transport: httpx.BaseTransport | None = None,
+    http2: bool | None = None,
 ) -> httpx.Client:
+    use_http2 = (_h2_available() if http2 is None else http2) if transport is None else False
     kwargs: dict = {
-        "timeout": timeout,
+        "timeout": _build_timeout(timeout),
         "follow_redirects": False,
+        "http2": use_http2,
         "headers": {
             "User-Agent": settings.user_agent,
             "Accept-Encoding": "gzip, deflate",
@@ -413,6 +430,7 @@ def _request_once(
     deadline: float | None = None,
     total_budget: float = DEFAULT_TOTAL_TIMEOUT_SECONDS,
     transport: httpx.BaseTransport | None = None,
+    http2: bool | None = None,
 ) -> tuple[int, dict[str, str], bytes]:
     req_timeout = timeout
     if deadline is not None:
@@ -421,7 +439,7 @@ def _request_once(
             raise _deadline_error(url, total_budget)
         req_timeout = max(0.05, min(timeout, left))
 
-    with _client(timeout=req_timeout, transport=transport) as client:
+    with _client(timeout=req_timeout, transport=transport, http2=http2) as client:
         with client.stream(method, url, headers=headers) as response:
             chunks: list[bytes] = []
             size = 0
@@ -453,13 +471,21 @@ def _send_with_retries(
 ) -> tuple[int, dict[str, str], bytes, int]:
     last_error: FetchError | None = None
     attempt_headers = dict(headers)
+    http2_override: bool | None = None
+
     for attempt in range(1, max_attempts + 1):
         if deadline is not None and time.monotonic() >= deadline:
             raise _deadline_error(url, total_budget)
+
+        attempt_timeout = timeout
+        if attempt == 1 and max_attempts > 1 and deadline is not None:
+            # Leave budget for an HTTP/1.1 Connection: close retry if HTTP/2 stalls.
+            attempt_timeout = min(timeout, max(4.0, total_budget * 0.4))
+
         try:
             req_kwargs: dict = {
                 "headers": attempt_headers,
-                "timeout": timeout,
+                "timeout": attempt_timeout,
                 "max_bytes": max_bytes,
             }
             try:
@@ -473,6 +499,8 @@ def _send_with_retries(
                     req_kwargs["total_budget"] = total_budget
                 if accepts_var_kw or "transport" in sig_params:
                     req_kwargs["transport"] = transport
+                if (accepts_var_kw or "http2" in sig_params) and http2_override is not None:
+                    req_kwargs["http2"] = http2_override
             except (TypeError, ValueError):
                 pass
             status, resp_headers, body = _request_once(
@@ -492,10 +520,16 @@ def _send_with_retries(
             )
             if deadline is not None and time.monotonic() >= deadline:
                 raise _deadline_error(url, total_budget) from exc
-            last_error = FetchFailed(f"timeout after {timeout}s: {exc.__class__.__name__}", url=url)
-        except httpx.RemoteProtocolError as exc:
-            # Edge/CDN closed keep-alive connection mid-response; retry with explicit Connection: close.
             attempt_headers["Connection"] = "close"
+            http2_override = False
+            last_error = FetchFailed(
+                f"timeout after {attempt_timeout}s: {exc.__class__.__name__} (site timed out or tarpitted)",
+                url=url,
+            )
+        except httpx.RemoteProtocolError as exc:
+            # Edge/CDN closed keep-alive connection mid-response; retry over HTTP/1.1 with Connection: close.
+            attempt_headers["Connection"] = "close"
+            http2_override = False
             logger.warning(
                 "safe_fetch retry url=%s attempt=%s/%s error=%s",
                 url,
@@ -654,6 +688,12 @@ def fetch(
                 redirects=redirects,
             )
 
+        if status in (401, 403, 406, 451):
+            raise FetchFailed(
+                f"http {status} (site blocked automated access)",
+                url=current_url,
+                status=status,
+            )
         raise FetchFailed(f"http {status}", url=current_url, status=status)
 
 

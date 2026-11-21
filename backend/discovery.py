@@ -18,7 +18,7 @@ from sqlalchemy import select
 import llm
 import safe_fetch
 from db import Source
-from research import normalise_url
+from research import canonical_url_key, normalise_url
 from schemas import DiscoveryBatch, DiscoveredSource
 
 logger = logging.getLogger("signalstack.discovery")
@@ -147,7 +147,7 @@ def discover(db, company) -> dict:
     candidates = _competitor_candidates(profile) + proposed
 
     existing_urls = {
-        normalise_url(url)
+        canonical_url_key(url)
         for url in db.scalars(select(Source.url).where(Source.company_id == company.id)).all()
     }
 
@@ -156,7 +156,7 @@ def discover(db, company) -> dict:
     seen = set(existing_urls)
 
     for candidate in candidates:
-        key = normalise_url(candidate.url)
+        key = canonical_url_key(candidate.url)
         if key in seen:
             dropped.append({"url": candidate.url, "reason": "duplicate of an existing source"})
             continue
@@ -167,11 +167,12 @@ def discover(db, company) -> dict:
             dropped.append({"url": candidate.url, "reason": detail})
             continue
 
-        # A redirect may land on a URL we already track.
-        final_key = normalise_url(final_url)
-        if final_key != key and final_key in existing_urls:
+        # A redirect may land on a URL we already track or already added in this batch.
+        final_key = canonical_url_key(final_url)
+        if final_key != key and final_key in seen:
             dropped.append({"url": candidate.url, "reason": "redirects to an existing source"})
             continue
+        seen.add(final_key)
 
         source = Source(
             company_id=company.id,

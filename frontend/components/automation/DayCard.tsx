@@ -24,6 +24,8 @@ function runBadge(state: CalendarDayRun["state"]) {
       return { tone: "warning" as const, Icon: SkipForward, label: "Skipped" };
     case "missed":
       return { tone: "threat" as const, Icon: AlertTriangle, label: "Missed" };
+    case "scheduler_off":
+      return { tone: "neutral" as const, Icon: PauseCircle, label: "Scheduler off" };
     case "running":
       return { tone: "info" as const, Icon: Clock, label: "Running" };
     default:

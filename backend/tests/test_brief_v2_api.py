@@ -203,6 +203,14 @@ def test_brief_v2_latest_view_actions_notes_watch_and_compare(client, db_session
     assert len(brief["sources"]) >= 2
     assert brief["sources"][0]["n"] == 1
     assert brief["sources"][0]["usedIn"]
+    assert len(brief["opportunities"]) == 1
+    opp = brief["opportunities"][0]
+    assert opp["evidence"]["text"]
+    assert opp["businessRelevance"]
+    assert opp["impact"]
+    assert opp["nextStep"]
+    assert opp["priority"] in ("high", "medium", "low")
+    assert "Only 1 verified opportunity" in (brief["opportunitiesNote"] or "")
 
     # Fetch specific brief clears unread
     r_get = client.get(f"/api/companies/{company.id}/briefs/{report1.id}")
@@ -251,11 +259,17 @@ def test_brief_v2_latest_view_actions_notes_watch_and_compare(client, db_session
     r_pdf = client.get(f"/api/companies/{company.id}/briefs/{report1.id}/pdf")
     assert r_pdf.status_code == 501
 
-    r_bad_email = client.post(
+    # Email stub endpoint removed: must never return {"sent": true}
+    r_no_email = client.post(
         f"/api/companies/{company.id}/briefs/{report1.id}/email",
-        json={"to": "not-an-email"},
+        json={"to": "founder@example.com"},
     )
-    assert r_bad_email.status_code == 400
+    assert r_no_email.status_code in (404, 405)
+    assert "emailConfigured" not in body
+    assert "emailConfigured" not in body["brief"]
+    auto_res = client.get(f"/api/companies/{company.id}/automation")
+    assert auto_res.status_code == 200
+    assert "emailConfigured" not in auto_res.json()["capabilities"]
 
     # History & compare
     report2 = Report(company_id=company.id, content={**report1.content, "top_signals": [{"id": rec1.id}]}, markdown="# Brief 2")
