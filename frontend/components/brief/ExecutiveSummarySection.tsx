@@ -82,14 +82,14 @@ export function ExecutiveSummarySection({
         </div>
 
         <GlassCard className="p-5 sm:p-6">
-          <p className="text-[15px] leading-[1.7] text-[#1F2125]">
+          <div className="text-[15px] leading-[1.7] text-[#1F2125]">
             <ClaimText
               text={overviewText}
               citations={overviewCitations}
               sources={sources}
               onJumpToSource={(n) => onJumpToSource(n, "executive-summary")}
             />
-          </p>
+          </div>
         </GlassCard>
       </motion.section>
 
@@ -177,14 +177,14 @@ export function ExecutiveSummarySection({
                           <CheckCircle2 size={10} aria-hidden="true" />
                           Verified
                         </span>
-                        <p className="mt-1 text-[14.5px] leading-[1.6] text-[#1F2125]">
+                        <div className="mt-1 text-[14.5px] leading-[1.6] text-[#1F2125]">
                           <ClaimText
                             text={item.fact.text}
                             citations={item.fact.citations}
                             sources={sources}
                             onJumpToSource={(n) => onJumpToSource(n, originId)}
                           />
-                        </p>
+                        </div>
                       </div>
 
                       {/* AI Interpretation */}
@@ -193,14 +193,14 @@ export function ExecutiveSummarySection({
                           <Sparkles size={11} aria-hidden="true" />
                           AI interpretation
                         </span>
-                        <p className="mt-1 text-[14px] leading-[1.6] text-[#1F2125]">
+                        <div className="mt-1 text-[14px] leading-[1.6] text-[#1F2125]">
                           <ClaimText
                             text={item.whyItMatters.text}
                             citations={item.whyItMatters.citations}
                             sources={sources}
                             onJumpToSource={(n) => onJumpToSource(n, originId)}
                           />
-                        </p>
+                        </div>
                       </div>
 
                       <div className="no-print flex flex-wrap items-center justify-between gap-2 pt-1">

@@ -142,14 +142,14 @@ export function CategoryIntelligenceSection({
             <Sparkles size={11} aria-hidden="true" />
             AI interpretation · Section summary
           </span>
-          <p className="mt-1.5 text-[15px] leading-[1.6] text-[#1F2125]">
+          <div className="mt-1.5 text-[15px] leading-[1.6] text-[#1F2125]">
             <ClaimText
               text={section.summary.text}
               citations={section.summary.citations}
               sources={sources}
               onJumpToSource={(n) => onJumpToSource(n, `${section.key}-summary`)}
             />
-          </p>
+          </div>
         </div>
       ) : null}
 
@@ -226,14 +226,14 @@ export function CategoryIntelligenceSection({
                         Verified
                       </span>
                     </div>
-                    <p className="mt-1.5 text-[14.5px] leading-[1.6] text-[#1F2125]">
+                    <div className="mt-1.5 text-[14.5px] leading-[1.6] text-[#1F2125]">
                       <ClaimText
                         text={item.fact.text}
                         citations={item.fact.citations}
                         sources={sources}
                         onJumpToSource={(n) => onJumpToSource(n, originId)}
                       />
-                    </p>
+                    </div>
                   </div>
 
                   {/* AI Interpretation */}
@@ -242,14 +242,14 @@ export function CategoryIntelligenceSection({
                       <Sparkles size={11} aria-hidden="true" />
                       AI interpretation · Why it matters to {companyName}
                     </span>
-                    <p className="mt-1 text-[14px] leading-[1.6] text-[#1F2125]">
+                    <div className="mt-1 text-[14px] leading-[1.6] text-[#1F2125]">
                       <ClaimText
                         text={item.whyItMatters.text}
                         citations={item.whyItMatters.citations}
                         sources={sources}
                         onJumpToSource={(n) => onJumpToSource(n, originId)}
                       />
-                    </p>
+                    </div>
                   </div>
 
                   {item.action?.text ? (

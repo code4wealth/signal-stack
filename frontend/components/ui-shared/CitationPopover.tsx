@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import {
   ArrowDownRight,
@@ -24,10 +25,16 @@ function fmtDate(iso?: string | null): string {
 
 export function CitationPopover({
   source,
+  anchorRect,
+  onMouseEnter,
+  onMouseLeave,
   onClose,
   onJumpToSource,
 }: {
   source: BriefSourceItem;
+  anchorRect?: DOMRect | null;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
   onClose: () => void;
   onJumpToSource?: (n: number) => void;
 }) {
@@ -46,18 +53,37 @@ export function CitationPopover({
         onClose();
       }
     };
+    const onScroll = () => onClose();
     window.addEventListener("keydown", onKey);
     document.addEventListener("mousedown", onClickOutside);
+    window.addEventListener("scroll", onScroll, { passive: true, capture: true });
     return () => {
       window.removeEventListener("keydown", onKey);
       document.removeEventListener("mousedown", onClickOutside);
+      window.removeEventListener("scroll", onScroll, { capture: true });
     };
   }, [onClose]);
+
+  if (typeof document === "undefined") return null;
 
   const isInternalFile =
     source.url.startsWith("upload://") || source.type === "Internal file";
 
-  return (
+  const width = 280;
+  const padding = 12;
+  const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1200;
+  const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 800;
+
+  let left = anchorRect ? anchorRect.left : padding;
+  if (left + width > viewportWidth - padding) {
+    left = Math.max(padding, viewportWidth - width - padding);
+  }
+  let top = anchorRect ? anchorRect.bottom + 8 : padding;
+  if (top + 220 > viewportHeight - padding && anchorRect) {
+    top = Math.max(padding, anchorRect.top - 210);
+  }
+
+  return createPortal(
     <motion.div
       ref={boxRef}
       role="dialog"
@@ -66,7 +92,16 @@ export function CitationPopover({
       initial="hidden"
       animate="visible"
       exit="exit"
-      className="glass-strong no-print absolute left-0 top-full z-50 mt-2 w-[280px] rounded-2xl p-3.5 text-left shadow-[0_20px_48px_rgba(31,33,37,0.16)]"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      style={{
+        position: "fixed",
+        top,
+        left,
+        width,
+        zIndex: 70,
+      }}
+      className="glass-strong no-print rounded-2xl p-3.5 text-left shadow-[0_20px_48px_rgba(31,33,37,0.16)]"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -140,6 +175,7 @@ export function CitationPopover({
           <span className="font-mono text-[10px] text-[#4B5058]">Internal file</span>
         )}
       </div>
-    </motion.div>
+    </motion.div>,
+    document.body,
   );
 }

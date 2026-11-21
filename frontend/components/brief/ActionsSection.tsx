@@ -146,7 +146,7 @@ function ActionRow({
 
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-start justify-between gap-2">
-            <p
+            <div
               className={`text-[15px] font-medium leading-snug ${
                 action.done ? "text-[#9AA0AA] line-through" : "text-[#1F2125]"
               }`}
@@ -159,7 +159,7 @@ function ActionRow({
                   onJumpToSource={(n) => onJumpToSource(n, originId)}
                 />
               ) : null}
-            </p>
+            </div>
 
             {isDraftEditable ? (
               <div className="no-print flex items-center gap-1">
@@ -271,14 +271,14 @@ function ActionRow({
                 <Sparkles size={10} aria-hidden="true" />
                 AI interpretation
               </span>
-              <p className="mt-1">
+              <div className="mt-1">
                 <ClaimText
                   text={action.rationale.text}
                   citations={action.rationale.citations}
                   sources={sources}
                   onJumpToSource={(n) => onJumpToSource(n, originId)}
                 />
-              </p>
+              </div>
             </div>
           ) : null}
         </div>

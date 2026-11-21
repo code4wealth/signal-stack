@@ -123,14 +123,14 @@ export function RisksSection({
                       <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[#9AA0AA]">
                         Why it is a risk
                       </p>
-                      <p className="mt-1 text-[14px] leading-[1.6] text-[#4B5058]">
+                      <div className="mt-1 text-[14px] leading-[1.6] text-[#4B5058]">
                         <ClaimText
                           text={risk.explanation.text}
                           citations={risk.explanation.citations}
                           sources={sources}
                           onJumpToSource={(n) => onJumpToSource(n, originId)}
                         />
-                      </p>
+                      </div>
                     </div>
                   </div>
 

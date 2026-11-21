@@ -120,14 +120,14 @@ export function OpportunitiesSection({
                       <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[#9AA0AA]">
                         Why it is an opportunity
                       </p>
-                      <p className="mt-1 text-[14px] leading-[1.6] text-[#4B5058]">
+                      <div className="mt-1 text-[14px] leading-[1.6] text-[#4B5058]">
                         <ClaimText
                           text={opp.explanation.text}
                           citations={opp.explanation.citations}
                           sources={sources}
                           onJumpToSource={(n) => onJumpToSource(n, originId)}
                         />
-                      </p>
+                      </div>
                     </div>
                   </div>
 

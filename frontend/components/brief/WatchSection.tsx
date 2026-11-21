@@ -94,14 +94,14 @@ export function WatchSection({
                     <h3 className="font-serif text-[17.5px] font-medium leading-snug text-[#1F2125]">
                       {item.title}
                     </h3>
-                    <p className="text-[14px] leading-[1.6] text-[#4B5058]">
+                    <div className="text-[14px] leading-[1.6] text-[#4B5058]">
                       <ClaimText
                         text={item.why.text}
                         citations={item.why.citations}
                         sources={sources}
                         onJumpToSource={(n) => onJumpToSource(n, originId)}
                       />
-                    </p>
+                    </div>
                   </div>
 
                   <button

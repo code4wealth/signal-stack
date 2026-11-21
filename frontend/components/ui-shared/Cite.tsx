@@ -17,7 +17,9 @@ export function Cite({
   onJumpToSource?: (n: number, originId?: string) => void;
 }) {
   const [openId, setOpenId] = useState<number | null>(null);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const hoverTimerRef = useRef<number | null>(null);
+  const buttonRefs = useRef<Record<number, HTMLButtonElement | null>>({});
 
   useEffect(() => {
     if (!ids || ids.length === 0) {
@@ -33,6 +35,27 @@ export function Cite({
     };
   }, []);
 
+  const openFor = (n: number) => {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    const btn = buttonRefs.current[n];
+    if (btn) {
+      setAnchorRect(btn.getBoundingClientRect());
+    }
+    setOpenId(n);
+  };
+
+  const scheduleClose = (n: number) => {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+    }
+    hoverTimerRef.current = window.setTimeout(() => {
+      setOpenId((cur) => (cur === n ? null : cur));
+    }, 160);
+  };
+
   if (!ids || ids.length === 0) {
     return (
       <span
@@ -45,6 +68,8 @@ export function Cite({
     );
   }
 
+  const activeSource = openId !== null ? sources.find((s) => s.n === openId) ?? null : null;
+
   return (
     <span className="relative ml-1 inline-flex flex-wrap items-center gap-1 align-baseline">
       {ids.map((n) => {
@@ -55,23 +80,23 @@ export function Cite({
           <span
             key={n}
             className="relative inline-block"
-            onMouseEnter={() => {
-              if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
-              setOpenId(n);
-            }}
-            onMouseLeave={() => {
-              hoverTimerRef.current = window.setTimeout(() => {
-                setOpenId((cur) => (cur === n ? null : cur));
-              }, 160);
-            }}
+            onMouseEnter={() => openFor(n)}
+            onMouseLeave={() => scheduleClose(n)}
           >
             <button
+              ref={(el) => {
+                buttonRefs.current[n] = el;
+              }}
               type="button"
               aria-label={label}
               aria-expanded={isOpen}
-              onFocus={() => setOpenId(n)}
+              onFocus={() => openFor(n)}
               onClick={() => {
-                setOpenId((prev) => (prev === n ? null : n));
+                if (isOpen) {
+                  setOpenId(null);
+                } else {
+                  openFor(n);
+                }
               }}
               className="focus-ring no-print inline-flex -translate-y-[1px] items-center rounded-md border border-[#4F46E5]/25 bg-[#4F46E5]/8 px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none text-[#4F46E5] transition-colors hover:bg-[#4F46E5]/15"
             >
@@ -80,20 +105,29 @@ export function Cite({
             <span className="brief-print-only font-mono text-[9.5pt] font-semibold text-[#4F46E5]">
               [{n}]{src?.url && src.url.startsWith("http") ? ` (${src.url})` : ""}
             </span>
-            <AnimatePresence>
-              {isOpen && src ? (
-                <CitationPopover
-                  source={src}
-                  onClose={() => setOpenId(null)}
-                  onJumpToSource={(num) => {
-                    onJumpToSource?.(num);
-                  }}
-                />
-              ) : null}
-            </AnimatePresence>
           </span>
         );
       })}
+      <AnimatePresence>
+        {activeSource && openId !== null ? (
+          <CitationPopover
+            key={openId}
+            source={activeSource}
+            anchorRect={anchorRect}
+            onMouseEnter={() => {
+              if (hoverTimerRef.current !== null) {
+                window.clearTimeout(hoverTimerRef.current);
+                hoverTimerRef.current = null;
+              }
+            }}
+            onMouseLeave={() => scheduleClose(openId)}
+            onClose={() => setOpenId(null)}
+            onJumpToSource={(num) => {
+              onJumpToSource?.(num);
+            }}
+          />
+        ) : null}
+      </AnimatePresence>
     </span>
   );
 }
