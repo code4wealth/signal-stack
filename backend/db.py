@@ -8,7 +8,11 @@ time budget - see docs/COST_AND_LIMITATIONS.md.
 
 from __future__ import annotations
 
+import atexit
+import shutil
+import tempfile
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Iterator
 
 from sqlalchemy import (
@@ -25,7 +29,6 @@ from sqlalchemy import (
     event,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from config import get_settings
 
@@ -257,10 +260,16 @@ settings = get_settings()
 
 _connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
 _engine_kwargs: dict = {"connect_args": _connect_args, "future": True}
-if settings.database_url in ("sqlite://", "sqlite:///:memory:"):
-    _engine_kwargs["poolclass"] = StaticPool
+_engine_url = settings.database_url
+if _engine_url in ("sqlite://", "sqlite:///:memory:"):
+    # StaticPool shares one SQLite DBAPI connection across all threads, causing
+    # background-worker flushes (e.g. crawler/automation) to be rolled back when
+    # request threads close their sessions. Use a per-process ephemeral file DB.
+    _ephemeral_dir = Path(tempfile.mkdtemp(prefix="signalstack-mem-"))
+    atexit.register(shutil.rmtree, _ephemeral_dir, ignore_errors=True)
+    _engine_url = f"sqlite:///{_ephemeral_dir / 'memory.db'}"
 
-engine = create_engine(settings.database_url, **_engine_kwargs)
+engine = create_engine(_engine_url, **_engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, class_=Session)
 
 
