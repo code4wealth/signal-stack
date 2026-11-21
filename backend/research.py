@@ -163,11 +163,33 @@ def pick_internal_links(html: str, base_url: str, limit: int = MAX_INTERNAL_PAGE
     return [url for url, _ in ordered[:limit]]
 
 
+def _www_fallback_url(website: str) -> str | None:
+    parsed = urlparse(website.strip())
+    host = (parsed.hostname or "").lower()
+    if not host or host.startswith("www.") or host.count(".") != 1:
+        return None
+    netloc = f"www.{host}"
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    return parsed._replace(netloc=netloc).geturl()
+
+
 def collect_site(website: str) -> SiteContent:
     """Fetch homepage + internal pages. Never raises for network problems."""
     content = SiteContent()
     try:
         home = safe_fetch.fetch(website)
+    except safe_fetch.FetchFailed as exc:
+        alt_url = _www_fallback_url(website)
+        if not alt_url:
+            content.failures.append(f"homepage: {exc.as_detail()}")
+            return content
+        try:
+            home = safe_fetch.fetch(alt_url)
+        except safe_fetch.FetchError as alt_exc:
+            content.failures.append(f"homepage: {exc.as_detail()}")
+            content.failures.append(f"homepage ({alt_url}): {alt_exc.as_detail()}")
+            return content
     except safe_fetch.FetchError as exc:
         content.failures.append(f"homepage: {exc.as_detail()}")
         return content

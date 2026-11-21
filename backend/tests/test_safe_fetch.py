@@ -254,3 +254,50 @@ def test_check_reachable_reports_failure_without_raising(router) -> None:
     router.get("http://public.test/dead").mock(side_effect=httpx.ConnectError("refused"))
     ok, detail = safe_fetch.check_reachable("http://public.test/dead")
     assert ok is False and "transport error" in detail
+
+
+def test_remote_protocol_error_retries_with_connection_close(router, monkeypatch) -> None:
+    monkeypatch.setattr(safe_fetch.time, "sleep", lambda _seconds: None)
+    router.get("http://public.test/robots.txt").mock(return_value=httpx.Response(404))
+    route = router.get("http://public.test/edge").mock(
+        side_effect=[
+            httpx.RemoteProtocolError("Server disconnected without sending a response."),
+            httpx.Response(200, text="<html><body>recovered after close</body></html>"),
+        ]
+    )
+
+    result = fetch("http://public.test/edge", max_attempts=3)
+
+    assert result.ok and result.attempts == 2
+    assert "recovered after close" in result.text
+    assert route.calls[1].request.headers.get("connection") == "close"
+
+
+def test_ssl_context_uses_truststore_or_env_ca_and_falls_back_to_certifi(monkeypatch, tmp_path) -> None:
+    import ssl
+    import sys
+    import certifi
+    import config
+
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    monkeypatch.delenv("CURL_CA_BUNDLE", raising=False)
+
+    # 1. Default uses OS truststore when available
+    assert config.ssl_trust_source() == "os-truststore"
+    ctx = config.build_ssl_context()
+    assert isinstance(ctx, ssl.SSLContext)
+
+    # 2. Explicit SSL_CERT_FILE overrides truststore
+    ca_file = tmp_path / "corp.pem"
+    ca_file.write_text(open(certifi.where(), "r", encoding="utf-8").read(), encoding="utf-8")
+    monkeypatch.setenv("SSL_CERT_FILE", str(ca_file))
+    assert config.ssl_trust_source() == "env-ca-bundle"
+    assert isinstance(config.build_ssl_context(), ssl.SSLContext)
+
+    # 3. Missing truststore falls back cleanly to certifi
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.setitem(sys.modules, "truststore", None)
+    assert config.ssl_trust_source() == "certifi"
+    assert isinstance(config.build_ssl_context(), ssl.SSLContext)
+

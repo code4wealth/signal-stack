@@ -12,6 +12,7 @@ Order matters: with ``override=False`` the first file to define a key wins, so a
 from __future__ import annotations
 
 import os
+import ssl
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -48,6 +49,39 @@ def ca_bundle_path() -> str | None:
         if value and Path(value).is_file():
             return value
     return None
+
+
+def ssl_trust_source() -> str:
+    """Describe which CA trust mechanism `build_ssl_context()` will use."""
+    if ca_bundle_path():
+        return "env-ca-bundle"
+    try:
+        import truststore  # noqa: F401
+
+        return "os-truststore"
+    except Exception:
+        return "certifi"
+
+
+def build_ssl_context() -> ssl.SSLContext:
+    """Create a verified TLS client SSLContext using env CA bundle -> OS truststore -> certifi."""
+    ca_path = ca_bundle_path()
+    if ca_path:
+        return ssl.create_default_context(cafile=ca_path)
+
+    try:
+        import truststore
+
+        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    except Exception:
+        pass
+
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
 
 
 def _int(name: str, default: int) -> int:

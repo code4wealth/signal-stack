@@ -29,7 +29,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from config import ca_bundle_path, get_settings
+from config import build_ssl_context, ca_bundle_path, get_settings
 
 settings = get_settings()
 
@@ -298,16 +298,19 @@ def _raw_get(url: str, timeout: float) -> httpx.Response:
 # HTTP plumbing
 # --------------------------------------------------------------------------- #
 def _verify():
-    """CA bundle from the environment when one is configured; True keeps httpx's default check."""
-
-    return ca_bundle_path() or True
+    """Verified TLS: explicit CA bundle path -> OS native truststore -> certifi."""
+    return ca_bundle_path() or build_ssl_context()
 
 
 def _client(timeout: float) -> httpx.Client:
     return httpx.Client(
         timeout=timeout,
         follow_redirects=False,
-        headers={"User-Agent": settings.user_agent, "Accept-Encoding": "gzip, deflate"},
+        headers={
+            "User-Agent": settings.user_agent,
+            "Accept-Encoding": "gzip, deflate",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
         trust_env=False,
         verify=_verify(),
     )
@@ -367,13 +370,18 @@ def _send_with_retries(
     max_attempts: int,
 ) -> tuple[int, dict[str, str], bytes, int]:
     last_error: FetchError | None = None
+    attempt_headers = dict(headers)
     for attempt in range(1, max_attempts + 1):
         try:
             status, resp_headers, body = _request_once(
-                method, url, headers=headers, timeout=timeout, max_bytes=max_bytes
+                method, url, headers=attempt_headers, timeout=timeout, max_bytes=max_bytes
             )
         except (httpx.TimeoutException,) as exc:
             last_error = FetchFailed(f"timeout after {timeout}s: {exc.__class__.__name__}", url=url)
+        except httpx.RemoteProtocolError as exc:
+            # Edge/CDN closed keep-alive connection mid-response; retry with explicit Connection: close.
+            attempt_headers["Connection"] = "close"
+            last_error = FetchFailed(f"transport error: {exc.__class__.__name__}: {exc}", url=url)
         except httpx.HTTPError as exc:
             last_error = FetchFailed(f"transport error: {exc.__class__.__name__}: {exc}", url=url)
         except FetchFailed:

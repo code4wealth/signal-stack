@@ -197,4 +197,45 @@ def test_research_never_calls_llm_without_pages(session, monkeypatch) -> None:
 
     with pytest.raises(research.ResearchError):
         research.research_company(db_session, company)
+
     assert called["n"] == 0, "no pages -> no LLM call (no hallucinated profile)"
+
+
+def test_collect_site_falls_back_to_www_on_transport_error_but_respects_robots(monkeypatch) -> None:
+    seen: list[str] = []
+
+    def fake_fetch(url, **_kwargs):
+        seen.append(url)
+        if url == "https://zomato.test":
+            raise research.safe_fetch.FetchFailed(
+                "transport error: RemoteProtocolError: Server disconnected without sending a response.",
+                url=url,
+            )
+        if url == "https://www.zomato.test":
+            return fetch_result(
+                url,
+                "<html><head><title>Zomato</title></head><body><main><p>"
+                + ("Food delivery and restaurant discovery platform across India. " * 10)
+                + "</p></main></body></html>",
+            )
+        raise AssertionError(f"unexpected url {url}")
+
+    monkeypatch.setattr(research.safe_fetch, "fetch", fake_fetch)
+    content = research.collect_site("https://zomato.test")
+
+    assert seen == ["https://zomato.test", "https://www.zomato.test"]
+    assert content.homepage is not None
+    assert content.homepage.url == "https://www.zomato.test"
+
+    # Must NEVER bypass robots.txt via www fallback
+    seen.clear()
+
+    def robots_blocked(url, **_kwargs):
+        seen.append(url)
+        raise research.safe_fetch.RobotsDisallowed("robots.txt disallows", url=url)
+
+    monkeypatch.setattr(research.safe_fetch, "fetch", robots_blocked)
+    blocked_content = research.collect_site("https://zomato.test")
+    assert seen == ["https://zomato.test"]
+    assert blocked_content.homepage is None
+    assert "robots:" in blocked_content.failures[0]

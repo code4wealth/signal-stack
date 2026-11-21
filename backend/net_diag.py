@@ -26,6 +26,8 @@ from urllib.parse import urlparse
 import certifi
 import httpx
 
+from config import build_ssl_context, get_settings, ssl_trust_source
+
 BASELINE_URLS: tuple[str, ...] = (
     "https://example.com/",
     "https://www.google.com/",
@@ -68,15 +70,25 @@ def collect_environment_info() -> dict[str, Any]:
         "python_version": platform.python_version(),
         "openssl_version": ssl.OPENSSL_VERSION,
         "certifi_path": certifi.where(),
+        "trust_source": ssl_trust_source(),
         "env_flags": {name: bool(os.getenv(name, "").strip()) for name in ENV_FLAG_NAMES},
     }
 
 
 def _default_python_probe(url: str, timeout: float) -> tuple[bool, int | None, str | None, str | None]:
-    ca_path = os.getenv("SSL_CERT_FILE", "").strip()
-    verify: str | bool = ca_path if ca_path and os.path.isfile(ca_path) else True
+    settings = get_settings()
+    verify = build_ssl_context()
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True, verify=verify) as client:
+        with httpx.Client(
+            timeout=timeout,
+            follow_redirects=True,
+            headers={
+                "User-Agent": settings.user_agent,
+                "Accept-Encoding": "gzip, deflate",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+            verify=verify,
+        ) as client:
             response = client.get(url)
         return True, response.status_code, None, None
     except Exception as exc:
@@ -205,7 +217,7 @@ def format_report_lines(report: dict[str, Any]) -> list[str]:
     flag_summary = ", ".join(f"{k}={'set' if flags.get(k) else 'unset'}" for k in ENV_FLAG_NAMES)
     lines = [
         f"Python: {report['python_version']} | OpenSSL: {report['openssl_version']}",
-        f"certifi: {report['certifi_path']}",
+        f"certifi: {report['certifi_path']} | trust: {report.get('trust_source', 'certifi')}",
         f"Env flags: {flag_summary}",
         "HTTPS probes:",
     ]
