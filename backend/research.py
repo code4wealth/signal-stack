@@ -98,8 +98,77 @@ class SiteContent:
         return {normalise_url(page.url) for page in self.pages}
 
 
+def _extract_structured_meta(html: str) -> tuple[str, list[str]]:
+    """Extract meta descriptions and JSON-LD summaries from HTML (for JS/SPA sites)."""
+    import json
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    meta_title = ""
+    if soup.title and soup.title.string:
+        meta_title = soup.title.string.strip()
+
+    snippets: list[str] = []
+    seen: set[str] = set()
+
+    def _add(label: str, raw: str | None) -> None:
+        val = " ".join((raw or "").split())
+        if len(val) < 10:
+            return
+        key = val.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        snippets.append(f"{label}: {val}" if label else val)
+
+    for attr_name, attr_val, label in (
+        ("property", "og:title", ""),
+        ("name", "description", "Description"),
+        ("property", "og:description", "Summary"),
+        ("name", "twitter:description", "Summary"),
+    ):
+        tag = soup.find("meta", attrs={attr_name: attr_val})
+        if tag and tag.get("content"):
+            content = str(tag["content"]).strip()
+            if attr_val == "og:title" and not meta_title:
+                meta_title = content
+            else:
+                _add(label, content)
+
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        raw_json = (script.string or script.get_text() or "").strip()
+        if not raw_json:
+            continue
+        try:
+            payload = json.loads(raw_json)
+        except (ValueError, TypeError):
+            continue
+        nodes = payload if isinstance(payload, list) else [payload]
+        expanded: list[dict] = []
+        for node in nodes:
+            if isinstance(node, dict):
+                expanded.append(node)
+                graph = node.get("@graph")
+                if isinstance(graph, list):
+                    expanded.extend(item for item in graph if isinstance(item, dict))
+        for item in expanded[:10]:
+            if isinstance(item.get("name"), str) and not meta_title:
+                meta_title = item["name"].strip()
+            for key, label in (
+                ("description", "About"),
+                ("slogan", "Positioning"),
+                ("industry", "Industry"),
+                ("applicationCategory", "Category"),
+            ):
+                val = item.get(key)
+                if isinstance(val, str):
+                    _add(label, val)
+
+    return meta_title, snippets
+
+
 def extract_text(html: str, url: str) -> tuple[str, str]:
-    """Return (title, readable text). trafilatura first, BeautifulSoup fallback."""
+    """Return (title, readable text). trafilatura first, BeautifulSoup + meta/JSON-LD fallback."""
     title = ""
     text = ""
     try:
@@ -124,6 +193,15 @@ def extract_text(html: str, url: str) -> tuple[str, str]:
         if not title and soup.title and soup.title.string:
             title = soup.title.string.strip()
         text = " ".join(soup.get_text(" ").split())
+
+    if len(text) < 400:
+        meta_title, meta_snippets = _extract_structured_meta(html)
+        if not title and meta_title:
+            title = meta_title
+        if meta_snippets:
+            extra = " ".join(s for s in meta_snippets if s.lower() not in text.lower())
+            if extra:
+                text = f"{text}\n{extra}".strip() if text else extra
 
     if not title:
         title = urlparse(url).netloc
@@ -170,12 +248,19 @@ def pick_internal_links(html: str, base_url: str, limit: int = MAX_INTERNAL_PAGE
 def _www_fallback_url(website: str) -> str | None:
     parsed = urlparse(website.strip())
     host = (parsed.hostname or "").lower()
-    if not host or host.startswith("www.") or host.count(".") != 1:
+    if not host:
         return None
-    netloc = f"www.{host}"
-    if parsed.port:
-        netloc = f"{netloc}:{parsed.port}"
+    if host.startswith("www.") and host.count(".") >= 2:
+        alt_host = host[4:]
+    elif not host.startswith("www.") and host.count(".") <= 2:
+        alt_host = f"www.{host}"
+    else:
+        return None
+    netloc = f"{alt_host}:{parsed.port}" if parsed.port else alt_host
     return parsed._replace(netloc=netloc).geturl()
+
+
+FALLBACK_INFO_PATHS = ("/about", "/about-us", "/company", "/products", "/pricing")
 
 
 def collect_site(
@@ -200,6 +285,7 @@ def collect_site(
         content.failures.append(f"homepage: {content.deadline_error}")
         return content
 
+    home = None
     try:
         home = safe_fetch.fetch(website, total_timeout=budget)
     except safe_fetch.FetchDeadlineExceeded as exc:
@@ -249,8 +335,34 @@ def collect_site(
 
     title, text = extract_text(home.text, home.url)
     if len(text.strip()) < 200:
-        content.failures.append(f"homepage: only {len(text.strip())} chars of readable text")
+        # Thin/JS-shell homepage: check any internal links on the page + common public subpaths.
+        candidate_links = pick_internal_links(home.text, home.url)
+        origin_parsed = urlparse(home.url)
+        origin = f"{origin_parsed.scheme}://{origin_parsed.netloc}"
+        for path in FALLBACK_INFO_PATHS:
+            cand = f"{origin}{path}"
+            if cand not in candidate_links:
+                candidate_links.append(cand)
+        for link in candidate_links[:MAX_INTERNAL_PAGES]:
+            budget = _page_budget()
+            if budget <= 0:
+                break
+            try:
+                sub = safe_fetch.fetch(link, total_timeout=budget)
+            except safe_fetch.FetchError as exc:
+                content.failures.append(f"{link}: {exc.as_detail()}")
+                continue
+            if not sub.ok or not sub.text:
+                continue
+            sub_title, sub_text = extract_text(sub.text, sub.url)
+            if len(sub_text.strip()) >= 200:
+                content.internal.append(
+                    Page(url=sub.url, title=sub_title, text=sub_text[:MAX_TEXT_PER_PAGE], status=sub.status)
+                )
+        if not content.internal:
+            content.failures.append(f"homepage: only {len(text.strip())} chars of readable text")
         return content
+
     content.homepage = Page(url=home.url, title=title, text=text[:TEXT_FOR_HOME], status=home.status)
 
     for link in pick_internal_links(home.text, home.url):

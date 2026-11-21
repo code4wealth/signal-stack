@@ -143,6 +143,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
 
         <CommandPalette
           companyId={resolvedCompanyId}
+          companies={companies}
           open={cmdOpen}
           onClose={() => setCmdOpen(false)}
         />

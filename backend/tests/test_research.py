@@ -300,3 +300,70 @@ def test_research_job_fails_with_clear_deadline_message(session, monkeypatch) ->
     assert status["status"] == "error"
     assert "Site did not respond within 30s: www.zomato.test" in status["error"]
 
+
+def test_extract_text_reads_meta_and_json_ld_on_thin_spa() -> None:
+    html = """
+    <html>
+      <head>
+        <title>Acme Cloud</title>
+        <meta name="description" content="Acme Cloud provides automated treasury and expense analytics for global teams." />
+        <script type="application/ld+json">
+          {"@type": "Organization", "name": "Acme Cloud", "industry": "FinTech SaaS", "slogan": "Real-time cash visibility"}
+        </script>
+      </head>
+      <body><div id="root">Loading…</div></body>
+    </html>
+    """
+    title, text = research.extract_text(html, "https://acme.test/")
+    assert title == "Acme Cloud"
+    assert "automated treasury" in text
+    assert "FinTech SaaS" in text
+
+
+def test_collect_site_strips_www_and_probes_about_on_thin_homepage(monkeypatch) -> None:
+    seen: list[str] = []
+
+    def fake_fetch(url, **_kwargs):
+        seen.append(url)
+        if url == "https://www.spa.test":
+            raise research.safe_fetch.FetchFailed("http 403", url=url, status=403)
+        if url == "https://spa.test":
+            return fetch_result(url, "<html><head><title>SPA</title></head><body><div id='app'>Hi</div></body></html>")
+        if url == "https://spa.test/about":
+            return fetch_result(
+                url,
+                "<html><head><title>About SPA</title></head><body><main><p>"
+                + ("SPA builds developer observability tools for distributed microservices across cloud clusters. " * 4)
+                + "</p></main></body></html>",
+            )
+        raise research.safe_fetch.FetchFailed("http 404", url=url, status=404)
+
+    monkeypatch.setattr(research.safe_fetch, "fetch", fake_fetch)
+    content = research.collect_site("https://www.spa.test")
+    assert "https://spa.test" in seen
+    assert "https://spa.test/about" in seen
+    assert len(content.pages) == 1
+    assert content.pages[0].url == "https://spa.test/about"
+
+
+def test_list_companies_search_query_filters_results(session) -> None:
+    import routes
+    from schemas import CompanyCreate
+
+    db_session, _ = session
+    routes.create_company(CompanyCreate(name="Stripe", website="https://stripe.com", context="Payments infrastructure"), db_session)
+    routes.create_company(CompanyCreate(name="Swiggy", website="https://swiggy.com", context="Food delivery"), db_session)
+    routes.create_company(CompanyCreate(name="Linear", website="https://linear.app", context="Issue tracking"), db_session)
+
+    res_all = routes.list_companies(q=None, limit=50, offset=0, db=db_session)
+    assert res_all["total"] == 3
+
+    res_pay = routes.list_companies(q="payments", limit=50, offset=0, db=db_session)
+    assert res_pay["total"] == 1
+    assert res_pay["items"][0]["name"] == "Stripe"
+
+    res_swiggy = routes.list_companies(q="swiggy.com", limit=50, offset=0, db=db_session)
+    assert res_swiggy["total"] == 1
+    assert res_swiggy["items"][0]["name"] == "Swiggy"
+
+

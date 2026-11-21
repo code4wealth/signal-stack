@@ -214,6 +214,7 @@ async function runJob<T>(
 export async function startResearch(params: {
   companyName: string;
   websiteUrl: string;
+  context?: string;
   onStatus?: (status: ResearchStatus) => void;
   maxWaitMs?: number;
   pollIntervalMs?: number;
@@ -235,6 +236,7 @@ export async function startResearch(params: {
     started = await post("/api/companies/research", {
       companyName: params.companyName,
       websiteUrl: params.websiteUrl,
+      context: params.context?.trim() || "",
     });
   } catch (caught) {
     params.onStatus?.("error");
@@ -645,7 +647,10 @@ export const api = {
     post<JobStatusResponse<T>>(`/api/companies/${companyId}/jobs/${kind}${limit ? `?limit=${limit}` : ""}`),
   getJob: <T = Record<string, unknown>>(jobId: number) => get<JobStatusResponse<T>>(`/api/jobs/${jobId}`),
 
-  listCompanies: () => get<{ items: import("./types").Company[]; total: number }>("/api/companies?limit=100"),
+  listCompanies: (q?: string) => {
+    const qs = q?.trim() ? `?limit=100&q=${encodeURIComponent(q.trim())}` : "?limit=100";
+    return get<{ items: import("./types").Company[]; total: number }>(`/api/companies${qs}`);
+  },
   createCompany: (payload: { name: string; website: string; context: string }) =>
     post<import("./types").Company>("/api/companies", payload),
   getCompany: (id: number) => get<import("./types").CompanyDetailApi>(`/api/companies/${id}`),

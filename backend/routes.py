@@ -150,12 +150,27 @@ def create_company_and_start_research(payload: CompanyResearchIn, db: Session = 
 
 @router.get("/companies", tags=["companies"])
 def list_companies(
+    q: str | None = Query(default=None, description="Optional case-insensitive filter across company name, website, context, or industry"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> dict:
-    total = db.scalar(select(func.count()).select_from(Company)) or 0
-    rows = db.scalars(select(Company).order_by(Company.id).limit(limit).offset(offset)).all()
+    needle = (q or "").strip().lower()
+    if needle:
+        all_rows = db.scalars(select(Company).order_by(Company.id)).all()
+        matched = [
+            c
+            for c in all_rows
+            if needle in (c.name or "").lower()
+            or needle in (c.website or "").lower()
+            or needle in (c.context or "").lower()
+            or needle in str(((c.profile or {}).get("industry")) or "").lower()
+        ]
+        total = len(matched)
+        rows = matched[offset : offset + limit]
+    else:
+        total = db.scalar(select(func.count()).select_from(Company)) or 0
+        rows = db.scalars(select(Company).order_by(Company.id).limit(limit).offset(offset)).all()
     return {
         "items": [_company_out(company).model_dump(mode="json") for company in rows],
         "total": total,
