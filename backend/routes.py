@@ -3317,6 +3317,22 @@ def run_signals_analysis(company_id: int, db: Session = Depends(get_db)) -> dict
     return jobs.start_company_job(db, company_id, "analyse")
 
 
+def _build_ask_card_rows(pairs: list[tuple[Record, Source | None]]) -> list[dict]:
+    card_rows = []
+    for rec, src in pairs:
+        a = rec.analysis or {}
+        title = (a.get("title") or rec.title)[:90]
+        cat = _map_category(src, a)
+        card_rows.append(
+            {
+                "label": title[:54],
+                "value": f"P{_priority_level(float(rec.total or 0))} · {(a.get('classification') or 'neutral').title()}",
+                "category": cat,
+            }
+        )
+    return card_rows
+
+
 @router.post("/companies/{company_id}/signals/ask", tags=["signals"])
 def ask_company_signals(
     company_id: int,
@@ -3366,6 +3382,7 @@ def ask_company_signals(
                 + "\nRules:\n"
                 "- Answer strictly using ONLY the records below.\n"
                 "- Populate cited_record_ids with the exact integer Record IDs you relied on.\n"
+                "- Populate answer_card with a concise title and up to 3 supporting rows when evidence supports it, and recommendation with a concrete next step.\n"
                 "- If none of the records answer the question, return empty cited_record_ids.\n\n"
                 + evidence_context
             )
@@ -3383,12 +3400,20 @@ def ask_company_signals(
                 }
                 for rid in cited
             ]
+            fallback_rows = _build_ask_card_rows([rec_lookup[rid] for rid in cited[:3]])
+            answer_card = (
+                llm_out.answer_card.model_dump()
+                if (llm_out.answer_card and llm_out.answer_card.rows)
+                else ({"title": "Matched signal breakdown", "rows": fallback_rows} if fallback_rows else None)
+            )
+            top_rec_action = ((rec_lookup[cited[0]][0].analysis or {}).get("recommended_action") or "").strip()
+            recommendation = (llm_out.recommendation or "").strip() or top_rec_action or None
             return {
                 "answer": llm_out.answer,
                 "citations": citations,
                 "suggestedQuestions": llm_out.suggested_questions,
-                "answerCard": llm_out.answer_card.model_dump() if llm_out.answer_card else None,
-                "recommendation": llm_out.recommendation,
+                "answerCard": answer_card,
+                "recommendation": recommendation,
             }
         except Exception:
             pass
@@ -3396,22 +3421,15 @@ def ask_company_signals(
     # Deterministic grounded fallback using strictly verified stored summaries
     bullets = []
     citations = []
-    card_rows = []
-    for _, rec, src in top_matches[:3]:
+    matched_pairs = [(rec, src) for _, rec, src in top_matches[:3]]
+    for rec, src in matched_pairs:
         a = rec.analysis or {}
         title = (a.get("title") or rec.title)[:90]
         summary = (a.get("summary") or rec.text[:220]).strip()
         domain = _domain_of(src.url if src else rec.url)
-        cat = _map_category(src, a)
         bullets.append(f"• {title} ({domain}): {summary}")
         citations.append({"signalId": str(rec.id), "evidenceId": str(rec.id), "label": title})
-        card_rows.append(
-            {
-                "label": title[:54],
-                "value": f"P{_priority_level(float(rec.total or 0))} · {(a.get('classification') or 'neutral').title()}",
-                "category": cat,
-            }
-        )
+    card_rows = _build_ask_card_rows(matched_pairs)
 
     top_rec_action = ((top_matches[0][1].analysis or {}).get("recommended_action") or "").strip()
     return {

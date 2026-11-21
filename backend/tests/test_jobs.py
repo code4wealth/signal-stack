@@ -217,3 +217,33 @@ def test_all_five_long_action_jobs_start_poll_and_fail(monkeypatch) -> None:
             assert err_msg in done["error"]
             assert done["status_code"] == status_code
 
+
+def test_background_job_transport_error_persists_without_blocking_on_net_diag(monkeypatch) -> None:
+    import net_diag
+
+    def slow_or_forbidden_hint(*_args, **_kwargs):
+        raise AssertionError("background worker must not block error persistence on live net_diag probes")
+
+    monkeypatch.setattr(net_diag, "format_transport_hint", slow_or_forbidden_hint)
+    monkeypatch.setattr(
+        research,
+        "research_company",
+        lambda _s, _c: (_ for _ in ()).throw(llm.LLMError("Groq request failed: APIConnectionError")),
+    )
+
+    with TestClient(main.app) as client:
+        created = client.post(
+            "/api/companies",
+            json={"name": "TEST_FastFailCorp", "website": "https://public.test", "context": "TEST"},
+        )
+        assert created.status_code == 201
+        company_id = created.json()["id"]
+
+        started = client.post(f"/api/companies/{company_id}/jobs/research")
+        assert started.status_code == 202
+        done = _poll_until_done(client, started.json()["job_id"], timeout_s=2.0)
+        assert done["status"] == "error"
+        assert done["status_code"] == 503
+        assert "APIConnectionError" in done["error"]
+        assert "[net_diag: transport-error]" in done["error"]
+
