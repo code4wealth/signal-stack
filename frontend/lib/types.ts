@@ -1214,7 +1214,7 @@ export type CalendarDayRun = {
   jobType: JobType;
   jobName: string;
   time: string;
-  state: "scheduled" | "success" | "failed" | "skipped" | "missed" | "running";
+  state: "scheduled" | "success" | "failed" | "skipped" | "missed" | "running" | "scheduler_off";
   runId?: string | null;
 };
 
@@ -1235,6 +1235,7 @@ export type UpcomingChange = {
 
 export type SchedulerHealth = {
   engine: "running" | "stopped";
+  enabled?: boolean;
   lastHeartbeatAt: string;
   jobStore: string;
   jobsRegistered: number;
@@ -1249,6 +1250,47 @@ export type SchedulerHealth = {
   }[];
   reason?: string | null;
 };
+
+export type CompanySettings = {
+  companyId: number;
+  briefingDay: number;
+  briefingTime: string;
+  timezone: string;
+  monitoringFrequency: "6h" | "12h" | "daily" | "weekly";
+  sourceRefreshFrequency: "daily" | "weekly" | "biweekly" | "monthly";
+  monthlySourceHealthCheck: boolean;
+  healthCheckDayOfMonth: number;
+  nextBriefRunAt?: string | null;
+  schedulerEnabled: boolean;
+  schedulerEngine: "running" | "stopped";
+  schedulerReason?: string | null;
+  profile: {
+    companyName: string;
+    website: string;
+    context: string;
+    summary: string;
+    industry: string;
+    targetCustomers: string;
+    valueProposition: string;
+  };
+};
+
+export type CompanySettingsPatch = Partial<{
+  briefingDay: number;
+  briefingTime: string;
+  timezone: string;
+  monitoringFrequency: "6h" | "12h" | "daily" | "weekly";
+  sourceRefreshFrequency: "daily" | "weekly" | "biweekly" | "monthly";
+  monthlySourceHealthCheck: boolean;
+  healthCheckDayOfMonth: number;
+  companyName: string;
+  website: string;
+  context: string;
+  summary: string;
+  industry: string;
+  targetCustomers: string;
+  valueProposition: string;
+}>;
 
 export type AutomationPipelineNode = {
   jobType: JobType;
@@ -1266,7 +1308,6 @@ export type AutomationOverview = {
   health: SchedulerHealth;
   overrides: Override[];
   capabilities: {
-    emailConfigured: boolean;
     customCron: boolean;
     canCreateSchedule?: boolean;
   };
@@ -1356,7 +1397,7 @@ export type AutomationRunDetailResponse = {
 // Monday Morning Brief v2 (Showpiece)
 // ---------------------------------------------------------------------------
 
-export type BriefStatus = "draft" | "ready" | "sent";
+export type BriefStatus = "draft" | "ready";
 export type BriefTrigger = "scheduled" | "manual";
 
 export type CitedText = {
@@ -1389,6 +1430,11 @@ export type BriefOpportunityItem = {
   id: string;
   headline: string;
   explanation: CitedText;
+  evidence?: CitedText | null;
+  businessRelevance?: string | null;
+  impact?: string | null;
+  nextStep?: string | null;
+  priority?: SignalImpactLevel;
   impactLevel: SignalImpactLevel;
   likelihood: SignalImpactLevel;
   actNowBy?: string | null;
@@ -1470,6 +1516,7 @@ export type Brief = {
   executiveSummary: BriefSectionItem[];
   sections: BriefCategorySection[];
   opportunities: BriefOpportunityItem[];
+  opportunitiesNote?: string | null;
   risks: BriefOpportunityItem[];
   actions: BriefActionItem[];
   watch: BriefWatchItem[];
@@ -1481,9 +1528,6 @@ export type Brief = {
   };
   removedUnsupportedClaims?: number;
   feedback?: BriefFeedback | null;
-  capabilities?: {
-    emailConfigured: boolean;
-  };
   isArchived?: boolean;
   isMock?: boolean;
 };
@@ -1509,9 +1553,6 @@ export type BriefPrerequisites = {
 export type BriefLatestResponse = {
   brief: Brief | null;
   prerequisites: BriefPrerequisites;
-  capabilities: {
-    emailConfigured: boolean;
-  };
   isMock?: boolean;
 };
 

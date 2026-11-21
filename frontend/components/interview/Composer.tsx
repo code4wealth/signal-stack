@@ -134,8 +134,8 @@ export function Composer({
             <div className="relative">
               <button
                 type="button"
-                aria-label="Attach a file (CSV, Excel, PDF, TXT) — Coming in Internal Data step"
-                title="Attach a file (CSV, Excel, PDF, TXT) — Coming in Internal Data step"
+                aria-label="Attach a file (TXT, CSV, XLSX, PDF) — Available in Signal Stack Internal Data"
+                title="Attach a file (TXT, CSV, XLSX, PDF) — Available in Signal Stack Internal Data"
                 onClick={() => {
                   setAttachNotice(true);
                   setTimeout(() => setAttachNotice(false), 2600);

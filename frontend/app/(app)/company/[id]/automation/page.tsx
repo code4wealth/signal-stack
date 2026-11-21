@@ -383,7 +383,6 @@ export default function AutomationPage() {
         open={editorOpen}
         schedule={editingSchedule}
         allSchedules={schedules}
-        emailConfigured={Boolean(overview?.capabilities.emailConfigured)}
         showLocalTime={showLocalTime}
         isSaving={automation.isSavingSchedule}
         onClose={() => setEditorOpen(false)}

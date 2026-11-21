@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 import brief
 from db import Base, Company, Record, Report, Source
-from schemas import BriefAction, BriefDraft, SectionProse
+from schemas import BriefAction, BriefDraft, BriefOpportunity, SectionProse
 
 EMPTY = "No meaningful verified development was identified during this monitoring period."
 
@@ -192,3 +192,61 @@ def test_markdown_export_contains_every_citation(session, monkeypatch) -> None:
 
     for record in rows:
         assert f"record {record.id}" in markdown
+
+
+def test_opportunities_expose_required_fields_and_never_pad_below_three(session, monkeypatch) -> None:
+    company, rows = seed(session)
+    draft = draft_with_bad_ids(rows)
+    draft.opportunities = [
+        BriefOpportunity(
+            opportunity="Submit early feedback to regulator consultation",
+            evidence="Regulator opened a consultation on workflow compliance standards.",
+            relevance="Positions TEST_Brief Co as an industry standard before rules lock.",
+            impact="High strategic positioning advantage in regulated accounts.",
+            next_step="Draft a 2-page policy comment with legal by Friday.",
+            priority="high",
+            record_ids=[rows[0].id],
+        ),
+        BriefOpportunity(
+            opportunity="Invalid ungrounded opportunity",
+            evidence="Made up",
+            relevance="Made up",
+            impact="High",
+            next_step="None",
+            priority="high",
+            record_ids=[999999],
+        ),
+    ]
+    monkeypatch.setattr("llm.ask", lambda *a, **k: draft)
+
+    report = brief.generate(session, company)
+    opps = report.content["opportunities"]
+    assert len(opps) == 1
+    assert opps[0]["evidence"]
+    assert opps[0]["business_relevance"]
+    assert opps[0]["impact"]
+    assert opps[0]["next_step"]
+    assert opps[0]["priority"] == "high"
+    assert "Only 1 verified opportunity met the evidence threshold" in report.content["opportunities_note"]
+    assert "Only 1 verified opportunity met the evidence threshold" in report.markdown
+    assert "Evidence:" in report.markdown
+    assert "Business relevance:" in report.markdown
+    assert "Potential impact:" in report.markdown
+    assert "Suggested next step:" in report.markdown
+
+    # Verify all 10 assignment section concepts appear in markdown
+    for heading in (
+        "Executive Summary",
+        "Customer Signals",
+        "Competitor Moves",
+        "Market & Regulatory Shifts",
+        "Founder Intelligence",
+        "Top Five Signals This Week",
+        "Strategic Implications",
+        "Structured Opportunities",
+        "Risks & Watchlist",
+        "Recommended Actions",
+        "Sources & Method",
+    ):
+        assert heading in report.markdown
+

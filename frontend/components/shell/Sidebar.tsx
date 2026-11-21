@@ -742,10 +742,15 @@ export function Sidebar({
       <div className="space-y-2 border-t border-white/70 pt-3">
         <div className="space-y-0.5">
           <Link
-            href={`${base}/automation`}
+            href={`${base}/settings`}
             onClick={onCloseMobile}
             title="Settings"
-            className="focus-ring flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-xs font-medium text-[#4B5058] no-underline hover:bg-white/50 hover:text-[#1F2125] md:justify-center xl:justify-start"
+            aria-current={pathname.startsWith(`${base}/settings`) ? "page" : undefined}
+            className={`focus-ring flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-xs font-medium no-underline md:justify-center xl:justify-start ${
+              pathname.startsWith(`${base}/settings`)
+                ? "bg-white/80 text-[#1F2125] shadow-sm"
+                : "text-[#4B5058] hover:bg-white/50 hover:text-[#1F2125]"
+            }`}
           >
             <Settings size={15} strokeWidth={1.75} aria-hidden="true" />
             <span className="md:hidden xl:inline">Settings</span>

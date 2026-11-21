@@ -6,7 +6,6 @@ export { BriefReaderView } from "./BriefReaderView";
 export { BriefRightRail } from "./BriefRightRail";
 export { BriefTableOfContents } from "./BriefTableOfContents";
 export { CategoryIntelligenceSection } from "./CategoryIntelligenceSection";
-export { EmailBriefPopover } from "./EmailBriefPopover";
 export { ExecutiveSummarySection } from "./ExecutiveSummarySection";
 export { GenerationState } from "./GenerationState";
 export { HistoryDrawer } from "./HistoryDrawer";

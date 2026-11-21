@@ -28,11 +28,11 @@ from schemas import (
     AuditApplyIn,
     BriefActionCreateIn,
     BriefActionPatchIn,
-    BriefEmailIn,
     BriefFeedbackIn,
     BriefPatchIn,
     CompanyCreate,
     CompanyOut,
+    CompanySettingsPatchIn,
     CompanyUpdate,
     CrawlRunStartIn,
     CrawlerSettingsPatchIn,
@@ -3891,6 +3891,29 @@ def _parse_iso_dt(raw: str, field_name: str) -> "datetime":
     return dt
 
 
+@router.get("/companies/{company_id}/settings", tags=["settings"])
+def get_company_settings_route(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import automation
+
+    company = get_company_or_404(db, company_id)
+    return automation.get_company_settings(db, company)
+
+
+@router.patch("/companies/{company_id}/settings", tags=["settings"])
+def patch_company_settings_route(
+    company_id: int,
+    payload: CompanySettingsPatchIn,
+    db: Session = Depends(get_db),
+) -> dict:
+    import automation
+
+    company = get_company_or_404(db, company_id)
+    try:
+        return automation.update_company_settings(db, company, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/companies/{company_id}/automation", tags=["automation-v2"])
 def get_company_automation(company_id: int, db: Session = Depends(get_db)) -> dict:
     import automation
@@ -4480,12 +4503,10 @@ def get_latest_brief_v2(company_id: int, db: Session = Depends(get_db)) -> dict:
         return {
             "brief": None,
             "prerequisites": prereq,
-            "capabilities": {"emailConfigured": brief_api.email_configured()},
         }
     return {
         "brief": brief_api.serialize_brief(db, company, latest),
         "prerequisites": prereq,
-        "capabilities": {"emailConfigured": brief_api.email_configured()},
     }
 
 
@@ -4714,36 +4735,6 @@ def get_brief_pdf_v2(company_id: int, brief_id: int, db: Session = Depends(get_d
         status_code=501,
         detail="Server PDF rendering is not enabled; use Save as PDF in the browser print dialog.",
     )
-
-
-@router.post("/companies/{company_id}/briefs/{brief_id}/email", tags=["briefs-v2"])
-def email_brief_v2(
-    company_id: int,
-    brief_id: int,
-    payload: BriefEmailIn,
-    db: Session = Depends(get_db),
-) -> dict:
-    import re
-
-    import brief_api
-
-    get_company_or_404(db, company_id)
-    report = db.get(Report, brief_id)
-    if report is None or report.company_id != company_id:
-        raise HTTPException(status_code=404, detail=f"Brief {brief_id} not found")
-    if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", payload.to.strip()):
-        raise HTTPException(status_code=400, detail="Enter a valid recipient email address.")
-    if not brief_api.email_configured():
-        raise HTTPException(
-            status_code=501,
-            detail="Email delivery is not configured (set SMTP_HOST or RESEND_API_KEY).",
-        )
-    content = dict(report.content or {})
-    content["status"] = "sent"
-    content["last_sent_to"] = payload.to.strip()
-    report.content = content
-    db.commit()
-    return {"sent": True, "to": payload.to.strip(), "sentAt": brief_api._utcnow().isoformat()}
 
 
 @router.post("/companies/{company_id}/briefs/{brief_id}/feedback", tags=["briefs-v2"])

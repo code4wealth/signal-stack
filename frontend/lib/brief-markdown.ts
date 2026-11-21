@@ -67,7 +67,7 @@ export function briefToMarkdown(brief: Brief): string {
     }
     if (sec.items.length === 0) {
       lines.push(
-        `No high-priority signals in this category (${sec.sourcesChecked} sources checked).`,
+        `No meaningful verified development was identified during this monitoring period. (${sec.sourcesChecked} approved source${sec.sourcesChecked === 1 ? "" : "s"} checked.)`,
         "",
       );
     } else {
@@ -86,13 +86,25 @@ export function briefToMarkdown(brief: Brief): string {
 
   lines.push("## 07. Opportunities");
   if (brief.opportunities.length === 0) {
-    lines.push("No verified opportunities identified this period.", "");
+    lines.push(
+      brief.opportunitiesNote ||
+        "0 verified opportunities met the evidence threshold during this monitoring period; no items were padded.",
+      "",
+    );
   } else {
     brief.opportunities.forEach((opp) => {
+      const prio = opp.priority ?? opp.impactLevel;
       lines.push(
-        `- **${opp.headline}** (${opp.impactLevel} impact): ${opp.explanation.text} ${fmtCite(opp.explanation.citations)}`,
+        `- **[${prio.toUpperCase()}] ${opp.headline}** ${fmtCite(opp.explanation.citations)}`,
+        `  - Evidence: ${opp.evidence?.text || opp.explanation.text}`,
+        `  - Business relevance: ${opp.businessRelevance || opp.explanation.text}`,
+        `  - Potential impact: ${opp.impact || `${prio} impact`}`,
+        ...(opp.nextStep ? [`  - Suggested next step: ${opp.nextStep}`] : []),
       );
     });
+    if (brief.opportunities.length < 3 && brief.opportunitiesNote) {
+      lines.push("", `_${brief.opportunitiesNote}_`);
+    }
     lines.push("");
   }
 

@@ -2,9 +2,10 @@
 
 ## Free tools used
 
-FastAPI, SQLAlchemy, SQLite, httpx, BeautifulSoup, trafilatura, feedparser, pandas, APScheduler, pytest, respx
-(open source). Next.js, React, Tailwind, Lucide, Recharts. Groq API on its free tier. GitHub Actions on its free tier.
-No paid service, API, proxy or scraper is used anywhere. Hosting: **none — everything ran locally.**
+FastAPI, SQLAlchemy, SQLite, httpx (with `h2` HTTP/2), BeautifulSoup, trafilatura, feedparser, pandas, openpyxl,
+pymupdf, APScheduler, pytest, respx (open source). Next.js, React, Tailwind, Lucide, Recharts. Groq API on its free
+tier. GitHub Actions on its free tier. No paid service, API, proxy, anti-bot bypass, or scraper is used anywhere.
+Hosting: **none — everything ran locally.**
 
 ## Free-tier limits
 
@@ -90,7 +91,6 @@ The UI and Brief v2 endpoints include several convenience features that are **no
 
 | Feature | Implementation | Config required / verification status |
 |---|---|---|
-| **Email delivery** | `POST /api/companies/{id}/briefs/{briefId}/email`, `EmailBriefPopover.tsx` | Requires SMTP env config (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`); unconfigured by default (`emailConfigured: false`) and **untested against a real SMTP server**. |
 | **Brief & signal feedback** | `POST /api/companies/{id}/briefs/{briefId}/feedback`, `BriefRightRail.tsx`, `patchSignal` | Stored in `reports.content` / `records.analysis` JSON; **not a PRD requirement** and **untested in a live user session**. |
 | **Watchlist toggles** | `POST /api/companies/{id}/watchlist/{watchId}/toggle`, `WatchSection.tsx` | Stored in `company.profile._meta.watchlist` JSON; **not a PRD requirement** and **untested against scheduled alerts**. |
 | **Brief version comparison** | `GET /api/companies/{id}/briefs/compare`, `HistoryDrawer.tsx` | Compares executive headlines between two report rows; **verified at unit/API level only, untested on multi-week live briefs**. |
@@ -105,7 +105,7 @@ The UI and Brief v2 endpoints include several convenience features that are **no
 2. **SQLite with JSON columns** instead of the full normalised schema. Reason: time budget. `DATABASE_URL` makes
    Postgres a configuration change.
 3. **No Alembic migrations.** Schema is created with `create_all`.
-4. **JavaScript-rendered sites and anti-bot tarpits are not bypassed**, so SPA pages yield little text and sites that challenge, drop, or slow-drip automated HTTP clients hit the 30 s per-page wall-clock deadline (across redirects and retries) or the 5 min research job deadline. Completed pages are saved as `unverified` and the job fails loudly with the failing host rather than spoofing browser User-Agents or bypassing `robots.txt`.
+4. **JavaScript-rendered sites and anti-bot tarpits are not bypassed.** `safe_fetch` always identifies itself honestly via the `SignalStackBot` User-Agent, obeys `robots.txt`, and supports HTTP/2 with bounded timeouts (no `curl_cffi` TLS impersonation or Chrome UA spoofing). Sites that return `401`/`403`/`406`/`451` fail immediately with an explicit `"site blocked automated access"` error, and sites that slow-drip responses hit the 30 s per-page wall-clock deadline or 5 min research job deadline rather than bypassing technical protections. (SPA `<meta>` / JSON-LD metadata and `/about`/`/pricing` info pages are probed within those same rules.)
 5. **DNS-rebinding gap** in SSRF protection: the address is validated, then the connection is made by hostname, so a
    hostile DNS answer between the two steps could still reach an internal address. Mitigated per redirect hop, not
    eliminated. The fix is connection pinning, which was out of scope.
@@ -113,12 +113,9 @@ The UI and Brief v2 endpoints include several convenience features that are **no
    0.6 company site, 0.4 blog), not measured accuracy.
 7. **LLM relevance, impact and urgency are estimates.** Evidence is checked only by verbatim snippet match; there is
    no entailment check that the snippet actually supports the claim.
-8. **PDF and XLSX uploads, PDF export: not implemented.** Only TXT and CSV upload; only Markdown export.
-9. **Scheduled runs have no persistent database.** Ephemeral runners mean an empty SQLite each time unless
-   `DATABASE_URL` points at Postgres with a repository secret. The cron workflow is committed and valid, but I could
-   not observe a scheduled execution.
-10. **The scheduled workflow, audit and weekly job are verified only as code paths.** Running them through the API
-    produced real `job_logs` rows; the Actions run requires a repository with secrets.
+8. **Server-side binary PDF export returns `501` by design.** Browser Print → Save as PDF, Markdown (`.md`) download, and clipboard Copy are supported on the Brief page. Internal document uploads support `.txt`, `.csv`, `.xlsx` (`openpyxl`), and text-based `.pdf` (`pymupdf`) up to 2 MB with extension + magic-byte validation (scanned image-only PDFs without OCR are rejected cleanly).
+9. **Scheduled runs have no persistent database on GitHub-hosted runners.** Ephemeral runners start with an empty SQLite each time unless `DATABASE_URL` points at external Postgres (e.g. Supabase) via a repository secret. The cron workflow is committed and valid, but has not run on GitHub yet.
+10. **The scheduled workflow, audit and weekly job are verified only as code paths.** Locally, `ENABLE_SCHEDULER=0` is the default and Automation honestly displays `"Scheduler is off"` without marking past days `"Missed"`; passing `-EnableScheduler` to `scripts\start_local.ps1` (or `ENABLE_SCHEDULER=1`) enables APScheduler. Running the weekly job and audit through the API produced real `job_logs` rows; the GitHub Actions run requires repository secrets.
 11. **Interview follow-up detection is heuristic-first**: `is_vague()` (length + vague markers) gates the LLM call, so
     a long but empty answer will not trigger a follow-up.
 12. **Context reassessment is one batched LLM call**, not one per source. Cheaper and more consistent; a malformed
@@ -126,8 +123,7 @@ The UI and Brief v2 endpoints include several convenience features that are **no
 13. **Near-duplicate text is not detected.** Dedup is exact hash equality after whitespace normalisation plus URL
     equality, so syndicated copies of an article from different URLs are stored twice.
 14. **No API authentication or rate limiting.** Outbound crawling is rate limited; inbound API calls are not.
-15. **Upload validation is structural** (extension, size, decodability, NUL bytes) — a hostile but well-formed TXT
-    is accepted, and is treated as untrusted data everywhere it is used.
+15. **Upload validation is structural** (extension, 2 MB size cap, magic-byte signature verification for `.pdf`/`%PDF-` and `.xlsx`/`PK\x03\x04`, decodability, NUL-byte rejection) — uploaded files are labelled `"user-provided"` everywhere and treated as untrusted data in prompts.
 16. **Action tracking stores only the `done` flag** inside `reports.content` JSON (the PRD fixes the schema at six
     tables). Action text cannot be edited.
 17. **Interview questions are generated once per company.** Re-running `start` resumes the same set; there is no

@@ -100,8 +100,7 @@ def _draft_prompt(company, records_payload: list[dict], profile: dict, counts: d
         "executive_record_ids.\n"
         "- strategic_implications: what this means for the founder's stated priorities.\n"
         "- risks_watchlist: what could hurt the company, again only from the records.\n"
-        "- opportunities: up to 6 structured opportunities (opportunity, evidence, relevance, "
-        "impact, next_step, priority high|medium|low, record_ids) backed by cited records.\n"
+        "- opportunities: up to 6 structured opportunities (or fewer than 3 if fewer genuinely qualify — never pad to reach 3). Each item must include: opportunity, evidence (specific cited signal), relevance (business relevance to the company), impact (potential impact), next_step (concrete next step), priority (high|medium|low), and record_ids.\n"
         "- risks: up to 6 structured risks (risk, mitigation, record_ids) backed by cited records.\n"
         "- actions: at most 6 concrete actions, each citing the record ids that justify it. An "
         "action without evidence will be deleted.\n\n"
@@ -226,17 +225,36 @@ def build_content(
         ids = _clean_ids(item.record_ids, valid)
         if not ids:
             continue
+        ev_text = item.evidence.strip() or "; ".join(
+            (payload_by_id[rid]["summary"] or payload_by_id[rid]["title"])
+            for rid in ids[:2]
+        )
+        rel_text = item.relevance.strip() or ev_text
+        imp_text = item.impact.strip() or f"{item.priority.capitalize()} potential impact on strategic goals"
+        step_text = item.next_step.strip() or "Review linked evidence with team and assign owner"
         opportunities.append(
             {
                 "opportunity": item.opportunity.strip(),
-                "evidence": item.evidence.strip(),
-                "relevance": item.relevance.strip(),
-                "impact": item.impact.strip(),
-                "next_step": item.next_step.strip(),
+                "evidence": ev_text,
+                "business_relevance": rel_text,
+                "relevance": rel_text,
+                "impact": imp_text,
+                "next_step": step_text,
                 "priority": item.priority,
                 "record_ids": ids,
             }
         )
+    if len(opportunities) == 0:
+        opportunities_note: str | None = (
+            "0 verified opportunities met the evidence threshold during this monitoring period; no items were padded."
+        )
+    elif len(opportunities) < 3:
+        noun = "opportunity" if len(opportunities) == 1 else "opportunities"
+        opportunities_note = (
+            f"Only {len(opportunities)} verified {noun} met the evidence threshold during this monitoring period; no additional items were padded."
+        )
+    else:
+        opportunities_note = None
 
     structured_risks = []
     for item in draft.risks:
@@ -310,6 +328,7 @@ def build_content(
         "sections": sorted(sections, key=lambda item: SECTION_HEADINGS.index(item["heading"])),
         "top_signals": [payload_by_id[record.id] for record in top],
         "opportunities": opportunities,
+        "opportunities_note": opportunities_note,
         "risks": structured_risks,
         "actions": actions,
         "counts": counts,
@@ -341,15 +360,22 @@ def render_markdown(content: dict) -> str:
                 )
         elif section["body"]:
             lines.append(section["body"])
-        if section["key"] == "strategic_implications" and content.get("opportunities"):
+        if section["key"] == "strategic_implications":
             lines.append("")
             lines.append("### Structured Opportunities")
-            for opp in content["opportunities"]:
-                cites = ", ".join(f"record {rid}" for rid in opp["record_ids"])
-                lines.append(
-                    f"- **[{opp['priority'].upper()}] {opp['opportunity']}** ({cites})"
-                    + (f" — Next: {opp['next_step']}" if opp.get("next_step") else "")
-                )
+            if content.get("opportunities"):
+                for opp in content["opportunities"]:
+                    cites = ", ".join(f"record {rid}" for rid in opp["record_ids"])
+                    rel = opp.get("business_relevance") or opp.get("relevance") or ""
+                    lines.append(
+                        f"- **[{opp['priority'].upper()}] {opp['opportunity']}** ({cites})\n"
+                        f"  - Evidence: {opp.get('evidence', '')}\n"
+                        f"  - Business relevance: {rel}\n"
+                        f"  - Potential impact: {opp.get('impact', '')}\n"
+                        f"  - Suggested next step: {opp.get('next_step', '')}"
+                    )
+            if content.get("opportunities_note"):
+                lines.append(f"_{content['opportunities_note']}_")
         if section["key"] == "risks_watchlist" and content.get("risks"):
             lines.append("")
             lines.append("### Risks & Mitigations")

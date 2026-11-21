@@ -157,10 +157,11 @@ export function CategoryIntelligenceSection({
       {section.items.length === 0 ? (
         <GlassCard className="p-5">
           <p className="text-sm font-medium text-[#1F2125]">
-            No {EMPTY_CATEGORY_NOUN[section.key]} developments detected this week.
+            No meaningful verified development was identified during this monitoring period.
           </p>
           <p className="mt-1 font-mono text-xs text-[#4B5058]">
-            {section.sourcesChecked} approved source{section.sourcesChecked === 1 ? "" : "s"} checked.
+            {section.sourcesChecked} approved {EMPTY_CATEGORY_NOUN[section.key]} source
+            {section.sourcesChecked === 1 ? "" : "s"} checked.
           </p>
         </GlassCard>
       ) : (

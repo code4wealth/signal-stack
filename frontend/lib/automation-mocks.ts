@@ -227,7 +227,7 @@ export function mockAutomationOverview(): AutomationOverview {
       })),
     },
     overrides: MOCK_OVERRIDES,
-    capabilities: { emailConfigured: false, customCron: true, canCreateSchedule: true },
+    capabilities: { customCron: true, canCreateSchedule: true },
     isMock: true,
   };
 }

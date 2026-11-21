@@ -7,7 +7,7 @@ executive Monday Morning Brief.
 Built for the EDXSO AI Engineer Intern assignment (Assignment 1).
 Demo companies (entered as data in `scripts/demo_companies.json`, not hardcoded): MeetUniversity, Razorpay, Zerodha.
 
-> **Build & verification status.** Backend unit/API suite: **192 passed** (`pytest -q`, mocked HTTP/LLM for external calls), frontend Node suite: **5 passed** (`npm test`), TypeScript clean (`0` errors), ESLint clean (`0` warnings/errors), and all Next.js routes build. Partial live-run output from Windows (`ead1782`) is committed in `run_output.txt`.
+> **Build & verification status.** Backend unit/API suite: **203 passed** (`pytest -q`, mocked HTTP/LLM for external calls), frontend Node suite: **5 passed** (`npm test`), TypeScript clean (`0` errors), ESLint clean (`0` warnings/errors), and all Next.js routes build. Partial live-run output from Windows (`ead1782`) is committed in `run_output.txt`.
 
 ## Results from live runs
 
@@ -32,22 +32,25 @@ Implemented and tested:
 - Content hashing, duplicate detection (URL + hash) and change detection (`[UPDATED]` records)
 - Per-record analysis with a verbatim evidence check (mismatch caps evidence strength at 0.2 and flags it)
 - Transparent ranking with stored components, weights and a per-record explanation string
-- Monday Brief saved to the database, history, Markdown export, copy, action tracking (checkbox persisted in the report)
+- Monday Brief saved to the database, history, Markdown (`.md`) download, copy summary, browser Print / Save as PDF, action tracking (checkbox persisted in the report), and structured `Opportunities` (`evidence`, `business_relevance`, `impact`, `next_step`, `priority`) with honest `< 3` counts (never padded)
 - Source management (approve, reject, pause, add, remove)
 - Context reassessment (relevance re-scoring with reasons; below 0.4 is a recommendation only, never a delete)
-- TXT and CSV internal document upload (2 MB cap, parsed, labelled user-provided)
-- Weekly brief and monthly source audit via GitHub Actions plus a manual trigger and an in-app "Run now" button
+- Internal document upload for `.txt`, `.csv`, `.xlsx` (`openpyxl`), and `.pdf` (`pymupdf`) files (2 MB cap, extension + magic-byte validation, parsed, labelled `user-provided`)
+- Workspace Settings (`/company/<id>/settings` via `GET/PATCH /api/companies/{id}/settings`) persisting briefing day/time, timezone, monitoring cadence, source refresh cadence, monthly source-health check, and company profile, driving `AutomationSchedule` rows
+- Weekly brief and monthly source audit via GitHub Actions plus a manual trigger, an in-app "Run now" button, and an optional local APScheduler (`ENABLE_SCHEDULER=1`; when `0`, Automation honestly reports `"Scheduler is off"` without marking past days `"Missed"`)
 - Job logs for every pipeline stage, surfaced in the Automation page
+- Real DB-backed report exporter (`scripts/export_reports.py`) writing `docs/sample_reports/<company>.md` and `docs/sample_reports/SUMMARY.md`
 
 Not implemented (see `docs/COST_AND_LIMITATIONS.md`):
-- PDF export and PDF/XLSX upload (only TXT and CSV uploads exist)
-- JavaScript rendering of client-side sites
+- Server-side PDF binary rendering (`GET /api/companies/{id}/briefs/{briefId}/pdf` intentionally returns `501` by design — use browser Print → Save as PDF or Export `.md`)
+- Email delivery (no email transport is wired; briefs are viewed in-app, copied, printed to PDF, or exported as Markdown)
+- JavaScript rendering of client-side sites (though SPA `<meta>` / JSON-LD metadata and `/about` / `/pricing` info pages are probed)
 - Alembic migrations, the full normalised 18-table schema, multi-user auth, billing, multi-tenancy
 - Sentence-level entailment for brief prose (only citation ids are validated, not whether each sentence follows from its record)
 - Near-duplicate (syndicated) text detection — dedup is exact hash equality after whitespace normalisation
 - Hosting/deployment of either service; action text editing (the `done` flag is editable, the label is not)
 - Regenerating interview questions once an interview exists (deliberate: it would discard answers)
-- Anti-bot / WAF bypass or browser User-Agent spoofing: sites that block or tarpit automated HTTP clients (for example with CDN challenges or stalled/trickled responses) hit the 30 s per-page / 5 min per-job wall-clock deadlines, save any completed pages as `unverified`, and fail with an explicit error rather than spoofing browser headers or ignoring `robots.txt`
+- Anti-bot / WAF bypass or browser User-Agent spoofing: `safe_fetch` uses an honest `SignalStackBot` User-Agent, obeys `robots.txt`, and supports HTTP/2 with bounded timeouts; sites that block (`403`/`406`) or tarpit automated HTTP clients fail explicitly with a clear blocked/timeout message rather than impersonating browsers
 
 ## Architecture
 ```
@@ -135,7 +138,13 @@ Or launch the full stack with network diagnostics and preflight verification:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\start_local.ps1
+# To enable the in-process APScheduler (ENABLE_SCHEDULER=1) locally:
+powershell -ExecutionPolicy Bypass -File scripts\start_local.ps1 -EnableScheduler
 ```
+
+By default `start_local.ps1` runs with `ENABLE_SCHEDULER=0`, so the Automation page honestly shows
+**"Scheduler is off"** and does not label past days as `"Missed"`. Passing `-EnableScheduler` sets
+`ENABLE_SCHEDULER=1` for automated local execution.
 
 (`dev.ps1` is also code-reviewed only on Linux and not yet executed on Windows.)
 
@@ -159,7 +168,10 @@ backend (`127.0.0.1:8000`), frontend (`127.0.0.1:3000`), database state, and pub
   --reassess meetuniversity \
   --context "International student recruitment and overseas education consultancy"
 
-# 3. Paste/commit the verified output into README.md, docs/acceptance.md, and exports/
+# 3. Export real DB-backed reports + summary (never invents counts)
+./.venv/bin/python scripts/export_reports.py --out-dir docs/sample_reports
+
+# 4. Paste/commit the verified output into README.md, docs/acceptance.md, and docs/sample_reports/
 ```
 The companies live in `scripts/demo_companies.json` as data. No company name appears in backend logic (checked by grep).
 
@@ -195,7 +207,7 @@ Six tables (`companies`, `qa`, `sources`, `records`, `reports`, `job_logs`) are 
 ## Tests
 
 ```bash
-cd backend && ../.venv/bin/pytest -q     # 192 passed
+cd backend && ../.venv/bin/pytest -q     # 203 passed
 cd frontend && npm test                  # 5 passed
 cd frontend && npx tsc --noEmit          # clean
 cd frontend && npm run lint              # clean
@@ -218,11 +230,10 @@ Status: **not run yet** — the workflow exists and is valid YAML, but no Action
   `workflow_dispatch` and via `python backend/run_weekly.py --all`.
 - Monthly audit: same workflow, `cron: 30 1 1 * *` (1st of the month, 07:30 IST), or `python backend/run_audit.py --all`,
   or `POST /api/companies/{id}/source-audit` from the UI's Automation page.
-- Local: `ENABLE_SCHEDULER=1` registers both jobs with APScheduler while the server runs.
-- Persistence caveat: GitHub-hosted runners are ephemeral, so each scheduled run starts from an empty SQLite unless
-  `DATABASE_URL` points at a real Postgres (a Supabase free-tier database works) and is stored as a repository
-  secret. The workflow uploads the database file and job output as artifacts either way. **The scheduled run itself
-  is not verified** — it needs a repository with secrets configured.
+- Local: `ENABLE_SCHEDULER=1` (or `scripts\start_local.ps1 -EnableScheduler` on Windows) registers both jobs with APScheduler while the server runs. With the default `ENABLE_SCHEDULER=0`, the Automation page reports **"Scheduler is off"** and does not label past slots as `"Missed"`.
+- Persistence caveat: GitHub-hosted runners are ephemeral, so each scheduled run starts from an empty SQLite database unless
+  `DATABASE_URL` points at a persistent PostgreSQL database (such as a Supabase free-tier instance) stored as a repository
+  secret. Without a persistent `DATABASE_URL`, scheduled GitHub Actions runs operate on a fresh SQLite DB and upload the resulting file and job logs only as ephemeral workflow artifacts. **The scheduled run itself is not verified** until a repository with secrets runs `.github/workflows/weekly.yml`.
 - Failures are written to `job_logs` and shown on the Automation page. Verified locally: running the weekly job and
   the audit through the API produced four `job_logs` rows (`crawl: skipped`, `analyse: ok`, `weekly: partial`,
   `source_audit: ok`).
@@ -245,5 +256,5 @@ Known gap: DNS rebinding between the resolution check and the TCP connect. Full 
 
 ## Documentation
 
-`docs/PRD.md`, `docs/architecture.md`, `docs/DEMO_SCRIPT.md`, `docs/COST_AND_LIMITATIONS.md`,
-`docs/acceptance.md` (AC1–AC12 with evidence and current status).
+`docs/PRD.md`, `docs/TECHNICAL_OVERVIEW.md`, `docs/architecture.md`, `docs/DEMO_SCRIPT.md`,
+`docs/COST_AND_LIMITATIONS.md`, `docs/acceptance.md` (AC1–AC12 with evidence and current status).

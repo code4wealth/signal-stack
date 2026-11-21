@@ -17,6 +17,7 @@ export function SchedulerHealthCard({
 }) {
   const { reduced, isDocumentHidden } = useMotionSafe();
   const isRunning = health.engine === "running";
+  const isDisabled = !isRunning && (health.enabled === false || Boolean(health.reason?.includes("ENABLE_SCHEDULER=0")));
 
   const sparkValues = health.successByDay.slice(-7).map((d) => d.success + d.failed);
   const hasFailures = health.successByDay.some((d) => d.failed > 0);
@@ -40,11 +41,13 @@ export function SchedulerHealthCard({
         <div className="space-y-0.5">
           <p className="text-xs font-medium text-[#1F2125]">Engine</p>
           <p className="font-mono text-[10.5px] text-[#4B5058]">
-            last tick {formatRelativeAge(health.lastHeartbeatAt)}
+            {isDisabled
+              ? "ENABLE_SCHEDULER=0"
+              : `last tick ${formatRelativeAge(health.lastHeartbeatAt)}`}
           </p>
         </div>
         <StatusPill
-          tone={isRunning ? "verified" : "threat"}
+          tone={isRunning ? "verified" : isDisabled ? "warning" : "threat"}
           icon={
             isRunning ? (
               <span
@@ -57,7 +60,7 @@ export function SchedulerHealthCard({
             )
           }
         >
-          {isRunning ? "Running" : "Stopped"}
+          {isRunning ? "Running" : isDisabled ? "Scheduler is off" : "Stopped"}
         </StatusPill>
       </div>
 

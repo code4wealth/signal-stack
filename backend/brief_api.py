@@ -104,10 +104,6 @@ def _impact_of(rec: Record) -> str:
     return "low"
 
 
-def email_configured() -> bool:
-    return bool(os.getenv("SMTP_HOST") or os.getenv("RESEND_API_KEY"))
-
-
 def get_prerequisites(db: Session, company_id: int) -> dict[str, Any]:
     analysed_cnt = (
         db.scalar(
@@ -347,14 +343,23 @@ def serialize_brief(
         prio = str(opp.get("priority") or "medium").lower()
         if prio not in ("low", "medium", "high"):
             prio = "medium"
+        ev_str = (opp.get("evidence") or "").strip()
+        rel_str = (opp.get("business_relevance") or opp.get("relevance") or ev_str).strip()
+        imp_str = (opp.get("impact") or f"{prio.capitalize()} impact").strip()
+        step_str = (opp.get("next_step") or "").strip()
         opp_out.append(
             {
                 "id": oid,
                 "headline": (opp.get("opportunity") or "").strip(),
                 "explanation": {
-                    "text": (opp.get("relevance") or opp.get("evidence") or "").strip(),
+                    "text": rel_str or ev_str,
                     "citations": cites,
                 },
+                "evidence": {"text": ev_str, "citations": cites} if ev_str else None,
+                "businessRelevance": rel_str or None,
+                "impact": imp_str or None,
+                "nextStep": step_str or None,
+                "priority": prio,
                 "impactLevel": prio,
                 "likelihood": prio,
                 "actNowBy": None,
@@ -362,6 +367,13 @@ def serialize_brief(
                 "signalId": str(rids[0]) if rids else "",
             }
         )
+    opp_note = content.get("opportunities_note")
+    if not opp_note and len(opp_out) < 3:
+        if len(opp_out) == 0:
+            opp_note = "0 verified opportunities met the evidence threshold during this monitoring period; no items were padded."
+        else:
+            noun = "opportunity" if len(opp_out) == 1 else "opportunities"
+            opp_note = f"Only {len(opp_out)} verified {noun} met the evidence threshold during this monitoring period; no additional items were padded."
 
     # 7. Risks & Threats
     risk_out: list[dict[str, Any]] = []
@@ -499,7 +511,7 @@ def serialize_brief(
     auto_run_id = content.get("automation_run_id")
     trigger_val = "scheduled" if content.get("trigger") == "scheduled" or auto_run_id else "manual"
     status_val = content.get("status")
-    if status_val not in ("draft", "ready", "sent"):
+    if status_val not in ("draft", "ready"):
         status_val = "ready" if trigger_val == "scheduled" else "draft"
 
     return {
@@ -521,6 +533,7 @@ def serialize_brief(
         "executiveSummary": exec_items,
         "sections": sections_out,
         "opportunities": opp_out,
+        "opportunitiesNote": opp_note,
         "risks": risk_out,
         "actions": actions_out,
         "watch": watch_out,
@@ -536,7 +549,6 @@ def serialize_brief(
         },
         "removedUnsupportedClaims": int(content.get("dropped_actions") or 0),
         "feedback": content.get("feedback"),
-        "capabilities": {"emailConfigured": email_configured()},
         "isArchived": bool(all_reports and all_reports[-1].id != report.id),
     }
 
@@ -551,7 +563,7 @@ def serialize_brief_summary(report: Report, version_num: int) -> dict[str, Any]:
     done_pct = round((done_cnt / len(actions)) * 100) if actions else 0
     trigger_val = "scheduled" if content.get("trigger") == "scheduled" or content.get("automation_run_id") else "manual"
     status_val = content.get("status")
-    if status_val not in ("draft", "ready", "sent"):
+    if status_val not in ("draft", "ready"):
         status_val = "ready" if trigger_val == "scheduled" else "draft"
     return {
         "id": str(report.id),

@@ -245,10 +245,10 @@ export function CompanySetupPanel({
                     <Globe size={16} />
                   </button>
                 </Tooltip>
-                <Tooltip content="Upload internal files later (CSV, Excel, PDF, TXT)">
+                <Tooltip content="Upload internal files later in Signal Stack (TXT, CSV, XLSX, PDF — max 2 MB)">
                   <button
                     type="button"
-                    aria-label="Upload internal files later (CSV, Excel, PDF, TXT)"
+                    aria-label="Upload internal files later in Signal Stack (TXT, CSV, XLSX, PDF — max 2 MB)"
                     className="focus-ring flex h-9 w-9 items-center justify-center rounded-xl border border-white/80 bg-white/60 text-[#4B5058] transition-colors hover:bg-white hover:text-[#1F2125]"
                   >
                     <Paperclip size={16} />

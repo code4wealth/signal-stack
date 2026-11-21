@@ -53,14 +53,15 @@ mean a real company was processed. Do not present any of these as a live result,
 
 | Check | Result |
 |---|---|
-| `pytest` (backend) | **149 passed** |
+| `pytest -q` (backend) | **203 passed** (includes SSRF/honest-UA `safe_fetch`, `.xlsx`/`.pdf` uploads, Settings -> `AutomationSchedule`, `"Scheduler is off"`, no email stub, Brief `Opportunities`, and `scripts/export_reports.py`) |
+| `npm test` (frontend) | **5 passed** |
 | `npx tsc --noEmit` (frontend) | **clean**, 0 errors |
 | `npm run lint` (frontend) | **clean**, 0 warnings/errors |
-| `npm run build` (frontend) | **9 routes** built (`proxyTimeout: 300000`) |
+| `npm run build` (frontend) | **14 routes** built cleanly (`proxyTimeout: 300000`) |
 | UI routes over HTTP | `/` returns 200 through Next; `/api/health` returns 200 both direct and through the Next proxy |
 | `/api/health` | `{"status":"ok","dialect":"sqlite","tables":[6 names]}` |
 | Workflows | `tests.yml` (3.11 + 3.12 matrix, frontend typecheck/build) and `weekly.yml` (weekly brief, monthly audit) parse as valid YAML; neither has run on GitHub |
-| Python 3.11 | **verified locally** (149 tests) |
+| Python 3.11 | **verified locally** (203 tests) |
 | Python 3.12 | **NOT RUN** — not installable in the sandbox; CI matrix configured, first run pending |
 | Committed live log (`run_output.txt`) | MeetUniversity (5 verified sources, 5 records, Brief #1 with 3 actions), Razorpay (16 verified sources, 23 records crawled), Zerodha (research 6 pages) |
 

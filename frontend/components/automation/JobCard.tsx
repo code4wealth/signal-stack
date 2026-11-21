@@ -10,7 +10,6 @@ import {
   Clock,
   Copy,
   ExternalLink,
-  Mail,
   MoreVertical,
   PauseCircle,
   Pencil,
@@ -354,11 +353,7 @@ export function JobCard({
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-1.5">
                 <span className="rounded-full border border-white/85 bg-white/80 px-2.5 py-0.5 font-mono text-[10.5px] text-[#1F2125]">
-                  In-app
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-full border border-white/85 bg-white/80 px-2.5 py-0.5 font-mono text-[10.5px] text-[#4B5058]">
-                  <Mail size={10} />
-                  {schedule.delivery?.email ? "Email on" : "Email off"}
+                  In-app brief
                 </span>
               </div>
               <Link

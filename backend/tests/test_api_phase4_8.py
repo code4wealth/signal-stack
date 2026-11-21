@@ -245,17 +245,100 @@ def test_upload_txt_is_labelled_user_provided(client, company) -> None:
 
 
 def test_upload_rejects_wrong_extension_and_binary(client, company) -> None:
-    pdf = client.post(
+    wrong_ext = client.post(
         f"/api/companies/{company['id']}/documents",
-        files={"file": ("deck.pdf", b"%PDF-1.4 not allowed", "application/pdf")},
+        files={"file": ("legacy.xls", b"dummy excel payload that is long enough to pass length check", "application/vnd.ms-excel")},
     )
-    assert pdf.status_code == 400 and "only .txt and .csv" in pdf.json()["detail"]
+    assert wrong_ext.status_code == 400 and ".txt, .csv, .xlsx, and .pdf" in wrong_ext.json()["detail"]
 
     binary = client.post(
         f"/api/companies/{company['id']}/documents",
         files={"file": ("bin.txt", b"\x00\x01\x02binary", "text/plain")},
     )
     assert binary.status_code == 400
+
+    spoofed_pdf = client.post(
+        f"/api/companies/{company['id']}/documents",
+        files={"file": ("fake.pdf", b"not actually a pdf file at all, just plain text bytes", "application/pdf")},
+    )
+    assert spoofed_pdf.status_code == 400 and "%PDF-" in spoofed_pdf.json()["detail"]
+
+    corrupt_pdf = client.post(
+        f"/api/companies/{company['id']}/documents",
+        files={"file": ("broken.pdf", b"%PDF-1.4\n%%%corrupt garbage", "application/pdf")},
+    )
+    assert corrupt_pdf.status_code == 400
+
+    spoofed_xlsx = client.post(
+        f"/api/companies/{company['id']}/documents",
+        files={"file": ("fake.xlsx", b"plain text masquerading as xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert spoofed_xlsx.status_code == 400 and ".xlsx" in spoofed_xlsx.json()["detail"]
+
+    corrupt_xlsx = client.post(
+        f"/api/companies/{company['id']}/documents",
+        files={"file": ("broken.xlsx", b"PK\x03\x04not_a_valid_zip_workbook_at_all", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert corrupt_xlsx.status_code == 400
+
+
+def test_upload_xlsx_and_pdf_extract_text_and_label_user_provided(client, company) -> None:
+    import io
+    import fitz
+    import openpyxl
+
+    # Valid XLSX
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Feedback"
+    ws.append(["account", "issue", "impact"])
+    ws.append(["Northstar", "Billing export bug on monthly invoice", "High"])
+    ws.append(["Beacon", "Pricing tier too expensive for small teams", "Medium"])
+    xlsx_buf = io.BytesIO()
+    wb.save(xlsx_buf)
+    wb.close()
+
+    r_xlsx = client.post(
+        f"/api/companies/{company['id']}/internal/upload",
+        data={"document_type": "support_tickets"},
+        files={
+            "file": (
+                "feedback.xlsx",
+                xlsx_buf.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    assert r_xlsx.status_code == 201, r_xlsx.text
+    xlsx_body = r_xlsx.json()
+    assert xlsx_body["label"] == "user-provided"
+    assert xlsx_body["insights"]["label"] == "user-provided"
+    assert xlsx_body["insights"]["counts"]["complaints"] >= 1
+    assert xlsx_body["insights"]["counts"]["objections"] >= 1
+
+    # Valid PDF
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text(
+        (72, 72),
+        "Lost deal summary: prospect switched to competitor due to slow onboarding and missing SSO integration.",
+    )
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    r_pdf = client.post(
+        f"/api/companies/{company['id']}/internal/upload",
+        data={"document_type": "lost_deals"},
+        files={"file": ("lost-deals.pdf", pdf_bytes, "application/pdf")},
+    )
+    assert r_pdf.status_code == 201, r_pdf.text
+    pdf_body = r_pdf.json()
+    assert pdf_body["label"] == "user-provided"
+    assert pdf_body["insights"]["counts"]["lost_deal_reasons"] >= 1
+
+    listed = client.get(f"/api/companies/{company['id']}/internal/files").json()
+    filenames = {item["filename"] for item in listed["items"]}
+    assert {"feedback.xlsx", "lost-deals.pdf"} <= filenames
 
 
 def test_upload_rejects_oversize(client, company) -> None:

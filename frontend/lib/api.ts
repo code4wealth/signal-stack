@@ -1455,14 +1455,19 @@ export async function getBriefPdfBlob(
   return res.blob();
 }
 
-export async function emailBrief(
+export async function getCompanySettings(
   companyId: number,
-  briefId: string,
-  to: string,
-): Promise<{ sent: boolean; to: string; sentAt: string }> {
-  return post<{ sent: boolean; to: string; sentAt: string }>(
-    `/api/companies/${companyId}/briefs/${encodeURIComponent(briefId)}/email`,
-    { to },
+): Promise<import("./types").CompanySettings> {
+  return get<import("./types").CompanySettings>(`/api/companies/${companyId}/settings`);
+}
+
+export async function updateCompanySettings(
+  companyId: number,
+  payload: import("./types").CompanySettingsPatch,
+): Promise<import("./types").CompanySettings> {
+  return patch<import("./types").CompanySettings>(
+    `/api/companies/${companyId}/settings`,
+    payload,
   );
 }
 
