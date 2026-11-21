@@ -270,6 +270,91 @@ a:hover {
   animation: floatCard 6s ease-in-out infinite;
 }
 
+@keyframes blobDriftA {
+  0% {
+    transform: translate3d(-18px, -12px, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(24px, 20px, 0) scale(1.06);
+  }
+}
+
+@keyframes blobDriftB {
+  0% {
+    transform: translate3d(calc(-50% - 16px), 12px, 0) scale(1.04);
+  }
+  100% {
+    transform: translate3d(calc(-50% + 22px), -18px, 0) scale(1);
+  }
+}
+
+@keyframes blobDriftC {
+  0% {
+    transform: translate3d(16px, 20px, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(-24px, -16px, 0) scale(1.06);
+  }
+}
+
+.ambient-blobs-active .bg-blob-tl {
+  animation: blobDriftA 31s ease-in-out infinite alternate;
+}
+
+.ambient-blobs-active .bg-blob-tc {
+  animation: blobDriftB 37s ease-in-out infinite alternate;
+}
+
+.ambient-blobs-active .bg-blob-br {
+  animation: blobDriftC 40s ease-in-out infinite alternate;
+}
+
+.ambient-blobs-paused .bg-blob-tl,
+.ambient-blobs-paused .bg-blob-tc,
+.ambient-blobs-paused .bg-blob-br {
+  animation-play-state: paused;
+}
+
+@keyframes heroHeaderShimmer {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+}
+
+.hero-shimmer-once {
+  animation: heroHeaderShimmer 1.2s cubic-bezier(0.22, 1, 0.36, 1) 1 forwards;
+}
+
+@keyframes signalSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+    background-color: rgba(238, 242, 255, 0.9);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(0);
+    background-color: rgba(238, 242, 255, 0.75);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    background-color: transparent;
+  }
+}
+
+.signal-row-fresh {
+  animation: signalSlideIn 1.2s cubic-bezier(0.22, 1, 0.36, 1) 1;
+}
+
 .tabular {
   font-variant-numeric: tabular-nums;
 }
@@ -285,7 +370,12 @@ a:hover {
   }
   .animate-float-slow,
   .skeleton-shimmer,
-  .text-shimmer {
+  .text-shimmer,
+  .ambient-blobs-active .bg-blob-tl,
+  .ambient-blobs-active .bg-blob-tc,
+  .ambient-blobs-active .bg-blob-br,
+  .hero-shimmer-once,
+  .signal-row-fresh {
     animation: none;
   }
   .text-shimmer {

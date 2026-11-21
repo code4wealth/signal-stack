@@ -7,7 +7,10 @@ export default function CompanyLayout({ children }: { children: ReactNode }) {
   const params = useParams<{ id: string }>();
   const pathname = usePathname();
   const base = `/company/${params?.id ?? ""}`;
-  const isFullBleed = pathname === base || pathname === `${base}/interview`;
+  const isFullBleed =
+    pathname === base ||
+    pathname === `${base}/interview` ||
+    pathname === `${base}/dashboard`;
 
   if (isFullBleed) {
     return <>{children}</>;

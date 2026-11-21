@@ -1032,4 +1032,40 @@ export async function askSignals(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Main Dashboard & Workspace Search
+// ---------------------------------------------------------------------------
+
+export async function getDashboard(
+  companyId: number,
+  range: import("./types").DashboardRange = "30d",
+  category?: import("./types").SourceCategory | null,
+): Promise<import("./types").DashboardData> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockDashboardData } = await import("@/lib/dashboard-mocks");
+    return mockDashboardData(range, category);
+  }
+  const params = new URLSearchParams();
+  params.set("range", range);
+  if (category) params.set("category", category);
+  return get<import("./types").DashboardData>(
+    `/api/companies/${companyId}/dashboard?${params.toString()}`,
+  );
+}
+
+export async function searchWorkspace(
+  companyId: number,
+  query: string,
+): Promise<import("./types").WorkspaceSearchResponse> {
+  if (USE_SIGNALS_MOCKS) {
+    const { mockWorkspaceSearch } = await import("@/lib/dashboard-mocks");
+    return mockWorkspaceSearch(query);
+  }
+  const params = new URLSearchParams();
+  params.set("q", query);
+  return get<import("./types").WorkspaceSearchResponse>(
+    `/api/companies/${companyId}/search?${params.toString()}`,
+  );
+}
+
 

@@ -3273,6 +3273,8 @@ def ask_company_signals(
                 "answer": llm_out.answer,
                 "citations": citations,
                 "suggestedQuestions": llm_out.suggested_questions,
+                "answerCard": llm_out.answer_card.model_dump() if llm_out.answer_card else None,
+                "recommendation": llm_out.recommendation,
             }
         except Exception:
             pass
@@ -3280,18 +3282,484 @@ def ask_company_signals(
     # Deterministic grounded fallback using strictly verified stored summaries
     bullets = []
     citations = []
+    card_rows = []
     for _, rec, src in top_matches[:3]:
         a = rec.analysis or {}
         title = (a.get("title") or rec.title)[:90]
         summary = (a.get("summary") or rec.text[:220]).strip()
         domain = _domain_of(src.url if src else rec.url)
+        cat = _map_category(src, a)
         bullets.append(f"• {title} ({domain}): {summary}")
         citations.append({"signalId": str(rec.id), "evidenceId": str(rec.id), "label": title})
+        card_rows.append(
+            {
+                "label": title[:54],
+                "value": f"P{_priority_level(float(rec.total or 0))} · {(a.get('classification') or 'neutral').title()}",
+                "category": cat,
+            }
+        )
 
+    top_rec_action = ((top_matches[0][1].analysis or {}).get("recommended_action") or "").strip()
     return {
         "answer": "Based on the collected signals:\n" + "\n".join(bullets),
         "citations": citations,
         "suggestedQuestions": [],
+        "answerCard": {"title": "Matched signal breakdown", "rows": card_rows} if card_rows else None,
+        "recommendation": top_rec_action or None,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Main Dashboard & Workspace Search
+# --------------------------------------------------------------------------- #
+def _next_weekly_monday_0600(now_dt):
+    from datetime import timedelta
+
+    days_ahead = (0 - now_dt.weekday()) % 7
+    candidate = now_dt.replace(hour=6, minute=0, second=0, microsecond=0) + timedelta(days=days_ahead)
+    if candidate <= now_dt:
+        candidate += timedelta(days=7)
+    return candidate
+
+
+def _next_monthly_1st_0630(now_dt):
+    candidate = now_dt.replace(day=1, hour=6, minute=30, second=0, microsecond=0)
+    if candidate <= now_dt:
+        if candidate.month == 12:
+            candidate = candidate.replace(year=candidate.year + 1, month=1)
+        else:
+            candidate = candidate.replace(month=candidate.month + 1)
+    return candidate
+
+
+@router.get("/companies/{company_id}/dashboard", tags=["dashboard"])
+def get_company_dashboard(
+    company_id: int,
+    range_key: str = Query(default="30d", alias="range", pattern="^(week|30d|quarter)$"),
+    category: str | None = Query(default=None, pattern="^(customers|competitors|market|internal)$"),
+    db: Session = Depends(get_db),
+) -> dict:
+    from datetime import datetime, timedelta, timezone
+    from config import get_settings
+
+    company = get_company_or_404(db, company_id)
+    now = datetime.now(timezone.utc)
+    days = {"week": 7, "30d": 30, "quarter": 90}.get(range_key, 30)
+    cutoff = now - timedelta(days=days)
+    prev_cutoff = cutoff - timedelta(days=days)
+
+    profile = dict(company.profile or {})
+    meta = dict(profile.get("_meta") or {})
+    previous_visit = meta.get("dashboard_last_visit_at")
+    meta["dashboard_last_visit_at"] = now.isoformat()
+    profile["_meta"] = meta
+    company.profile = profile
+    db.commit()
+
+    workflow = _compute_workflow_status(db, company)
+    first_name = (
+        profile.get("founder_first_name")
+        or meta.get("user_first_name")
+        or None
+    )
+
+    all_sources = list(
+        db.scalars(
+            select(Source)
+            .where(Source.company_id == company_id, Source.status.in_(["approved", "paused"]))
+            .order_by(Source.id.asc())
+        ).all()
+    )
+    source_map = {s.id: s for s in all_sources}
+
+    all_records = list(
+        db.execute(
+            select(Record, Source)
+            .outerjoin(Source, Record.source_id == Source.id)
+            .where(Record.company_id == company_id)
+            .order_by(Record.id.desc())
+        ).all()
+    )
+
+    def _rec_dt(rec: Record) -> datetime:
+        dt = rec.discovered or rec.published or now
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+    # Analysed signals
+    analysed_rows = [(rec, src) for rec, src in all_records if rec.analysis is not None]
+    rel_map = _related_records_map(analysed_rows)
+
+    def _matches_cat(rec: Record, src: Source | None) -> bool:
+        if not category:
+            return True
+        return _map_category(src, rec.analysis or {}) == category
+
+    in_range_records = [
+        (rec, src) for rec, src in all_records if _rec_dt(rec) >= cutoff and _matches_cat(rec, src)
+    ]
+    in_range_signals_rows = [
+        (rec, src)
+        for rec, src in analysed_rows
+        if _rec_dt(rec) >= cutoff and _matches_cat(rec, src)
+    ]
+    prev_range_signals_rows = [
+        (rec, src)
+        for rec, src in analysed_rows
+        if prev_cutoff <= _rec_dt(rec) < cutoff and _matches_cat(rec, src)
+    ]
+
+    serialized_in_range = [
+        _serialize_signal(
+            company,
+            rec,
+            src,
+            related_ids=[r["id"] for r in rel_map.get(rec.id, [])],
+        )
+        for rec, src in in_range_signals_rows
+    ]
+
+    non_dismissed = [s for s in serialized_in_range if s["status"] != "dismissed"]
+    top_priorities = sorted(non_dismissed, key=lambda s: (-s["priorityValue"], -s["id"]))[:3]
+
+    recent_signals = sorted(
+        non_dismissed,
+        key=lambda s: (s.get("detectedAt") or "", s["id"]),
+        reverse=True,
+    )[:5]
+
+    evidence_by_id: dict[str, dict] = {}
+    rec_lookup = {rec.id: (rec, src) for rec, src in all_records}
+    for sig in [*top_priorities, *recent_signals]:
+        pair = rec_lookup.get(sig["id"])
+        if pair:
+            evidence_by_id[str(sig["id"])] = _serialize_collected_item(pair[0], pair[1], excerpt_len=320)
+
+    # KPIs per category across the 4 Signal Stack categories
+    spark_start = now.date() - timedelta(days=6)
+    kpis: list[dict] = []
+    for cat in ("customers", "competitors", "market", "internal"):
+        cat_sigs = [
+            _serialize_signal(company, rec, src)
+            for rec, src in analysed_rows
+            if _rec_dt(rec) >= cutoff and _map_category(src, rec.analysis or {}) == cat
+        ]
+        prev_cat_count = sum(
+            1
+            for rec, src in analysed_rows
+            if prev_cutoff <= _rec_dt(rec) < cutoff and _map_category(src, rec.analysis or {}) == cat
+        )
+        spark_buckets = [0] * 7
+        for sig in cat_sigs:
+            raw_d = sig.get("detectedAt")
+            if not raw_d:
+                continue
+            try:
+                sig_date = datetime.fromisoformat(raw_d).date()
+                idx = (sig_date - spark_start).days
+                if 0 <= idx < 7:
+                    spark_buckets[idx] += 1
+            except Exception:
+                pass
+        files_analysed = (
+            sum(
+                1
+                for rec, src in analysed_rows
+                if _rec_dt(rec) >= cutoff and _map_category(src, rec.analysis or {}) == "internal"
+            )
+            if cat == "internal"
+            else None
+        )
+        kpis.append(
+            {
+                "category": cat,
+                "newSignals": len(cat_sigs),
+                "opportunities": sum(1 for s in cat_sigs if s["classification"] == "opportunity"),
+                "threats": sum(1 for s in cat_sigs if s["classification"] == "threat"),
+                "deltaPct": _compute_delta_pct(len(cat_sigs), prev_cat_count)
+                if prev_cat_count > 0
+                else None,
+                "spark": spark_buckets,
+                "filesAnalysed": files_analysed,
+            }
+        )
+
+    # Heatmap: 7 days (0=Sun..6=Sat) x 8 3-hour buckets
+    heat_counts: dict[tuple[int, int], int] = {(d, b): 0 for d in range(7) for b in range(8)}
+    for rec, _src in in_range_records:
+        dt = _rec_dt(rec)
+        # Python weekday(): Mon=0..Sun=6 -> Sun=0..Sat=6
+        sun_day = (dt.weekday() + 1) % 7
+        bucket = min(7, dt.hour // 3)
+        heat_counts[(sun_day, bucket)] += 1
+
+    heatmap = [
+        {"day": d, "bucket": b, "count": heat_counts[(d, b)]}
+        for b in range(8)
+        for d in range(7)
+    ]
+    heatmap_max = max((c["count"] for c in heatmap), default=0)
+    heatmap_insight: str | None = None
+    if heatmap_max > 0:
+        best = max(heatmap, key=lambda c: c["count"])
+        day_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        start_hr = best["bucket"] * 3
+        end_hr = start_hr + 3
+        heatmap_insight = (
+            f"Busiest publishing window: {day_names[best['day']]} "
+            f"{start_hr:02d}:00–{end_hr:02d}:00 UTC ({best['count']} item{'s' if best['count'] != 1 else ''})"
+        )
+
+    # Trend chart (evidence vs signals per day)
+    start_date = now.date() - timedelta(days=days - 1)
+    trend_map: dict[str, dict] = {}
+    for i in range(days):
+        d_str = (start_date + timedelta(days=i)).isoformat()
+        trend_map[d_str] = {
+            "date": d_str,
+            "evidence": 0,
+            "signals": 0,
+            "topHeadline": None,
+            "_topPriority": -1,
+        }
+
+    for rec, _src in in_range_records:
+        d_str = _rec_dt(rec).date().isoformat()
+        if d_str in trend_map:
+            trend_map[d_str]["evidence"] += 1
+
+    for sig in serialized_in_range:
+        raw_d = sig.get("detectedAt")
+        if not raw_d:
+            continue
+        d_str = raw_d[:10]
+        if d_str in trend_map:
+            trend_map[d_str]["signals"] += 1
+            if sig["priorityValue"] > trend_map[d_str]["_topPriority"]:
+                trend_map[d_str]["_topPriority"] = sig["priorityValue"]
+                trend_map[d_str]["topHeadline"] = sig["headline"]
+
+    trend = [
+        {
+            "date": row["date"],
+            "evidence": row["evidence"],
+            "signals": row["signals"],
+            "topHeadline": row["topHeadline"],
+        }
+        for row in [trend_map[k] for k in sorted(trend_map.keys())]
+    ]
+
+    mix = {
+        "opportunity": sum(1 for s in serialized_in_range if s["classification"] == "opportunity"),
+        "threat": sum(1 for s in serialized_in_range if s["classification"] == "threat"),
+        "neutral": sum(1 for s in serialized_in_range if s["classification"] == "neutral"),
+    }
+
+    # Latest report & brief schedule
+    import os
+
+    latest_report = db.scalar(
+        select(Report).where(Report.company_id == company_id).order_by(Report.id.desc()).limit(1)
+    )
+    sched_enabled = bool(os.getenv("ENABLE_SCHEDULER", "0") == "1" or meta.get("automation_enabled"))
+    brief_info = {
+        "nextRunAt": _next_weekly_monday_0600(now).isoformat() if sched_enabled else None,
+        "lastGeneratedAt": latest_report.created.isoformat() if latest_report and latest_report.created else None,
+        "latestBriefId": str(latest_report.id) if latest_report else None,
+    }
+
+    # Scheduled jobs + real last runs
+    last_brief_job = db.scalar(
+        select(JobLog)
+        .where(JobLog.company_id == company_id, JobLog.job.in_(["weekly_brief", "brief", "job:brief"]))
+        .order_by(JobLog.id.desc())
+        .limit(1)
+    )
+    last_audit_job = db.scalar(
+        select(JobLog)
+        .where(JobLog.company_id == company_id, JobLog.job.in_(["monthly_audit", "audit", "job:audit"]))
+        .order_by(JobLog.id.desc())
+        .limit(1)
+    )
+    jobs_list = [
+        {
+            "id": "weekly_brief",
+            "name": "Weekly Monday Brief",
+            "enabled": sched_enabled,
+            "nextRunAt": _next_weekly_monday_0600(now).isoformat() if sched_enabled else None,
+            "lastRun": (
+                {"status": last_brief_job.status, "finishedAt": last_brief_job.at.isoformat()}
+                if last_brief_job
+                else (
+                    {"status": "ok", "finishedAt": latest_report.created.isoformat()}
+                    if latest_report and latest_report.created
+                    else None
+                )
+            ),
+        },
+        {
+            "id": "monthly_audit",
+            "name": "Monthly Source Audit",
+            "enabled": sched_enabled,
+            "nextRunAt": _next_monthly_1st_0630(now).isoformat() if sched_enabled else None,
+            "lastRun": (
+                {"status": last_audit_job.status, "finishedAt": last_audit_job.at.isoformat()}
+                if last_audit_job
+                else None
+            ),
+        },
+    ]
+
+    # Source health
+    approved_sources = [s for s in all_sources if s.status == "approved"]
+    failing_cnt = sum(1 for s in approved_sources if s.health == "failing")
+    stale_cnt = sum(
+        1
+        for s in approved_sources
+        if s.last_checked is None
+        or (
+            (s.last_checked.replace(tzinfo=timezone.utc) if s.last_checked.tzinfo is None else s.last_checked)
+            < now - timedelta(days=7)
+        )
+    )
+    healthy_cnt = sum(1 for s in approved_sources if s.health == "ok")
+    healthy_pct = round((healthy_cnt / len(approved_sources)) * 100) if approved_sources else 100
+
+    # Source performance table
+    items_per_src: dict[int, int] = {}
+    signals_per_src: dict[int, int] = {}
+    for rec, _src in in_range_records:
+        if rec.source_id:
+            items_per_src[rec.source_id] = items_per_src.get(rec.source_id, 0) + 1
+            if rec.analysis is not None:
+                signals_per_src[rec.source_id] = signals_per_src.get(rec.source_id, 0) + 1
+
+    perf_rows: list[dict] = []
+    for src in all_sources:
+        if category and src.category != category:
+            continue
+        it_cnt = items_per_src.get(src.id, 0)
+        sig_cnt = signals_per_src.get(src.id, 0)
+        yield_pct = round((sig_cnt / it_cnt) * 100) if it_cnt > 0 else 0
+        perf_rows.append(
+            {
+                "sourceId": src.id,
+                "name": src.name,
+                "domain": _domain_of(src.url),
+                "category": src.category,
+                "type": src.source_type or "webpage",
+                "yieldPct": yield_pct,
+                "items": it_cnt,
+                "signals": sig_cnt,
+                "lastCheckedAt": src.last_checked.isoformat() if src.last_checked else None,
+                "status": src.status,
+                "health": src.health,
+            }
+        )
+    perf_rows.sort(key=lambda r: (-r["signals"], -r["items"], r["name"].lower()))
+
+    running_crawl = (
+        db.scalar(
+            select(func.count(JobLog.id)).where(
+                JobLog.company_id == company_id,
+                JobLog.job == "crawl_run",
+                JobLog.status == "running",
+            )
+        )
+        or 0
+    ) > 0
+    running_analysis = (
+        db.scalar(
+            select(func.count(JobLog.id)).where(
+                JobLog.company_id == company_id,
+                JobLog.job == "job:analyse",
+                JobLog.status == "running",
+            )
+        )
+        or 0
+    ) > 0
+
+    suggested_questions: list[str] = []
+    if mix["threat"] > 0:
+        suggested_questions.append("Which threats should we prioritize this week?")
+    if mix["opportunity"] > 0:
+        suggested_questions.append("Where are our strongest growth opportunities?")
+    if prev_range_signals_rows:
+        suggested_questions.append("How does this period compare to the prior period?")
+
+    return {
+        "range": range_key,
+        "category": category,
+        "user": {"firstName": first_name} if first_name else {},
+        "lastVisitAt": previous_visit,
+        "workflowStatus": workflow,
+        "topPriorities": top_priorities,
+        "recentSignals": recent_signals,
+        "evidenceById": evidence_by_id,
+        "brief": brief_info,
+        "kpis": kpis,
+        "heatmap": heatmap,
+        "heatmapMax": heatmap_max,
+        "heatmapInsight": heatmap_insight,
+        "trend": trend,
+        "mix": mix,
+        "jobs": jobs_list,
+        "health": {
+            "healthyPct": healthy_pct,
+            "failing": failing_cnt,
+            "stale": stale_cnt,
+        },
+        "sourcePerformance": perf_rows,
+        "totalSignalsInRange": len(serialized_in_range),
+        "lastUpdatedAt": now.isoformat(),
+        "activeCrawlRunning": running_crawl,
+        "activeAnalysisRunning": running_analysis,
+        "suggestedQuestions": suggested_questions,
+    }
+
+
+@router.get("/companies/{company_id}/search", tags=["dashboard"])
+def search_company_workspace(
+    company_id: int,
+    q: str = Query(default="", max_length=200),
+    db: Session = Depends(get_db),
+) -> dict:
+    company = get_company_or_404(db, company_id)
+    needle = q.strip().lower()
+    if not needle:
+        return {"signals": [], "sources": []}
+
+    rows = _analysed_rows(db, company_id)
+    matched_signals = []
+    for rec, src in rows:
+        a = rec.analysis or {}
+        hay = f"{a.get('title') or rec.title} {a.get('summary') or ''} {_domain_of(rec.url)}".lower()
+        if needle in hay:
+            matched_signals.append(_serialize_signal(company, rec, src))
+            if len(matched_signals) >= 8:
+                break
+
+    sources = list(
+        db.scalars(
+            select(Source).where(Source.company_id == company_id).order_by(Source.id.desc())
+        ).all()
+    )
+    matched_sources = []
+    for src in sources:
+        hay = f"{src.name} {src.url} {src.category}".lower()
+        if needle in hay:
+            matched_sources.append(
+                {
+                    "id": src.id,
+                    "name": src.name,
+                    "domain": _domain_of(src.url),
+                    "category": src.category,
+                    "status": src.status,
+                }
+            )
+            if len(matched_sources) >= 8:
+                break
+
+    return {"signals": matched_signals, "sources": matched_sources}
+
 
 

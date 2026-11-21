@@ -17,6 +17,7 @@ import {
   Globe,
   HelpCircle,
   Layers,
+  LayoutDashboard,
   Lock,
   MessageSquare,
   MoreHorizontal,
@@ -92,12 +93,14 @@ export function Sidebar({
   companies,
   mobileOpen,
   onCloseMobile,
+  onOpenCommandPalette,
 }: {
   companyId: number;
   company: CompanyRecord | null;
   companies: Company[];
   mobileOpen: boolean;
   onCloseMobile: () => void;
+  onOpenCommandPalette?: () => void;
 }) {
   const pathname = usePathname();
   const reduced = Boolean(useReducedMotion());
@@ -119,6 +122,9 @@ export function Sidebar({
   });
 
   const runsCount = crawlerOverviewQuery.data?.runsCount ?? 0;
+  const activeCrawlStatus = crawlerOverviewQuery.data?.activeRun?.status;
+  const isCrawlActive = activeCrawlStatus === "running" || activeCrawlStatus === "queued";
+  const isDashboardRoute = pathname === `${base}/dashboard`;
 
   const workflow = company?.workflowStatus ?? {
     company: "current",
@@ -305,24 +311,52 @@ export function Sidebar({
           ) : null}
         </div>
 
-        {/* Search input with ⌘K hint */}
+        {/* Search button with ⌘K hint */}
         <div className="relative md:hidden xl:block">
-          <Search
-            size={14}
-            strokeWidth={1.75}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#9AA0AA]"
-            aria-hidden="true"
-          />
-          <input
-            type="search"
-            readOnly
-            placeholder="Search workspace"
+          <button
+            type="button"
+            onClick={() => {
+              onCloseMobile();
+              onOpenCommandPalette?.();
+            }}
             aria-label="Search workspace (shortcut Command K)"
-            className="focus-ring h-9 w-full rounded-xl border border-white/75 bg-white/55 pl-8 pr-11 text-xs text-[#1F2125] placeholder:text-[#9AA0AA] outline-none"
-          />
-          <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md border border-[#1F2125]/10 bg-white/80 px-1.5 py-0.5 font-mono text-[10px] text-[#4B5058]">
-            ⌘K
-          </kbd>
+            className="focus-ring flex h-9 w-full items-center justify-between rounded-xl border border-white/75 bg-white/55 px-3 text-left text-xs text-[#9AA0AA] transition-colors hover:bg-white/80 hover:text-[#4B5058]"
+          >
+            <span className="flex items-center gap-2">
+              <Search size={14} strokeWidth={1.75} aria-hidden="true" />
+              <span>Search workspace</span>
+            </span>
+            <kbd className="rounded-md border border-[#1F2125]/10 bg-white/80 px-1.5 py-0.5 font-mono text-[10px] text-[#4B5058]">
+              ⌘K
+            </kbd>
+          </button>
+        </div>
+
+        {/* Primary home: Dashboard */}
+        <div className="relative">
+          {isDashboardRoute ? (
+            <motion.span
+              layoutId={reduced ? undefined : "sidebar-active-pill"}
+              transition={FAST_TRANSITION}
+              className="absolute inset-0 rounded-xl border border-white/80 bg-white shadow-[0_4px_14px_rgba(31,33,37,0.06)]"
+            />
+          ) : null}
+          <Link
+            href={`${base}/dashboard`}
+            onClick={onCloseMobile}
+            aria-current={isDashboardRoute ? "page" : undefined}
+            title="Dashboard"
+            className={`focus-ring relative z-10 flex items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-[13px] font-medium no-underline transition-colors md:justify-center xl:justify-between ${
+              isDashboardRoute
+                ? "text-[#1F2125]"
+                : "text-[#4B5058] hover:bg-white/50 hover:text-[#1F2125]"
+            }`}
+          >
+            <span className="flex items-center gap-2.5">
+              <LayoutDashboard size={16} strokeWidth={1.75} aria-hidden="true" />
+              <span className="md:hidden xl:inline">Dashboard</span>
+            </span>
+          </Link>
         </div>
 
         {/* Group: WORKFLOW */}
@@ -456,6 +490,12 @@ export function Sidebar({
                   <span className="flex items-center gap-2.5">
                     <Bot size={16} strokeWidth={1.75} aria-hidden="true" />
                     <span className="md:hidden xl:inline">Crawler</span>
+                    {isCrawlActive ? (
+                      <span
+                        className="h-2 w-2 animate-pulse rounded-full bg-[#4F46E5]"
+                        title="Crawl running"
+                      />
+                    ) : null}
                   </span>
                   <ChevronDown
                     size={14}

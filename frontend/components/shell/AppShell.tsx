@@ -1,26 +1,31 @@
 "use client";
 
-import { createContext, useContext, useState, type ReactNode } from "react";
-import { useParams } from "next/navigation";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { useParams, usePathname } from "next/navigation";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 
-import { api, getCompany } from "@/lib/api";
-import { adaptCompanyDetail, buildDevMockCompany } from "@/lib/company-adapter";
-import { DURATIONS, MOTION_EASE } from "@/lib/motion";
+import { CommandPalette } from "@/components/dashboard/CommandPalette";
+import { AmbientBlobs } from "@/components/motion/AmbientBlobs";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { TopBar } from "@/components/shell/TopBar";
+import { useMotionSafe } from "@/hooks/useMotionSafe";
+import { api, getCompany } from "@/lib/api";
+import { adaptCompanyDetail, buildDevMockCompany } from "@/lib/company-adapter";
+import { DURATIONS, MOTION_EASE, pageTransition } from "@/lib/motion";
 
 type AppShellContextValue = {
   focusMode: boolean;
   setFocusMode: (value: boolean) => void;
   toggleFocusMode: () => void;
+  openCommandPalette: () => void;
 };
 
 const AppShellContext = createContext<AppShellContextValue>({
   focusMode: false,
   setFocusMode: () => {},
   toggleFocusMode: () => {},
+  openCommandPalette: () => {},
 });
 
 export function useAppShell() {
@@ -29,12 +34,26 @@ export function useAppShell() {
 
 function AppShellInner({ children }: { children: ReactNode }) {
   const params = useParams<{ id?: string }>();
+  const pathname = usePathname();
   const companyId = Number(params?.id || 1);
+  const resolvedCompanyId = Number.isFinite(companyId) ? companyId : 1;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-  const reduced = Boolean(useReducedMotion());
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const { reduced } = useMotionSafe();
 
   const useMocks = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCmdOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const companyQuery = useQuery({
     queryKey: ["company", companyId],
@@ -62,15 +81,11 @@ function AppShellInner({ children }: { children: ReactNode }) {
         focusMode,
         setFocusMode,
         toggleFocusMode: () => setFocusMode((prev) => !prev),
+        openCommandPalette: () => setCmdOpen(true),
       }}
     >
       <div className="relative flex min-h-screen">
-        {/* Subtle 50%-opacity backdrop for dense workspace readability */}
-        <div className="bg-blobs bg-blobs-app" aria-hidden="true">
-          <div className="bg-blob-tl" />
-          <div className="bg-blob-tc" />
-          <div className="bg-blob-br" />
-        </div>
+        <AmbientBlobs className="bg-blobs-app" />
 
         {!focusMode ? (
           <motion.div
@@ -80,25 +95,44 @@ function AppShellInner({ children }: { children: ReactNode }) {
             className="flex"
           >
             <Sidebar
-              companyId={Number.isFinite(companyId) ? companyId : 1}
+              companyId={resolvedCompanyId}
               company={company}
               companies={companies}
               mobileOpen={mobileOpen}
               onCloseMobile={() => setMobileOpen(false)}
+              onOpenCommandPalette={() => setCmdOpen(true)}
             />
           </motion.div>
         ) : null}
 
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar
-            companyId={Number.isFinite(companyId) ? companyId : 1}
+            companyId={resolvedCompanyId}
             companyName={company?.name ?? `Company #${companyId}`}
             onOpenMobileMenu={() => setMobileOpen(true)}
+            onOpenCommandPalette={() => setCmdOpen(true)}
           />
           <main id="main-content" className="min-w-0 flex-1">
-            {children}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={pathname}
+                variants={pageTransition(reduced)}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                className="min-h-full"
+              >
+                {children}
+              </motion.div>
+            </AnimatePresence>
           </main>
         </div>
+
+        <CommandPalette
+          companyId={resolvedCompanyId}
+          open={cmdOpen}
+          onClose={() => setCmdOpen(false)}
+        />
       </div>
     </AppShellContext.Provider>
   );

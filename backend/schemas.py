@@ -350,9 +350,22 @@ class SignalsAskIn(BaseModel):
     quotedText: str | None = Field(default=None, max_length=600)
 
 
+class AnswerCardRowOut(BaseModel):
+    label: str
+    value: str
+    category: Literal["customers", "competitors", "market", "internal"] | None = None
+
+
+class AnswerCardOut(BaseModel):
+    title: str
+    rows: list[AnswerCardRowOut] = Field(default_factory=list, max_length=6)
+
+
 class SignalsAskLLMOut(BaseModel):
     answer: str
     cited_record_ids: list[int] = Field(default_factory=list)
     suggested_questions: list[str] = Field(default_factory=list, max_length=4)
+    answer_card: AnswerCardOut | None = None
+    recommendation: str | None = None
 
 

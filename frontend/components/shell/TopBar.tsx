@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronRight, Menu } from "lucide-react";
+import { ChevronRight, Menu, Search } from "lucide-react";
 
 import { BackendStatus } from "@/components/backend-status";
 
 function resolveStepLabel(pathname: string, companyId: number): string {
   const base = `/company/${companyId}`;
+  if (pathname === `${base}/dashboard`) return "Mission control overview";
   if (pathname === base) return "Step 1 of 6: Review company profile";
   if (pathname === `${base}/interview`) return "Step 2 of 6: Founder interview";
   if (pathname === `${base}/signal-stack` || pathname === `${base}/sources`) {
@@ -27,6 +28,7 @@ function resolveStepLabel(pathname: string, companyId: number): string {
 
 function resolveSectionLabel(pathname: string, companyId: number): string | null {
   const base = `/company/${companyId}`;
+  if (pathname === `${base}/dashboard`) return "Dashboard";
   if (pathname === `${base}/interview`) return "Interview";
   if (pathname === `${base}/competitors`) return "Competitors";
   if (pathname === `${base}/sources` || pathname === `${base}/signal-stack`) return "Signal Stack";
@@ -41,10 +43,12 @@ export function TopBar({
   companyId,
   companyName,
   onOpenMobileMenu,
+  onOpenCommandPalette,
 }: {
   companyId: number;
   companyName: string;
   onOpenMobileMenu: () => void;
+  onOpenCommandPalette?: () => void;
 }) {
   const pathname = usePathname();
   const stepText = resolveStepLabel(pathname, companyId);
@@ -87,7 +91,21 @@ export function TopBar({
         </nav>
       </div>
 
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2.5 sm:gap-3">
+        {onOpenCommandPalette ? (
+          <button
+            type="button"
+            onClick={onOpenCommandPalette}
+            aria-label="Open command palette (Command K)"
+            className="focus-ring inline-flex h-8 items-center gap-2 rounded-xl border border-white/80 bg-white/75 px-2.5 text-xs text-[#4B5058] transition-colors hover:bg-white hover:text-[#1F2125]"
+          >
+            <Search size={13} aria-hidden="true" />
+            <span className="hidden md:inline">Search…</span>
+            <kbd className="rounded border border-[#1F2125]/10 bg-[#F4F6FB] px-1.5 py-0.5 font-mono text-[10px] text-[#4B5058]">
+              ⌘K
+            </kbd>
+          </button>
+        ) : null}
         <span className="hidden font-mono text-[11.5px] text-[#4B5058] sm:inline">{stepText}</span>
         <BackendStatus />
       </div>

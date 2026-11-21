@@ -36,6 +36,8 @@ export function useAskSignals(companyId: number, initialSuggested: string[] = []
           ? "No supporting evidence found in your collected signals for that question."
           : res.answer,
         citations: res.citations ?? [],
+        answerCard: noEvidence ? null : (res.answerCard ?? null),
+        recommendation: noEvidence ? null : (res.recommendation ?? null),
         noEvidence,
         createdAt: new Date().toISOString(),
       };

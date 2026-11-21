@@ -73,7 +73,7 @@ export default function LandingPage() {
             {existingCompanies.slice(0, 4).map((company) => (
               <Link
                 key={company.id}
-                href={`/company/${company.id}`}
+                href={`/company/${company.id}/dashboard`}
                 className="focus-ring inline-flex items-center gap-1 rounded-full border border-white/80 bg-white/60 px-3 py-1 font-medium text-[#1F2125] no-underline shadow-sm backdrop-blur-md hover:bg-white"
               >
                 {company.name} <ArrowRight size={11} />

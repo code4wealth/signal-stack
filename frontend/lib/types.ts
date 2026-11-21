@@ -969,10 +969,23 @@ export type AskCitation = {
   label: string;
 };
 
+export type AnswerCardRow = {
+  label: string;
+  value: string;
+  category?: SourceCategory | null;
+};
+
+export type AnswerCard = {
+  title: string;
+  rows: AnswerCardRow[];
+};
+
 export type AskSignalsResponse = {
   answer: string;
   citations: AskCitation[];
   suggestedQuestions: string[];
+  answerCard?: AnswerCard | null;
+  recommendation?: string | null;
 };
 
 export type AskMessage = {
@@ -981,8 +994,117 @@ export type AskMessage = {
   text: string;
   quotedText?: string | null;
   citations?: AskCitation[];
+  answerCard?: AnswerCard | null;
+  recommendation?: string | null;
   noEvidence?: boolean;
   createdAt: string;
 };
+
+// ---------------------------------------------------------------------------
+// Main Dashboard (Home / Mission Control) & Workspace Search
+// ---------------------------------------------------------------------------
+
+export type DashboardRange = "week" | "30d" | "quarter";
+
+export type DashboardKpi = {
+  category: SourceCategory;
+  newSignals: number;
+  opportunities: number;
+  threats: number;
+  deltaPct: number | null;
+  spark: number[];
+  filesAnalysed?: number | null;
+};
+
+export type DashboardHeatmapCell = {
+  day: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  bucket: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  count: number;
+};
+
+export type DashboardTrendPoint = {
+  date: string;
+  evidence: number;
+  signals: number;
+  topHeadline?: string | null;
+};
+
+export type DashboardJob = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  nextRunAt?: string | null;
+  lastRun?: {
+    status: string;
+    finishedAt: string;
+  } | null;
+};
+
+export type DashboardSourcePerf = {
+  sourceId: number;
+  name: string;
+  domain: string;
+  category: SourceCategory;
+  type: string;
+  yieldPct: number;
+  items: number;
+  signals: number;
+  lastCheckedAt?: string | null;
+  status: string;
+  health?: string;
+};
+
+export type DashboardData = {
+  range: DashboardRange;
+  category?: SourceCategory | null;
+  user?: {
+    firstName?: string | null;
+  };
+  lastVisitAt?: string | null;
+  workflowStatus: WorkflowStatus;
+  topPriorities: SignalItem[];
+  recentSignals: SignalItem[];
+  evidenceById: Record<string, CollectedItem>;
+  brief?: {
+    nextRunAt?: string | null;
+    lastGeneratedAt?: string | null;
+    latestBriefId?: string | null;
+  } | null;
+  kpis: DashboardKpi[];
+  heatmap: DashboardHeatmapCell[];
+  heatmapMax: number;
+  heatmapInsight?: string | null;
+  trend: DashboardTrendPoint[];
+  mix: {
+    opportunity: number;
+    threat: number;
+    neutral: number;
+  };
+  jobs: DashboardJob[];
+  health: {
+    healthyPct: number;
+    failing: number;
+    stale: number;
+  };
+  sourcePerformance: DashboardSourcePerf[];
+  totalSignalsInRange: number;
+  lastUpdatedAt: string;
+  activeCrawlRunning: boolean;
+  activeAnalysisRunning: boolean;
+  suggestedQuestions: string[];
+  isMock?: boolean;
+};
+
+export type WorkspaceSearchResponse = {
+  signals: SignalItem[];
+  sources: {
+    id: number;
+    name: string;
+    domain: string;
+    category: SourceCategory;
+    status: string;
+  }[];
+};
+
 
 
