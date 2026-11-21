@@ -756,13 +756,13 @@ export function Sidebar({
             <span className="md:hidden xl:inline">Settings</span>
           </Link>
           <Link
-            href="/sample-brief"
+            href={`${base}/brief`}
             onClick={onCloseMobile}
-            title="Help"
+            title="Monday Morning Briefs"
             className="focus-ring flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-xs font-medium text-[#4B5058] no-underline hover:bg-white/50 hover:text-[#1F2125] md:justify-center xl:justify-start"
           >
             <HelpCircle size={15} strokeWidth={1.75} aria-hidden="true" />
-            <span className="md:hidden xl:inline">Help</span>
+            <span className="md:hidden xl:inline">Briefs</span>
           </Link>
         </div>
 
