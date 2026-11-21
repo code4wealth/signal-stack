@@ -22,6 +22,7 @@ export function BriefFooterBar({
   onOpenEmail: () => void;
 }) {
   const [confirmRegen, setConfirmRegen] = useState(false);
+  const emailConfigured = Boolean(brief.capabilities?.emailConfigured);
 
   return (
     <footer className="brief-sticky-footer no-print sticky bottom-3 z-20 mx-auto mt-8 max-w-[1160px]">
@@ -35,7 +36,7 @@ export function BriefFooterBar({
             Back to dashboard
           </Link>
           <span className="rounded-full border border-[#1F2125]/10 bg-white/80 px-2.5 py-0.5 font-mono text-[11px] font-medium uppercase text-[#4B5058]">
-            v{brief.version} · {brief.status}
+            Brief v{brief.version} · {brief.status}
           </span>
         </div>
 
@@ -52,21 +53,12 @@ export function BriefFooterBar({
             </button>
           ) : null}
 
-          <button
-            type="button"
-            onClick={onOpenEmail}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-xl border border-[#1F2125]/12 bg-white px-3 py-1.5 text-xs font-medium text-[#1F2125] hover:bg-[#F4F6FB]"
-          >
-            <Mail size={13} aria-hidden="true" />
-            Email me this
-          </button>
-
           <div className="relative">
             <button
               type="button"
               disabled={isRegenerating}
               onClick={() => setConfirmRegen((v) => !v)}
-              className="focus-ring inline-flex items-center gap-1.5 rounded-xl bg-[#1C1D21] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#1C1D21]/90 disabled:opacity-50"
+              className="focus-ring inline-flex items-center gap-1.5 rounded-xl border border-[#1F2125]/12 bg-white px-3 py-1.5 text-xs font-medium text-[#1F2125] hover:bg-[#F4F6FB] disabled:opacity-50"
             >
               <RefreshCw size={13} className={isRegenerating ? "animate-spin" : ""} aria-hidden="true" />
               Regenerate
@@ -82,7 +74,7 @@ export function BriefFooterBar({
                   Regenerate Monday Brief?
                 </p>
                 <p className="mt-1 text-[11.5px] text-[#4B5058]">
-                  Creates a new version while preserving this edition in History.
+                  Creates a new version while keeping this edition in History.
                 </p>
                 <div className="mt-3 flex justify-end gap-2">
                   <button
@@ -106,6 +98,21 @@ export function BriefFooterBar({
               </div>
             ) : null}
           </div>
+
+          <button
+            type="button"
+            disabled={!emailConfigured}
+            title={
+              emailConfigured
+                ? "Send this brief by email"
+                : "Email delivery not configured (set SMTP_HOST or RESEND_API_KEY)"
+            }
+            onClick={onOpenEmail}
+            className="focus-ring inline-flex items-center gap-1.5 rounded-xl bg-[#1C1D21] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#1C1D21]/90 disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            <Mail size={13} aria-hidden="true" />
+            {emailConfigured ? "Email me this" : "Email unavailable"}
+          </button>
         </div>
       </div>
     </footer>

@@ -214,10 +214,19 @@ export const timelineMarkerGrow = (delaySec = 0, reduced = false): Variants => (
 
 /** Editorial section entrance for Monday Morning Brief whileInView sections */
 export const readingReveal = (reduced = false): Variants => ({
-  hidden: { opacity: 0, y: reduced ? 0 : 12 },
+  hidden: { opacity: 0, y: reduced ? 0 : 16 },
   visible: {
     opacity: 1,
     y: 0,
+    transition: reduced ? FAST_TRANSITION : BASE_TRANSITION,
+  },
+});
+
+export const accentLineReveal = (reduced = false): Variants => ({
+  hidden: { scaleX: reduced ? 1 : 0, opacity: reduced ? 1 : 0.6 },
+  visible: {
+    scaleX: 1,
+    opacity: 1,
     transition: reduced ? FAST_TRANSITION : BASE_TRANSITION,
   },
 });

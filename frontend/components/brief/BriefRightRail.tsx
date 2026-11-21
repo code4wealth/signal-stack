@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import {
+  AlertTriangle,
   CheckCircle2,
   Clock,
   Cpu,
@@ -53,6 +54,7 @@ export function BriefRightRail({
 
   return (
     <GlassCard
+      strong={!compactHorizontal}
       className={
         compactHorizontal
           ? "no-print grid gap-4 p-4 sm:grid-cols-3"
@@ -60,16 +62,44 @@ export function BriefRightRail({
       }
     >
       <div>
-        <p className="font-mono text-[10.5px] font-semibold uppercase tracking-wider text-[#9AA0AA]">
-          This brief
-        </p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="font-mono text-[10.5px] font-semibold uppercase tracking-wider text-[#9AA0AA]">
+            This brief
+          </p>
+          {brief.isMock ? (
+            <span className="rounded-full border border-amber-400/50 bg-amber-100 px-2 py-0.5 font-mono text-[9.5px] font-semibold text-amber-900">
+              MOCK DATA
+            </span>
+          ) : null}
+        </div>
         <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-[#1F2125]">
           <Clock size={14} className="text-[#4F46E5]" aria-hidden="true" />
-          <span>~{readMins} min read</span>
+          <span>{readMins} min read</span>
         </div>
         <p className="mt-1 font-mono text-[11px] text-[#4B5058]">
           Generated {formatBriefDate(brief.generatedAt)}
         </p>
+
+        {/* Mini counts & verified coverage */}
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+          <span className="rounded-full border border-[#1F2125]/10 bg-white/80 px-2 py-0.5 font-mono text-[10.5px] text-[#4B5058]">
+            {brief.stats.signals} signals
+          </span>
+          <span className="rounded-full border border-[#1F2125]/10 bg-white/80 px-2 py-0.5 font-mono text-[10.5px] text-[#4B5058]">
+            {brief.stats.sources} sources
+          </span>
+          {brief.stats.verifiedPct < 100 ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-[#EA580C]/35 bg-[#EA580C]/10 px-2 py-0.5 font-mono text-[10.5px] font-medium text-[#C2410C]">
+              <AlertTriangle size={10} aria-hidden="true" />
+              {brief.stats.verifiedPct}% verified
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-full border border-[#059669]/30 bg-[#059669]/8 px-2 py-0.5 font-mono text-[10.5px] font-medium text-[#047857]">
+              <CheckCircle2 size={10} aria-hidden="true" />
+              100% verified
+            </span>
+          )}
+        </div>
 
         <div className="mt-3 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-[#4B5058]">
@@ -80,17 +110,17 @@ export function BriefRightRail({
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#1F2125]/10">
             <div
-              className="h-full rounded-full bg-[#4F46E5] transition-all"
-              style={{ width: `${actionPct}%` }}
+              className="h-full origin-left rounded-full bg-[#4F46E5] transition-transform"
+              style={{ transform: `scaleX(${actionPct / 100})` }}
             />
           </div>
         </div>
       </div>
 
-      {/* Provenance */}
+      {/* How this was made */}
       <div className={compactHorizontal ? "" : "border-t border-[#1F2125]/8 pt-3.5"}>
         <p className="font-mono text-[10.5px] font-semibold uppercase tracking-wider text-[#9AA0AA]">
-          Provenance
+          How this was made
         </p>
         <ul className="mt-2 space-y-1.5 text-xs text-[#4B5058]">
           {brief.provenance.steps.map((step) => (

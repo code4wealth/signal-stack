@@ -312,6 +312,19 @@ a:hover {
   animation: briefSourceFlash 1.2s var(--ease) forwards;
 }
 
+@keyframes briefHeroShimmer {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+.brief-hero-shimmer {
+  animation: briefHeroShimmer 1.3s var(--ease) 0.15s 1 forwards;
+}
+
 .brief-print-only {
   display: none;
 }
@@ -320,6 +333,11 @@ a:hover {
   @page {
     size: A4;
     margin: 18mm;
+    @bottom-right {
+      content: "Page " counter(page) " of " counter(pages);
+      font-size: 9pt;
+      color: #4b5058;
+    }
   }
 
   html,
@@ -384,6 +402,12 @@ a:hover {
 
   section[data-brief-section] {
     break-inside: avoid-page;
+  }
+
+  #actions,
+  #sources {
+    break-before: page;
+    page-break-before: always;
   }
 }
 

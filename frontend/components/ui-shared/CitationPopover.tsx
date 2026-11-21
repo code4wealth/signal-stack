@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { motion } from "framer-motion";
 import {
   ArrowDownRight,
   CheckCircle2,
@@ -10,6 +11,8 @@ import {
   X,
 } from "lucide-react";
 
+import { useMotionSafe } from "@/hooks/useMotionSafe";
+import { commandDialogMotion } from "@/lib/motion";
 import type { BriefSourceItem } from "@/lib/types";
 
 function fmtDate(iso?: string | null): string {
@@ -28,6 +31,7 @@ export function CitationPopover({
   onClose: () => void;
   onJumpToSource?: (n: number) => void;
 }) {
+  const { reduced } = useMotionSafe();
   const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -54,14 +58,18 @@ export function CitationPopover({
     source.url.startsWith("upload://") || source.type === "Internal file";
 
   return (
-    <div
+    <motion.div
       ref={boxRef}
       role="dialog"
       aria-label={`Source ${source.n}: ${source.title}`}
-      className="glass-strong no-print absolute left-0 top-full z-50 mt-2 w-[310px] rounded-2xl p-3.5 text-left shadow-[0_20px_48px_rgba(31,33,37,0.16)] sm:w-[340px]"
+      variants={commandDialogMotion(reduced)}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      className="glass-strong no-print absolute left-0 top-full z-50 mt-2 w-[280px] rounded-2xl p-3.5 text-left shadow-[0_20px_48px_rgba(31,33,37,0.16)]"
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <span className="inline-flex h-5 min-w-[24px] items-center justify-center rounded-md bg-[#4F46E5]/10 px-1.5 font-mono text-[11px] font-semibold text-[#4F46E5]">
             [{source.n}]
           </span>
@@ -112,10 +120,10 @@ export function CitationPopover({
               onJumpToSource(source.n);
               onClose();
             }}
-            className="focus-ring inline-flex items-center gap-1 rounded-lg border border-[#4F46E5]/25 bg-[#4F46E5]/8 px-2.5 py-1 text-xs font-medium text-[#4F46E5] hover:bg-[#4F46E5]/15"
+            className="focus-ring inline-flex items-center gap-1 rounded-lg border border-[#4F46E5]/25 bg-[#4F46E5]/8 px-2 py-1 text-[11px] font-medium text-[#4F46E5] hover:bg-[#4F46E5]/15"
           >
-            <ArrowDownRight size={13} aria-hidden="true" />
-            Appendix [{source.n}]
+            <ArrowDownRight size={12} aria-hidden="true" />
+            Jump to appendix
           </button>
         ) : <span />}
 
@@ -124,14 +132,14 @@ export function CitationPopover({
             href={source.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="focus-ring inline-flex items-center gap-1 rounded-lg border border-[#1F2125]/12 bg-white px-2.5 py-1 text-xs font-medium text-[#1F2125] no-underline hover:bg-[#F4F6FB]"
+            className="focus-ring inline-flex items-center gap-1 rounded-lg border border-[#1F2125]/12 bg-white px-2 py-1 text-[11px] font-medium text-[#1F2125] no-underline hover:bg-[#F4F6FB]"
           >
-            Open URL <ExternalLink size={11} aria-hidden="true" />
+            Open ↗ <ExternalLink size={10} aria-hidden="true" />
           </a>
         ) : (
-          <span className="font-mono text-[10.5px] text-[#4B5058]">Uploaded internal doc</span>
+          <span className="font-mono text-[10px] text-[#4B5058]">Internal file</span>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }

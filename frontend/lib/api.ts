@@ -1465,6 +1465,14 @@ export async function toggleWatchlistItem(
   );
 }
 
+// Named aliases matching specification Section 9
+export const updateBrief = patchBrief;
+export const updateAction = patchBriefAction;
+export const addAction = createBriefAction;
+export const downloadBriefPdf = getBriefPdfBlob;
+export const sendBriefFeedback = submitBriefFeedback;
+export const toggleWatch = toggleWatchlistItem;
+
 
 
 

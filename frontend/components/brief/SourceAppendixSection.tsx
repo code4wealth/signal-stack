@@ -19,13 +19,31 @@ import { readingReveal } from "@/lib/motion";
 import type { BriefSourceItem } from "@/lib/types";
 import { formatBriefDate } from "./briefMeta";
 
+function UsedInTargetId(sectionLabel: string, itemId: string): string {
+  const s = sectionLabel.toLowerCase();
+  if (s.includes("executive")) return `claim-${itemId}`;
+  if (s.includes("action")) return `action-${itemId}`;
+  if (s.includes("opportunit")) return `opp-${itemId}`;
+  if (s.includes("risk")) return `risk-${itemId}`;
+  if (s.includes("watch")) return itemId;
+  if (s.includes("customer")) return "customers";
+  if (s.includes("competitor")) return "competitors";
+  if (s.includes("market")) return "market";
+  if (s.includes("internal")) return "internal";
+  return "executive-summary";
+}
+
 export function SourceAppendixSection({
   sources,
+  generatedAt,
+  isMock,
   highlightedSourceN,
   returnToOriginId,
   onClearReturn,
 }: {
   sources: BriefSourceItem[];
+  generatedAt: string;
+  isMock?: boolean;
   highlightedSourceN: number | null;
   returnToOriginId: string | null;
   onClearReturn: () => void;
@@ -48,6 +66,14 @@ export function SourceAppendixSection({
     onClearReturn();
   };
 
+  const jumpToUsedIn = (sectionLabel: string, itemId: string) => {
+    const targetId = UsedInTargetId(sectionLabel, itemId);
+    const el = document.getElementById(targetId);
+    if (el) {
+      el.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
+    }
+  };
+
   return (
     <motion.section
       id="sources"
@@ -56,7 +82,7 @@ export function SourceAppendixSection({
       variants={readingReveal(reduced)}
       initial="hidden"
       whileInView="visible"
-      viewport={{ once: true, margin: "-10%" }}
+      viewport={{ once: true, margin: "-80px" }}
       className="space-y-4"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[#1F2125]/10 pb-3">
@@ -68,15 +94,25 @@ export function SourceAppendixSection({
             <BookOpen size={17} />
           </span>
           <div>
-            <span className="font-mono text-[11px] font-semibold text-[#4B5058]">
-              Section 10
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[11px] font-semibold text-[#4B5058]">
+                Section 10
+              </span>
+              {isMock ? (
+                <span className="rounded-full border border-amber-400/50 bg-amber-100 px-2 py-0.5 font-mono text-[9.5px] font-semibold text-amber-900">
+                  MOCK DATA
+                </span>
+              ) : null}
+            </div>
             <h2
               id="heading-sources"
               className="font-serif text-[22px] font-medium leading-tight tracking-[-0.015em] text-[#1F2125]"
             >
-              Source Appendix
+              Source appendix
             </h2>
+            <p className="mt-0.5 text-xs text-[#4B5058]">
+              Every claim above is backed by one of these sources.
+            </p>
           </div>
         </div>
         <span className="font-mono text-xs text-[#4B5058]">
@@ -116,7 +152,20 @@ export function SourceAppendixSection({
                             Verified
                           </span>
                         ) : null}
-                        <span className="font-mono text-[11px] text-[#9AA0AA]">
+                        <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-[#4B5058]">
+                          {!isInternal ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(src.domain)}&sz=32`}
+                              alt=""
+                              width={14}
+                              height={14}
+                              className="h-3.5 w-3.5 rounded-xs"
+                              onError={(e) => {
+                                e.currentTarget.style.display = "none";
+                              }}
+                            />
+                          ) : null}
                           {src.domain}
                         </span>
                       </div>
@@ -124,8 +173,8 @@ export function SourceAppendixSection({
                       <p className="text-[15px] font-semibold text-[#1F2125]">{src.title}</p>
 
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-[#4B5058]">
-                        <span>Published: {formatBriefDate(src.publishedAt)}</span>
-                        <span>Fetched: {formatBriefDate(src.fetchedAt)}</span>
+                        <span>Published {formatBriefDate(src.publishedAt)}</span>
+                        <span>Fetched {formatBriefDate(src.fetchedAt)}</span>
                       </div>
 
                       {!isInternal ? (
@@ -136,13 +185,18 @@ export function SourceAppendixSection({
                         <div className="flex flex-wrap items-center gap-1.5 pt-1">
                           <span className="font-mono text-[10.5px] text-[#9AA0AA]">Used in:</span>
                           {src.usedIn.map((u) => (
-                            <span
+                            <button
                               key={`${u.section}-${u.itemId}`}
-                              className="rounded-full border border-[#1F2125]/10 bg-[#F4F6FB] px-2 py-0.5 font-mono text-[10.5px] text-[#4B5058]"
+                              type="button"
+                              onClick={() => jumpToUsedIn(u.section, u.itemId)}
+                              className="no-print focus-ring rounded-full border border-[#1F2125]/10 bg-[#F4F6FB] px-2 py-0.5 font-mono text-[10.5px] text-[#4B5058] hover:border-[#4F46E5]/30 hover:text-[#4F46E5]"
                             >
                               {u.section}
-                            </span>
+                            </button>
                           ))}
+                          <span className="brief-print-only font-mono text-[9pt] text-[#4B5058]">
+                            {src.usedIn.map((u) => u.section).join(", ")}
+                          </span>
                         </div>
                       ) : null}
                     </div>
@@ -156,7 +210,7 @@ export function SourceAppendixSection({
                         className="focus-ring inline-flex items-center gap-1 rounded-lg border border-[#4F46E5]/30 bg-[#4F46E5] px-2.5 py-1 text-xs font-medium text-white"
                       >
                         <ArrowLeft size={12} aria-hidden="true" />
-                        Back to claim
+                        back to claim
                       </button>
                     ) : null}
                     <button
@@ -185,6 +239,11 @@ export function SourceAppendixSection({
           })}
         </GlassCard>
       )}
+
+      <p className="pt-2 text-xs text-[#4B5058]">
+        Generated by Signal Stack from public sources and your uploaded files on{" "}
+        {formatBriefDate(generatedAt)}. AI interpretation is labelled; verify before acting on it.
+      </p>
     </motion.section>
   );
 }

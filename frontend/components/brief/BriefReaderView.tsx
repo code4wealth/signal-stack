@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
+import { RotateCcw } from "lucide-react";
 
 import { RunDrawer } from "@/components/automation/RunDrawer";
 import { EvidenceDrawer } from "@/components/crawler/EvidenceDrawer";
@@ -56,10 +57,7 @@ export function BriefReaderView({
   const queryClient = useQueryClient();
   const progress = useReadingProgress();
 
-  const sectionIds = useMemo(
-    () => BRIEF_SECTION_DEFS.map((d) => d.id),
-    [],
-  );
+  const sectionIds = useMemo(() => BRIEF_SECTION_DEFS.map((d) => d.id), []);
   const activeSectionId = useScrollSpy(sectionIds, "executive-summary");
 
   const companyQuery = useQuery({
@@ -99,6 +97,7 @@ export function BriefReaderView({
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [activeSignalId, setActiveSignalId] = useState<number | null>(null);
   const [activeEvidence, setActiveEvidence] = useState<CollectedItem | null>(null);
   const [activeRunId, setActiveRunId] = useState<number | null>(null);
@@ -124,7 +123,6 @@ export function BriefReaderView({
     [reduced],
   );
 
-  // Handle ?cite=n deep link on mount/brief load
   useEffect(() => {
     if (!brief) return;
     const citeParam = searchParams?.get("cite");
@@ -160,11 +158,12 @@ export function BriefReaderView({
   const handleCopyMarkdown = async () => {
     if (!brief) return;
     await navigator.clipboard.writeText(briefToMarkdown(brief));
-    showToast("Full brief copied as Markdown");
+    showToast("Copied");
   };
 
-  const handlePrintPdf = async () => {
+  const handleDownloadPdf = async () => {
     if (!brief) return;
+    setPdfLoading(true);
     try {
       const blob = await getBriefPdfBlob(companyId, brief.id);
       const url = URL.createObjectURL(blob);
@@ -177,7 +176,13 @@ export function BriefReaderView({
     } catch {
       showToast("Use Save as PDF in the print dialog");
       window.setTimeout(() => window.print(), 120);
+    } finally {
+      setPdfLoading(false);
     }
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   const handleRegenerate = async () => {
@@ -193,6 +198,20 @@ export function BriefReaderView({
     await patchSignal(companyId, signalId, patch);
     queryClient.invalidateQueries({ queryKey: ["signal-detail", companyId, signalId] });
   };
+
+  const signalHeadlines = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (!brief) return map;
+    brief.executiveSummary.forEach((s) => {
+      map[s.signalId] = s.headline;
+    });
+    brief.sections.forEach((sec) =>
+      sec.items.forEach((s) => {
+        map[s.signalId] = s.headline;
+      }),
+    );
+    return map;
+  }, [brief]);
 
   const isDraftEditable = Boolean(brief && brief.status === "draft" && !brief.isArchived);
 
@@ -214,9 +233,16 @@ export function BriefReaderView({
   if (error) {
     return (
       <div className="mx-auto max-w-[780px] px-4 py-10">
-        <div className="glass rounded-2xl p-6 text-sm text-[#B91C1C]">
-          Failed to load Monday Morning Brief:{" "}
-          {error instanceof Error ? error.message : "Unknown error"}
+        <div className="glass flex flex-wrap items-center justify-between gap-3 rounded-2xl p-6 text-sm text-[#B91C1C]">
+          <span>Backend not reachable. Check that the API is running.</span>
+          <button
+            type="button"
+            onClick={() => refetchAll()}
+            className="focus-ring inline-flex items-center gap-1.5 rounded-xl bg-[#1C1D21] px-3.5 py-2 text-xs font-medium text-white"
+          >
+            <RotateCcw size={13} aria-hidden="true" />
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -249,6 +275,8 @@ export function BriefReaderView({
     );
   }
 
+  const doneActionsCount = brief.actions.filter((a) => a.done).length;
+
   return (
     <>
       {/* 2px scaleX Reading Progress Bar */}
@@ -261,6 +289,17 @@ export function BriefReaderView({
           style={{ transform: `scaleX(${progress})` }}
         />
       </div>
+
+      {/* Floating <1440px actions progress pill */}
+      {brief.actions.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => scrollToSection("actions")}
+          className="no-print focus-ring fixed bottom-20 right-4 z-20 rounded-full border border-[#4F46E5]/30 bg-white/90 px-3 py-1.5 font-mono text-[11px] font-semibold text-[#4F46E5] shadow-md backdrop-blur-md 2xl:hidden"
+        >
+          {doneActionsCount}/{brief.actions.length} actions
+        </button>
+      ) : null}
 
       <div className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6">
         <AnimatePresence mode="wait">
@@ -278,8 +317,10 @@ export function BriefReaderView({
                 brief={brief}
                 activeId={activeSectionId}
                 onSelectSection={scrollToSection}
+                onDownloadPdf={handleDownloadPdf}
                 onCopyMarkdown={handleCopyMarkdown}
-                onPrintPdf={handlePrintPdf}
+                onOpenEmail={() => setEmailOpen(true)}
+                onPrint={handlePrint}
               />
 
               {/* Centered 800px Reading Column */}
@@ -287,12 +328,12 @@ export function BriefReaderView({
                 <BriefHero
                   brief={brief}
                   onCopyMarkdown={handleCopyMarkdown}
-                  onPrintPdf={handlePrintPdf}
+                  onDownloadPdf={handleDownloadPdf}
+                  onPrint={handlePrint}
                   onOpenEmail={() => setEmailOpen(true)}
                   onOpenHistory={() => setHistoryOpen(true)}
-                  onRegenerate={handleRegenerate}
-                  isRegenerating={isStarting || isGenerating}
                   onOpenRunDrawer={(rid) => setActiveRunId(rid)}
+                  pdfLoading={pdfLoading}
                 />
 
                 {/* Right Rail below Hero for <1440px */}
@@ -310,6 +351,7 @@ export function BriefReaderView({
                 <ExecutiveSummarySection
                   items={brief.executiveSummary}
                   sources={brief.sources}
+                  isMock={brief.isMock}
                   onJumpToSource={jumpToSource}
                   onJumpToCategoryItem={jumpToCategoryItem}
                   onInspectSignal={(sid) => setActiveSignalId(sid)}
@@ -320,23 +362,36 @@ export function BriefReaderView({
                   <CategoryIntelligenceSection
                     key={section.key}
                     sectionNumber={CATEGORY_SECTION_NUMBERS[section.key] ?? "02"}
+                    companyName={brief.companyName}
                     section={section}
                     sources={brief.sources}
                     isDraftEditable={isDraftEditable}
+                    isMock={brief.isMock}
                     noteText={
                       brief.notes.find((n) => n.sectionKey === section.key)?.text ?? ""
                     }
                     onSaveNote={async (sectionKey, text) => {
+                      const prevNotes = brief.notes;
                       const nextNotes = [
-                        ...brief.notes.filter((n) => n.sectionKey !== sectionKey),
+                        ...prevNotes.filter((n) => n.sectionKey !== sectionKey),
                         { sectionKey, text },
                       ];
-                      await patchBrief({ notes: nextNotes });
-                      showToast("Section note saved");
+                      syncCache({ ...brief, notes: nextNotes });
+                      try {
+                        await patchBrief({ notes: nextNotes });
+                        showToast("Section note saved");
+                      } catch {
+                        syncCache({ ...brief, notes: prevNotes });
+                        showToast("Failed to save note", "error");
+                      }
                     }}
                     onRemoveItem={async (itemId) => {
-                      await patchBrief({ removeItemIds: [itemId] });
-                      showToast("Item removed from draft brief");
+                      try {
+                        await patchBrief({ removeItemIds: [itemId] });
+                        showToast("Item removed from draft brief");
+                      } catch {
+                        showToast("Failed to remove item", "error");
+                      }
                     }}
                     onJumpToSource={jumpToSource}
                     onInspectSignal={(sid) => setActiveSignalId(sid)}
@@ -347,6 +402,7 @@ export function BriefReaderView({
                 <OpportunitiesSection
                   items={brief.opportunities}
                   sources={brief.sources}
+                  isMock={brief.isMock}
                   onJumpToSource={jumpToSource}
                   onJumpToActions={() => scrollToSection("actions")}
                 />
@@ -355,16 +411,28 @@ export function BriefReaderView({
                 <RisksSection
                   items={brief.risks}
                   sources={brief.sources}
+                  isMock={brief.isMock}
                   onJumpToSource={jumpToSource}
+                  onJumpToActions={() => scrollToSection("actions")}
                 />
 
                 {/* 08. Recommended Actions */}
                 <ActionsSection
                   actions={brief.actions}
+                  signalHeadlines={signalHeadlines}
                   sources={brief.sources}
                   isDraftEditable={isDraftEditable}
                   isArchived={Boolean(brief.isArchived)}
-                  onUpdateAction={updateAction}
+                  isMock={brief.isMock}
+                  onUpdateAction={async (payload) => {
+                    try {
+                      return await updateAction(payload);
+                    } catch {
+                      refetchAll();
+                      showToast("Failed to update action — changes reverted", "error");
+                      return null;
+                    }
+                  }}
                   onCreateAction={createAction}
                   isCreatingAction={isCreatingAction}
                   onInspectSignal={(sid) => setActiveSignalId(sid)}
@@ -376,6 +444,7 @@ export function BriefReaderView({
                 <WatchSection
                   items={brief.watch}
                   sources={brief.sources}
+                  isMock={brief.isMock}
                   onToggleWatch={toggleWatch}
                   onJumpToSource={jumpToSource}
                 />
@@ -383,6 +452,8 @@ export function BriefReaderView({
                 {/* 10. Source Appendix */}
                 <SourceAppendixSection
                   sources={brief.sources}
+                  generatedAt={brief.generatedAt}
+                  isMock={brief.isMock}
                   highlightedSourceN={highlightedSourceN}
                   returnToOriginId={returnToOriginId}
                   onClearReturn={() => {

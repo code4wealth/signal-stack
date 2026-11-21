@@ -29,10 +29,26 @@ const EFFORT_STYLE = {
   high: "border-[#EA580C]/25 bg-[#EA580C]/10 text-[#C2410C]",
 };
 
+function formatDueLabel(dueDate?: string | null): string {
+  if (!dueDate) return "Set due";
+  const parsed = new Date(`${dueDate}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return dueDate;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.round((parsed.getTime() - today.getTime()) / 86_400_000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Tomorrow";
+  if (diffDays > 1 && diffDays < 7) {
+    return parsed.toLocaleDateString("en-US", { weekday: "short" });
+  }
+  return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 function ActionRow({
   action,
   index,
   total,
+  linkedHeadline,
   sources,
   isDraftEditable,
   isArchived,
@@ -47,6 +63,7 @@ function ActionRow({
   action: BriefActionItem;
   index: number;
   total: number;
+  linkedHeadline?: string | null;
   sources: BriefSourceItem[];
   isDraftEditable: boolean;
   isArchived: boolean;
@@ -80,8 +97,8 @@ function ActionRow({
       onDrop={() => isDraftEditable && onDropOnRow(index)}
       className={`rounded-2xl border p-4 transition-colors ${
         action.done
-          ? "border-[#1F2125]/8 bg-white/55"
-          : "border-[#4F46E5]/18 bg-white/90"
+          ? "border-[#1F2125]/8 bg-white/55 opacity-80"
+          : "border-[#4F46E5]/18 bg-white/95"
       }`}
     >
       <div className="flex items-start gap-3">
@@ -221,7 +238,7 @@ function ActionRow({
                 className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-[#1F2125]/10 bg-[#F4F6FB] px-2.5 py-0.5 font-mono text-[11px] text-[#4B5058] hover:border-[#4F46E5]/30 hover:text-[#1F2125] disabled:cursor-default"
               >
                 <span>Owner: {action.owner}</span>
-                {action.dueDate ? <span>· Due {action.dueDate}</span> : <span>· Set due</span>}
+                <span>· Due: {formatDueLabel(action.dueDate)}</span>
               </button>
             )}
 
@@ -229,9 +246,9 @@ function ActionRow({
               <button
                 type="button"
                 onClick={() => onInspectSignal(Number(action.linkedSignalId))}
-                className="no-print focus-ring rounded-full border border-[#4F46E5]/20 bg-[#4F46E5]/8 px-2.5 py-0.5 font-mono text-[10.5px] font-medium text-[#4F46E5] hover:bg-[#4F46E5]/15"
+                className="no-print focus-ring max-w-[260px] truncate rounded-full border border-[#4F46E5]/20 bg-[#4F46E5]/8 px-2.5 py-0.5 font-mono text-[10.5px] font-medium text-[#4F46E5] hover:bg-[#4F46E5]/15"
               >
-                Signal #{action.linkedSignalId}
+                From: {linkedHeadline || `Signal #${action.linkedSignalId}`}
               </button>
             ) : null}
 
@@ -252,7 +269,7 @@ function ActionRow({
             <div className="rounded-xl border border-[#4F46E5]/15 bg-indigo-50/75 px-3 py-2 text-xs leading-relaxed text-[#1F2125]">
               <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold uppercase tracking-wider text-[#4F46E5]">
                 <Sparkles size={10} aria-hidden="true" />
-                AI rationale
+                AI interpretation
               </span>
               <p className="mt-1">
                 <ClaimText
@@ -272,9 +289,11 @@ function ActionRow({
 
 export function ActionsSection({
   actions,
+  signalHeadlines,
   sources,
   isDraftEditable,
   isArchived,
+  isMock,
   onUpdateAction,
   onCreateAction,
   isCreatingAction,
@@ -283,9 +302,11 @@ export function ActionsSection({
   onToast,
 }: {
   actions: BriefActionItem[];
+  signalHeadlines: Record<string, string>;
   sources: BriefSourceItem[];
   isDraftEditable: boolean;
   isArchived: boolean;
+  isMock?: boolean;
   onUpdateAction: (payload: {
     actionId: string;
     patch: { done?: boolean; owner?: string; dueDate?: string | null; order?: number };
@@ -312,6 +333,7 @@ export function ActionsSection({
 
   const visibleActions = actions.slice(0, 7);
   const doneCount = actions.filter((a) => a.done).length;
+  const pct = actions.length > 0 ? doneCount / actions.length : 0;
 
   const handleMove = async (index: number, direction: -1 | 1) => {
     const target = index + direction;
@@ -378,60 +400,60 @@ export function ActionsSection({
       variants={readingReveal(reduced)}
       initial="hidden"
       whileInView="visible"
-      viewport={{ once: true, margin: "-10%" }}
+      viewport={{ once: true, margin: "-80px" }}
     >
       <div className="glass-strong rounded-[22px] border-[1.5px] border-indigo-300 p-5 shadow-[0_14px_38px_rgba(79,70,229,0.12)] sm:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#4F46E5]/15 pb-4">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#4F46E5]/15 pb-4">
+          <div className="flex items-start gap-3">
             <span
-              className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#4F46E5] text-white"
+              className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#4F46E5] text-white"
               aria-hidden="true"
             >
               <CheckSquare size={18} strokeWidth={2} />
             </span>
             <div>
-              <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-[#4F46E5]">
-                Section 08 · Priority Execution
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-[#4F46E5]">
+                  Section 08 · Priority Execution
+                </span>
+                {isMock ? (
+                  <span className="rounded-full border border-amber-400/50 bg-amber-100 px-2 py-0.5 font-mono text-[9.5px] font-semibold text-amber-900">
+                    MOCK DATA
+                  </span>
+                ) : null}
+              </div>
               <h2
                 id="heading-actions"
                 className="font-serif text-[23px] font-medium leading-tight tracking-[-0.015em] text-[#1F2125]"
               >
-                Recommended Actions
+                This week: what to do
               </h2>
+              <p className="mt-0.5 text-xs text-[#4B5058]">
+                Finish reading and you should know what to do next.
+              </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-col items-end gap-1.5">
             <span
               aria-live="polite"
               className="tabular rounded-full border border-[#4F46E5]/25 bg-indigo-50 px-3 py-1 font-mono text-xs font-semibold text-[#4F46E5]"
             >
               <CountUp value={doneCount} /> of {actions.length} done
             </span>
-            <button
-              type="button"
-              onClick={handleCopyChecklist}
-              className="no-print focus-ring inline-flex h-8 items-center gap-1.5 rounded-xl border border-[#1F2125]/12 bg-white px-2.5 text-xs font-medium text-[#4B5058] hover:text-[#1F2125]"
-            >
-              {copiedChecklist ? <Check size={12} /> : <Copy size={12} />}
-              Copy checklist
-            </button>
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              className="no-print focus-ring inline-flex h-8 items-center gap-1.5 rounded-xl border border-[#1F2125]/12 bg-white px-2.5 text-xs font-medium text-[#4B5058] hover:text-[#1F2125]"
-            >
-              <Download size={12} />
-              Export CSV
-            </button>
+            <div className="h-1.5 w-32 overflow-hidden rounded-full bg-[#4F46E5]/15">
+              <div
+                className="h-full origin-left rounded-full bg-[#4F46E5] transition-transform"
+                style={{ transform: `scaleX(${pct})` }}
+              />
+            </div>
           </div>
         </div>
 
         <div className="mt-4 space-y-3">
           {visibleActions.length === 0 ? (
             <p className="text-sm text-[#4B5058]">
-              No actions recorded yet. Add a custom action below to track execution this week.
+              No actions generated. This usually means there were no high-priority signals this week.
             </p>
           ) : (
             visibleActions.map((act, idx) => (
@@ -440,6 +462,9 @@ export function ActionsSection({
                 action={act}
                 index={idx}
                 total={visibleActions.length}
+                linkedHeadline={
+                  act.linkedSignalId ? signalHeadlines[act.linkedSignalId] : null
+                }
                 sources={sources}
                 isDraftEditable={isDraftEditable}
                 isArchived={isArchived}
@@ -459,74 +484,92 @@ export function ActionsSection({
           )}
         </div>
 
-        {!isArchived ? (
-          <div className="no-print mt-4 border-t border-[#1F2125]/8 pt-4">
-            {addOpen ? (
-              <form onSubmit={handleCreate} className="space-y-3 rounded-2xl border border-[#4F46E5]/20 bg-white/85 p-4">
-                <p className="text-xs font-semibold text-[#1F2125]">Add custom action</p>
-                <input
-                  type="text"
-                  required
-                  value={newText}
-                  onChange={(e) => setNewText(e.target.value)}
-                  placeholder="What should happen this week?"
-                  className="focus-ring w-full rounded-xl border border-[#1F2125]/15 bg-white px-3 py-2 text-sm text-[#1F2125]"
-                />
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <input
-                    type="text"
-                    value={newOwner}
-                    onChange={(e) => setNewOwner(e.target.value)}
-                    placeholder="Owner"
-                    aria-label="Owner"
-                    className="focus-ring rounded-xl border border-[#1F2125]/15 bg-white px-3 py-1.5 text-xs"
-                  />
-                  <input
-                    type="date"
-                    value={newDue}
-                    onChange={(e) => setNewDue(e.target.value)}
-                    aria-label="Due date"
-                    className="focus-ring rounded-xl border border-[#1F2125]/15 bg-white px-3 py-1.5 font-mono text-xs"
-                  />
-                  <select
-                    value={newEffort}
-                    onChange={(e) => setNewEffort(e.target.value as "low" | "medium" | "high")}
-                    aria-label="Effort"
-                    className="focus-ring rounded-xl border border-[#1F2125]/15 bg-white px-3 py-1.5 text-xs"
-                  >
-                    <option value="low">Low effort</option>
-                    <option value="medium">Medium effort</option>
-                    <option value="high">High effort</option>
-                  </select>
-                </div>
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAddOpen(false)}
-                    className="focus-ring rounded-xl border border-[#1F2125]/15 bg-white px-3 py-1.5 text-xs font-medium text-[#4B5058]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isCreatingAction}
-                    className="focus-ring rounded-xl bg-[#1C1D21] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-                  >
-                    Add action
-                  </button>
-                </div>
-              </form>
-            ) : (
+        <div className="no-print mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[#1F2125]/8 pt-4">
+          <div className="flex flex-wrap items-center gap-2">
+            {!isArchived ? (
               <button
                 type="button"
-                onClick={() => setAddOpen(true)}
+                onClick={() => setAddOpen((v) => !v)}
                 className="focus-ring inline-flex items-center gap-1.5 rounded-xl border border-dashed border-[#4F46E5]/35 bg-white/75 px-3.5 py-2 text-xs font-semibold text-[#4F46E5] hover:bg-indigo-50/70"
               >
                 <Plus size={14} aria-hidden="true" />
                 Add custom action
               </button>
-            )}
+            ) : null}
+            <button
+              type="button"
+              onClick={handleCopyChecklist}
+              className="focus-ring inline-flex h-8 items-center gap-1.5 rounded-xl border border-[#1F2125]/12 bg-white px-3 text-xs font-medium text-[#1F2125] hover:bg-[#F4F6FB]"
+            >
+              {copiedChecklist ? <Check size={12} /> : <Copy size={12} />}
+              Copy checklist
+            </button>
           </div>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="focus-ring inline-flex h-8 items-center gap-1.5 rounded-xl border border-[#1F2125]/10 bg-white/80 px-3 text-xs font-medium text-[#4B5058] hover:text-[#1F2125]"
+          >
+            <Download size={12} />
+            Export as tasks (CSV)
+          </button>
+        </div>
+
+        {addOpen && !isArchived ? (
+          <form onSubmit={handleCreate} className="no-print mt-3 space-y-3 rounded-2xl border border-[#4F46E5]/20 bg-white/85 p-4">
+            <p className="text-xs font-semibold text-[#1F2125]">Add custom action</p>
+            <input
+              type="text"
+              required
+              value={newText}
+              onChange={(e) => setNewText(e.target.value)}
+              placeholder="What should happen this week?"
+              className="focus-ring w-full rounded-xl border border-[#1F2125]/15 bg-white px-3 py-2 text-sm text-[#1F2125]"
+            />
+            <div className="grid gap-2 sm:grid-cols-3">
+              <input
+                type="text"
+                value={newOwner}
+                onChange={(e) => setNewOwner(e.target.value)}
+                placeholder="Owner"
+                aria-label="Owner"
+                className="focus-ring rounded-xl border border-[#1F2125]/15 bg-white px-3 py-1.5 text-xs"
+              />
+              <input
+                type="date"
+                value={newDue}
+                onChange={(e) => setNewDue(e.target.value)}
+                aria-label="Due date"
+                className="focus-ring rounded-xl border border-[#1F2125]/15 bg-white px-3 py-1.5 font-mono text-xs"
+              />
+              <select
+                value={newEffort}
+                onChange={(e) => setNewEffort(e.target.value as "low" | "medium" | "high")}
+                aria-label="Effort"
+                className="focus-ring rounded-xl border border-[#1F2125]/15 bg-white px-3 py-1.5 text-xs"
+              >
+                <option value="low">Low effort</option>
+                <option value="medium">Medium effort</option>
+                <option value="high">High effort</option>
+              </select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setAddOpen(false)}
+                className="focus-ring rounded-xl border border-[#1F2125]/15 bg-white px-3 py-1.5 text-xs font-medium text-[#4B5058]"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isCreatingAction}
+                className="focus-ring rounded-xl bg-[#1C1D21] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+              >
+                Add action
+              </button>
+            </div>
+          </form>
         ) : null}
       </div>
     </motion.section>
