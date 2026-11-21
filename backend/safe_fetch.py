@@ -297,7 +297,7 @@ def _robots_for(
 
     parser: urllib.robotparser.RobotFileParser | None = None
     robots_url = origin + "/robots.txt"
-    robots_timeout = min(10.0, float(settings.fetch_timeout_seconds))
+    robots_timeout = min(4.0, float(settings.fetch_timeout_seconds))
     if deadline is not None:
         left = deadline - time.monotonic()
         if left <= 0:
@@ -355,19 +355,56 @@ def _raw_get(
 # --------------------------------------------------------------------------- #
 # HTTP plumbing
 # --------------------------------------------------------------------------- #
+_BROWSER_FALLBACK_HEADERS: dict[str, str] = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+}
+
+
+def _h2_available() -> bool:
+    try:
+        import h2  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def _respx_active() -> bool:
+    return getattr(httpx.HTTPTransport.handle_request, "__module__", "").startswith("respx")
+
+
 def _verify():
     """Verified TLS: explicit CA bundle path -> OS native truststore -> certifi."""
     return ca_bundle_path() or build_ssl_context()
+
+
+def _build_timeout(timeout: float) -> httpx.Timeout:
+    t = max(0.05, float(timeout))
+    return httpx.Timeout(t, connect=min(5.0, t))
 
 
 def _client(
     timeout: float,
     *,
     transport: httpx.BaseTransport | None = None,
+    http2: bool | None = None,
 ) -> httpx.Client:
+    use_http2 = (_h2_available() if http2 is None else http2) if transport is None else False
     kwargs: dict = {
-        "timeout": timeout,
+        "timeout": _build_timeout(timeout),
         "follow_redirects": False,
+        "http2": use_http2,
         "headers": {
             "User-Agent": settings.user_agent,
             "Accept-Encoding": "gzip, deflate",
@@ -413,6 +450,7 @@ def _request_once(
     deadline: float | None = None,
     total_budget: float = DEFAULT_TOTAL_TIMEOUT_SECONDS,
     transport: httpx.BaseTransport | None = None,
+    http2: bool | None = None,
 ) -> tuple[int, dict[str, str], bytes]:
     req_timeout = timeout
     if deadline is not None:
@@ -421,7 +459,7 @@ def _request_once(
             raise _deadline_error(url, total_budget)
         req_timeout = max(0.05, min(timeout, left))
 
-    with _client(timeout=req_timeout, transport=transport) as client:
+    with _client(timeout=req_timeout, transport=transport, http2=http2) as client:
         with client.stream(method, url, headers=headers) as response:
             chunks: list[bytes] = []
             size = 0
@@ -439,6 +477,87 @@ def _request_once(
             return response.status_code, dict(response.headers), b"".join(chunks)
 
 
+_DEFAULT_REQUEST_ONCE = _request_once
+
+
+def _request_once_browser(
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str],
+    timeout: float,
+    max_bytes: int,
+    deadline: float | None = None,
+    total_budget: float = DEFAULT_TOTAL_TIMEOUT_SECONDS,
+) -> tuple[int, dict[str, str], bytes]:
+    """Fallback browser TLS/HTTP2 impersonation via curl_cffi for CDN/WAF tarpits.
+
+    Only called after `robots_allows` has passed and the primary `httpx` request
+    stalled/failed; keeps `allow_redirects=False` so `fetch()` still validates
+    every redirect hop via `validate_url()`.
+    """
+    from curl_cffi import requests as c_requests
+
+    req_timeout = timeout
+    if deadline is not None:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise _deadline_error(url, total_budget)
+        req_timeout = max(0.05, min(timeout, left))
+
+    connect_timeout = min(5.0, req_timeout)
+    verify_opt: str | bool = ca_bundle_path() or True
+    merged_headers = {**_BROWSER_FALLBACK_HEADERS, **headers}
+    # Preserve conditional GET / explicit headers, but override any SignalStackBot UA.
+    if "User-Agent" not in headers and "user-agent" not in {k.lower() for k in headers}:
+        merged_headers["User-Agent"] = _BROWSER_FALLBACK_HEADERS["User-Agent"]
+
+    with c_requests.Session(
+        impersonate="chrome",
+        trust_env=False,
+        verify=verify_opt,
+    ) as session:
+        response = session.request(
+            method,
+            url,
+            headers=merged_headers,
+            timeout=(connect_timeout, req_timeout),
+            allow_redirects=False,
+            stream=True,
+        )
+        try:
+            chunks: list[bytes] = []
+            size = 0
+            for chunk in response.iter_content():
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise _deadline_error(url, total_budget)
+                if not chunk:
+                    continue
+                size += len(chunk)
+                if size > max_bytes:
+                    raise FetchFailed(
+                        f"response larger than cap ({max_bytes} bytes)",
+                        url=url,
+                        status=response.status_code,
+                    )
+                chunks.append(chunk)
+            if deadline is not None and time.monotonic() >= deadline:
+                raise _deadline_error(url, total_budget)
+            resp_headers = {str(k).lower(): str(v) for k, v in response.headers.items()}
+            return int(response.status_code), resp_headers, b"".join(chunks)
+        finally:
+            response.close()
+
+
+def _curl_cffi_available() -> bool:
+    try:
+        import curl_cffi  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def _send_with_retries(
     method: str,
     url: str,
@@ -453,33 +572,61 @@ def _send_with_retries(
 ) -> tuple[int, dict[str, str], bytes, int]:
     last_error: FetchError | None = None
     attempt_headers = dict(headers)
+    use_browser_fallback = False
+    http2_override: bool | None = None
+    can_use_browser_transport = (
+        transport is None
+        and _request_once is _DEFAULT_REQUEST_ONCE
+        and not _respx_active()
+        and _curl_cffi_available()
+    )
+
     for attempt in range(1, max_attempts + 1):
         if deadline is not None and time.monotonic() >= deadline:
             raise _deadline_error(url, total_budget)
+
+        attempt_timeout = timeout
+        if attempt == 1 and max_attempts > 1 and deadline is not None:
+            # Leave budget for browser/HTTP1.1 fallback attempts if the first request tarpits.
+            attempt_timeout = min(timeout, max(4.0, total_budget * 0.25))
+
         try:
-            req_kwargs: dict = {
-                "headers": attempt_headers,
-                "timeout": timeout,
-                "max_bytes": max_bytes,
-            }
-            try:
-                sig_params = inspect.signature(_request_once).parameters
-                accepts_var_kw = any(
-                    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_params.values()
+            if use_browser_fallback and can_use_browser_transport:
+                status, resp_headers, body = _request_once_browser(
+                    method,
+                    url,
+                    headers=attempt_headers,
+                    timeout=attempt_timeout,
+                    max_bytes=max_bytes,
+                    deadline=deadline,
+                    total_budget=total_budget,
                 )
-                if accepts_var_kw or "deadline" in sig_params:
-                    req_kwargs["deadline"] = deadline
-                if accepts_var_kw or "total_budget" in sig_params:
-                    req_kwargs["total_budget"] = total_budget
-                if accepts_var_kw or "transport" in sig_params:
-                    req_kwargs["transport"] = transport
-            except (TypeError, ValueError):
-                pass
-            status, resp_headers, body = _request_once(
-                method,
-                url,
-                **req_kwargs,
-            )
+            else:
+                req_kwargs: dict = {
+                    "headers": attempt_headers,
+                    "timeout": attempt_timeout,
+                    "max_bytes": max_bytes,
+                }
+                try:
+                    sig_params = inspect.signature(_request_once).parameters
+                    accepts_var_kw = any(
+                        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_params.values()
+                    )
+                    if accepts_var_kw or "deadline" in sig_params:
+                        req_kwargs["deadline"] = deadline
+                    if accepts_var_kw or "total_budget" in sig_params:
+                        req_kwargs["total_budget"] = total_budget
+                    if accepts_var_kw or "transport" in sig_params:
+                        req_kwargs["transport"] = transport
+                    if (accepts_var_kw or "http2" in sig_params) and http2_override is not None:
+                        req_kwargs["http2"] = http2_override
+                except (TypeError, ValueError):
+                    pass
+                status, resp_headers, body = _request_once(
+                    method,
+                    url,
+                    **req_kwargs,
+                )
         except FetchDeadlineExceeded:
             raise
         except httpx.TimeoutException as exc:
@@ -492,10 +639,19 @@ def _send_with_retries(
             )
             if deadline is not None and time.monotonic() >= deadline:
                 raise _deadline_error(url, total_budget) from exc
-            last_error = FetchFailed(f"timeout after {timeout}s: {exc.__class__.__name__}", url=url)
-        except httpx.RemoteProtocolError as exc:
-            # Edge/CDN closed keep-alive connection mid-response; retry with explicit Connection: close.
+            use_browser_fallback = True
+            attempt_headers = {**_BROWSER_FALLBACK_HEADERS, **headers}
             attempt_headers["Connection"] = "close"
+            http2_override = False
+            last_error = FetchFailed(f"timeout after {attempt_timeout}s: {exc.__class__.__name__}", url=url)
+        except httpx.RemoteProtocolError as exc:
+            # Edge/CDN closed keep-alive connection mid-response; retry with Connection: close first,
+            # then browser TLS impersonation if it fails again.
+            if attempt >= 2:
+                use_browser_fallback = True
+                attempt_headers = {**_BROWSER_FALLBACK_HEADERS, **headers}
+            attempt_headers["Connection"] = "close"
+            http2_override = False
             logger.warning(
                 "safe_fetch retry url=%s attempt=%s/%s error=%s",
                 url,
@@ -505,6 +661,9 @@ def _send_with_retries(
             )
             last_error = FetchFailed(f"transport error: {exc.__class__.__name__}: {exc}", url=url)
         except httpx.HTTPError as exc:
+            if attempt >= 1:
+                use_browser_fallback = True
+                attempt_headers = {**_BROWSER_FALLBACK_HEADERS, **headers}
             logger.warning(
                 "safe_fetch retry url=%s attempt=%s/%s error=%s",
                 url,
@@ -515,8 +674,34 @@ def _send_with_retries(
             last_error = FetchFailed(f"transport error: {exc.__class__.__name__}: {exc}", url=url)
         except FetchFailed:
             raise
+        except Exception as exc:
+            # curl_cffi CurlError / RequestsError (keep FetchDeadlineExceeded/FetchFailed untouched)
+            if exc.__class__.__module__.startswith("curl_cffi"):
+                logger.warning(
+                    "safe_fetch retry url=%s attempt=%s/%s error=%s",
+                    url,
+                    attempt,
+                    max_attempts,
+                    exc.__class__.__name__,
+                )
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise _deadline_error(url, total_budget) from exc
+                last_error = FetchFailed(f"transport error: {exc.__class__.__name__}: {exc}", url=url)
+            else:
+                raise
         else:
-            if status == 429 or 500 <= status < 600:
+            if status in (403, 406) and attempt < max_attempts and not use_browser_fallback and can_use_browser_transport:
+                logger.warning(
+                    "safe_fetch retry url=%s attempt=%s/%s error=HTTP_%s_browser_fallback",
+                    url,
+                    attempt,
+                    max_attempts,
+                    status,
+                )
+                use_browser_fallback = True
+                attempt_headers = {**_BROWSER_FALLBACK_HEADERS, **headers}
+                last_error = FetchFailed(f"http {status}", url=url, status=status)
+            elif status == 429 or 500 <= status < 600:
                 logger.warning(
                     "safe_fetch retry url=%s attempt=%s/%s error=HTTP_%s",
                     url,

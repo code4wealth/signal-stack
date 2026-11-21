@@ -375,3 +375,68 @@ def test_redirect_and_retries_log_every_hop_and_attempt(monkeypatch, caplog) -> 
     assert all("url=https://other.test/hang" in msg and "error=ReadTimeout" in msg for msg in retry_logs)
 
 
+def test_timeout_and_403_fall_back_to_browser_transport(monkeypatch) -> None:
+    monkeypatch.setattr(safe_fetch.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(safe_fetch, "_respx_active", lambda: False)
+    monkeypatch.setattr(safe_fetch, "_curl_cffi_available", lambda: True)
+    monkeypatch.setattr(
+        safe_fetch,
+        "robots_allows",
+        lambda *_a, **_k: True,
+    )
+
+    calls: list[str] = []
+
+    def fake_httpx_once(method, url, *, headers, timeout, max_bytes, **_kw):
+        calls.append(f"httpx:{headers.get('User-Agent', '')}")
+        raise httpx.ReadTimeout("tarpit timeout")
+
+    def fake_browser_once(method, url, *, headers, timeout, max_bytes, **_kw):
+        calls.append(f"browser:{headers.get('User-Agent', '')}")
+        return 200, {"content-type": "text/html"}, b"<html><body><h1>Zomato</h1></body></html>"
+
+    monkeypatch.setattr(safe_fetch, "_request_once", fake_httpx_once)
+    monkeypatch.setattr(safe_fetch, "_DEFAULT_REQUEST_ONCE", fake_httpx_once)
+    monkeypatch.setattr(safe_fetch, "_request_once_browser", fake_browser_once)
+
+    res = fetch("https://public.test/", max_attempts=3, total_timeout=30.0)
+    assert res.ok and res.attempts == 2
+    assert "Zomato" in res.text
+    assert calls[0].startswith("httpx:")
+    assert calls[1].startswith("browser:Mozilla/5.0")
+
+    # Also verify HTTP 403 falls back to browser impersonation on attempt 2
+    calls.clear()
+
+    def fake_httpx_403(method, url, *, headers, timeout, max_bytes, **_kw):
+        calls.append("httpx-403")
+        return 403, {"content-type": "text/html"}, b"Forbidden"
+
+    monkeypatch.setattr(safe_fetch, "_request_once", fake_httpx_403)
+    monkeypatch.setattr(safe_fetch, "_DEFAULT_REQUEST_ONCE", fake_httpx_403)
+
+    res_403 = fetch("https://public.test/", max_attempts=3, total_timeout=30.0)
+    assert res_403.ok and res_403.attempts == 2
+    assert calls == ["httpx-403", f"browser:{safe_fetch._BROWSER_FALLBACK_HEADERS['User-Agent']}"]
+
+
+def test_robots_disallow_prevents_browser_fallback(router, monkeypatch) -> None:
+    monkeypatch.setattr(safe_fetch, "_respx_active", lambda: False)
+    monkeypatch.setattr(safe_fetch, "_curl_cffi_available", lambda: True)
+    router.get("http://public.test/robots.txt").mock(
+        return_value=httpx.Response(200, text="User-agent: *\nDisallow: /private\n")
+    )
+    called = {"browser": 0}
+    monkeypatch.setattr(
+        safe_fetch,
+        "_request_once_browser",
+        lambda *a, **k: called.__setitem__("browser", called["browser"] + 1),
+    )
+
+    with pytest.raises(RobotsDisallowed):
+        fetch("http://public.test/private/menu", max_attempts=3)
+
+    assert called["browser"] == 0
+
+
+
