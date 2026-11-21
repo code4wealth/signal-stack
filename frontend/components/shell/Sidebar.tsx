@@ -245,8 +245,10 @@ export function Sidebar({
     { key: "logs", label: "Logs", href: `${base}/crawler#logs`, count: null as number | null },
   ];
 
-  const operationsItems = [
+  const operationsBefore = [
     { label: "Internal Data", href: `${base}/automation`, Icon: FileSpreadsheet },
+  ];
+  const operationsAfter = [
     { label: "Automation", href: `${base}/automation`, Icon: Activity },
   ];
 
@@ -280,7 +282,7 @@ export function Sidebar({
               {companies.map((c) => (
                 <Link
                   key={c.id}
-                  href={`/company/${c.id}`}
+                  href={`/company/${c.id}/dashboard`}
                   onClick={() => {
                     setSwitcherOpen(false);
                     onCloseMobile();
@@ -466,6 +468,23 @@ export function Sidebar({
             Operations
           </p>
           <ul className="space-y-0.5">
+            {operationsBefore.map((item) => {
+              const Icon = item.Icon;
+              return (
+                <li key={item.label}>
+                  <Link
+                    href={item.href}
+                    onClick={onCloseMobile}
+                    title={item.label}
+                    className="focus-ring flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] font-medium text-[#4B5058] no-underline transition-colors hover:bg-white/50 hover:text-[#1F2125] md:justify-center xl:justify-start"
+                  >
+                    <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
+                    <span className="md:hidden xl:inline">{item.label}</span>
+                  </Link>
+                </li>
+              );
+            })}
+
             {/* Collapsible Crawler group */}
             <li>
               <div className="relative">
@@ -550,7 +569,7 @@ export function Sidebar({
               ) : null}
             </li>
 
-            {operationsItems.map((item) => {
+            {operationsAfter.map((item) => {
               const Icon = item.Icon;
               return (
                 <li key={item.label}>
