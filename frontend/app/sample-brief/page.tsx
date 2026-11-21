@@ -86,7 +86,7 @@ export default function SampleBriefPage() {
               {companies.slice(0, 3).map((company) => (
                 <Link
                   key={company.id}
-                  href={`/company/${company.id}/briefs`}
+                  href={`/company/${company.id}/brief`}
                   className="inline-flex items-center gap-1 rounded-xl border border-white/80 bg-white/80 px-3 py-1.5 text-xs font-medium text-[#1F2125] no-underline hover:bg-white"
                 >
                   {company.name} <ArrowRight size={12} />

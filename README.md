@@ -93,9 +93,8 @@ cp .env.example .env          # then add GROQ_API_KEY (repo root or backend/.env
 cd backend
 ../.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
 # API docs: http://127.0.0.1:8000/docs   health: http://127.0.0.1:8000/api/health
-# (Do not pass bare --reload when running the pipeline: SQLite writes to backend/signalstack.db*
-# restart uvicorn mid-request and cause empty-body 502s. When editing backend code, restrict
-# reload explicitly: --reload --reload-dir . --reload-exclude "signalstack.db*" --reload-exclude "exports/*")
+# (Never use hot-reload here: SQLite writes to backend/signalstack.db* inside backend/
+# can restart uvicorn mid-request and abort long requests with empty-body 502s.)
 
 # frontend (new terminal)
 cd frontend
@@ -124,17 +123,17 @@ powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1 -TempDir D:\T
 `backend\requirements.txt` with `--cache-dir`, and copies `.env.example` to `.env` only when `.env` does not
 exist. `setup_windows.ps1` is code-reviewed but not yet executed on Windows — first run is the verification.
 
-To start the backend afterwards (explicitly bound to `127.0.0.1` so Windows `localhost` IPv6 `::1` cannot collide with Next's proxy, and without `--reload` so SQLite writes never restart the server mid-request):
+To start the backend afterwards (explicitly bound to `127.0.0.1` so Windows `localhost` IPv6 `::1` cannot collide with Next's proxy, and without auto-reload so SQLite writes never restart the server mid-request):
 
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-Or launch both backend and frontend in separate windows and wait for `/api/health`:
+Or launch the full stack with network diagnostics and preflight verification:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
+powershell -ExecutionPolicy Bypass -File scripts\start_local.ps1
 ```
 
 (`dev.ps1` is also code-reviewed only on Linux and not yet executed on Windows.)
@@ -173,7 +172,7 @@ The companies live in `scripts/demo_companies.json` as data. No company name app
 | `BACKEND_URL` | Used by the Next.js dev server rewrite; defaults to `http://127.0.0.1:8000` |
 | `NEXT_PUBLIC_API_URL` | Optional absolute API origin (e.g. `http://127.0.0.1:8000`) read from `frontend/.env*` or repo-root `.env` via `next.config.ts` to bypass the Next proxy. Manual check: open DevTools Network tab on `http://127.0.0.1:3000` and verify API calls target `http://127.0.0.1:8000/api/...` |
 | `CORS_EXTRA_ORIGINS` | Comma-separated extra browser origins allowed by FastAPI (`http://127.0.0.1:3000` and `http://localhost:3000` are already allowed by default) |
-| `ENABLE_SCHEDULER` | `1` starts APScheduler in-process (default `0`, so `--reload` cannot double-schedule) |
+| `ENABLE_SCHEDULER` | `1` starts APScheduler in-process (default `0`, protected by `.scheduler.lock` so only one scheduler can start) |
 | `MAX_ANALYSES_PER_RUN` | Groq budget guard, default 40 |
 | `CRAWL_CONCURRENCY` | Fetches in flight, capped at 4 |
 | `SSL_CERT_FILE` | Optional CA bundle for TLS-inspecting networks (also reads `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`). Unset = httpx default verification |

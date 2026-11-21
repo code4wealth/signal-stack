@@ -143,7 +143,7 @@ export function RunHistoryTable({
     if (run.output.type === "brief") {
       return (
         <Link
-          href={`${base}/briefs`}
+          href={`${base}/brief`}
           onClick={(e) => e.stopPropagation()}
           className="focus-ring inline-flex items-center gap-1 font-medium text-[#4F46E5] no-underline hover:underline"
         >

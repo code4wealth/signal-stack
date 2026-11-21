@@ -24,6 +24,8 @@ BACKEND_DIR = ROOT / "backend"
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+import net_diag  # noqa: E402
+
 
 def _load_env_file(env_path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
@@ -136,13 +138,21 @@ def run_preflight(
     except Exception as exc:
         results.append(("frontend_reachable", False, f"Unreachable at {fe_base} ({exc.__class__.__name__})"))
 
-    # 7. Public outbound HTTPS egress
+    # 7. Public outbound HTTPS egress (with net_diag verdict on failure)
     try:
         eg_res = httpx.get(egress_url, timeout=timeout, follow_redirects=True)
         ok = eg_res.status_code < 400
         results.append(("public_egress", ok, f"{egress_url} -> HTTP {eg_res.status_code}"))
     except Exception as exc:
-        results.append(("public_egress", False, f"Outbound HTTPS to {egress_url} failed ({exc.__class__.__name__})"))
+        diag = net_diag.diagnose_network(target_url=egress_url, timeout=min(timeout, 5.0))
+        results.append(
+            (
+                "public_egress",
+                False,
+                f"Outbound HTTPS to {egress_url} failed ({exc.__class__.__name__}) "
+                f"[net_diag: {diag['verdict']}] {diag['hint']}",
+            )
+        )
 
     return results
 
@@ -154,12 +164,18 @@ def main() -> int:
     parser.add_argument("--egress-url", default="https://example.com/")
     args = parser.parse_args()
 
+    diag = net_diag.diagnose_network(timeout=8.0)
+    print("Network diagnostics:")
+    for line in net_diag.format_report_lines(diag):
+        print(f"  {line}")
+    print("")
+
     checks = run_preflight(
         backend_url=args.backend_url,
         frontend_url=args.frontend_url,
         egress_url=args.egress_url,
     )
-    all_passed = True
+    all_passed = bool(diag["ok"])
     for name, passed, detail in checks:
         tag = "PASS" if passed else "FAIL"
         if not passed:

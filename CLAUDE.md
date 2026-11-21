@@ -8,7 +8,7 @@ AI company-intelligence engine for the EDXSO AI Engineer Intern assignment. Pyth
 ## Commands
 Backend (run from `backend/`):
 - Install: `pip install -r requirements.txt`
-- Run: `uvicorn main:app --reload --port 8000`
+- Run: `uvicorn main:app --host 127.0.0.1 --port 8000`
 - Test: `pytest -q`
 - Test one file: `pytest tests/test_safe_fetch.py -q`
 Frontend (run from `frontend/`):

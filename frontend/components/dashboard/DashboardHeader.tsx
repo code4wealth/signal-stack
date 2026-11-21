@@ -156,8 +156,8 @@ export function DashboardHeader({
           <Link
             href={
               latestBriefId
-                ? `/company/${companyId}/briefs?report=${latestBriefId}`
-                : `/company/${companyId}/briefs`
+                ? `/company/${companyId}/brief/${latestBriefId}`
+                : `/company/${companyId}/brief`
             }
             className="btn-motion focus-ring inline-flex h-10 items-center gap-2 rounded-xl bg-[#1C1D21] px-4 text-xs font-medium text-white no-underline shadow-[0_6px_16px_rgba(28,29,33,0.16)] hover:bg-[#2a2c32]"
           >
@@ -166,7 +166,7 @@ export function DashboardHeader({
           </Link>
         ) : (
           <Link
-            href={`/company/${companyId}/briefs`}
+            href={`/company/${companyId}/brief`}
             title="No Monday Brief generated yet — open Briefs to generate your first brief"
             className="btn-motion focus-ring inline-flex h-10 items-center gap-2 rounded-xl border border-[#1F2125]/15 bg-[#1C1D21]/85 px-4 text-xs font-medium text-white no-underline hover:bg-[#1C1D21]"
           >

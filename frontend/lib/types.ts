@@ -1466,6 +1466,7 @@ export type Brief = {
     threats: number;
     newEvidence: number;
   } | null;
+  executiveOverview?: CitedText | null;
   executiveSummary: BriefSectionItem[];
   sections: BriefCategorySection[];
   opportunities: BriefOpportunityItem[];

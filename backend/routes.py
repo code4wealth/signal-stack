@@ -459,13 +459,37 @@ def confirm_company_profile(company_id: int, db: Session = Depends(get_db)) -> d
 # --------------------------------------------------------------------------- #
 # Research / profile
 # --------------------------------------------------------------------------- #
+_TRANSPORT_MARKERS = (
+    "transport error",
+    "timeout",
+    "could not fetch any page",
+    "connecterror",
+    "apiconnectionerror",
+    "ssl",
+    "certificate",
+    "eof",
+    "connection refused",
+    "connection reset",
+)
+
+
+def _is_transport_message(message: str) -> bool:
+    lowered = (message or "").lower()
+    return any(marker in lowered for marker in _TRANSPORT_MARKERS)
+
+
 @router.post("/companies/{company_id}/research", tags=["research"])
 def run_research(company_id: int, db: Session = Depends(get_db)) -> dict:
+    import net_diag
+
     company = get_company_or_404(db, company_id)
     try:
         profile = research.research_company(db, company)
     except research.ResearchError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        detail = str(exc)
+        if _is_transport_message(detail) and "[net_diag:" not in detail:
+            detail = f"{detail} {net_diag.format_transport_hint(company.website)}"
+        raise HTTPException(status_code=502, detail=detail) from exc
     return {
         "company_id": company.id,
         "profile": profile,
@@ -668,12 +692,25 @@ def _source_dict(source: Source) -> dict:
 @router.post("/companies/{company_id}/sources/discover", tags=["sources"])
 def discover_sources(company_id: int, db: Session = Depends(get_db)) -> dict:
     import discovery
+    import llm
+    import net_diag
 
     company = get_company_or_404(db, company_id)
     try:
         return discovery.discover(db, company)
     except discovery.DiscoveryError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        detail = str(exc)
+        if _is_transport_message(detail):
+            if "[net_diag:" not in detail:
+                detail = f"{detail} {net_diag.format_transport_hint('https://api.groq.com/')}"
+            raise HTTPException(status_code=502, detail=detail) from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
+    except llm.LLMError as exc:
+        detail = str(exc)
+        if _is_transport_message(detail) and "[net_diag:" not in detail:
+            detail = f"{detail} {net_diag.format_transport_hint('https://api.groq.com/')}"
+            raise HTTPException(status_code=502, detail=detail) from exc
+        raise HTTPException(status_code=503, detail=detail) from exc
 
 
 @router.post("/companies/{company_id}/sources", status_code=201, tags=["sources"])

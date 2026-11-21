@@ -10,6 +10,7 @@ import {
   Eye,
   FileText,
   Globe,
+  ListOrdered,
   Mail,
   Printer,
   Sparkles,
@@ -25,6 +26,7 @@ import { BRIEF_SECTION_DEFS, CATEGORY_ACCENTS, getSectionCount } from "./briefMe
 
 const ICON_FOR_SECTION: Record<string, typeof Sparkles> = {
   "executive-summary": Sparkles,
+  "top-five-developments": ListOrdered,
   customers: Users,
   competitors: Swords,
   market: Globe,
@@ -38,6 +40,7 @@ const ICON_FOR_SECTION: Record<string, typeof Sparkles> = {
 
 const NON_CAT_COLOR: Record<string, string> = {
   "executive-summary": "text-[#4F46E5]",
+  "top-five-developments": "text-[#4F46E5]",
   opportunities: "text-[#16A34A]",
   risks: "text-[#DC2626]",
   actions: "text-[#4F46E5]",

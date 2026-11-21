@@ -70,10 +70,29 @@ def _error_status_code(exc: Exception) -> int:
     if isinstance(exc, research.ResearchError):
         return 502
     if isinstance(exc, discovery.DiscoveryError):
-        return 400
+        return 502 if _is_transport_error(str(exc)) else 400
     if isinstance(exc, ValueError):
         return 400
     return 500
+
+
+_TRANSPORT_MARKERS = (
+    "transport error",
+    "timeout",
+    "could not fetch any page",
+    "connecterror",
+    "apiconnectionerror",
+    "ssl",
+    "certificate",
+    "eof",
+    "connection refused",
+    "connection reset",
+)
+
+
+def _is_transport_error(message: str) -> bool:
+    lowered = (message or "").lower()
+    return any(marker in lowered for marker in _TRANSPORT_MARKERS)
 
 
 def _run_job_worker(job_id: int, company_id: int, kind: str, limit: int | None) -> None:
@@ -99,6 +118,17 @@ def _run_job_worker(job_id: int, company_id: int, kind: str, limit: int | None) 
         session.commit()
     except Exception as exc:
         logger.error("Background job %s (%s) failed: %s", job_id, kind, exc, exc_info=True)
+        error_text = str(exc) or exc.__class__.__name__
+        target_url: str | None = None
+        if isinstance(exc, LLMError):
+            target_url = "https://api.groq.com/"
+        elif kind == "research":
+            company_obj = session.get(db.Company, company_id)
+            target_url = company_obj.website if company_obj else None
+        if _is_transport_error(error_text) and "[net_diag:" not in error_text:
+            import net_diag
+
+            error_text = f"{error_text} {net_diag.format_transport_hint(target_url)}"
         session.rollback()
         row = session.get(db.JobLog, job_id)
         if row is not None:
@@ -108,7 +138,7 @@ def _run_job_worker(job_id: int, company_id: int, kind: str, limit: int | None) 
                     "job": kind,
                     "company_id": company_id,
                     "finished_at": _utcnow_iso(),
-                    "error": str(exc) or exc.__class__.__name__,
+                    "error": error_text,
                     "error_type": exc.__class__.__name__,
                     "status_code": _error_status_code(exc),
                 }

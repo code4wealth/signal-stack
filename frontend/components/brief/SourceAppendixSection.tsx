@@ -96,7 +96,7 @@ export function SourceAppendixSection({
           <div>
             <div className="flex items-center gap-2">
               <span className="font-mono text-[11px] font-semibold text-[#4B5058]">
-                Section 10
+                Section 11
               </span>
               {isMock ? (
                 <span className="rounded-full border border-amber-400/50 bg-amber-100 px-2 py-0.5 font-mono text-[9.5px] font-semibold text-amber-900">

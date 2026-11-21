@@ -40,7 +40,7 @@ export function ConfirmBar({
 
           {hasCompletedRun ? (
             <Link
-              href={`/company/${companyId}/intelligence`}
+              href={`/company/${companyId}/signals`}
               className="btn-motion focus-ring inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#1C1D21] px-4 text-xs font-medium text-white no-underline hover:bg-[#2a2c32]"
             >
               Analyse signals <ArrowRight size={13} aria-hidden="true" />

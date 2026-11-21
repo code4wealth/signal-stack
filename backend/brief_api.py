@@ -234,7 +234,8 @@ def serialize_brief(
         cat = src.category if src and src.category in CATEGORY_KEYS else "internal"
         item_id = f"{prefix}-{rec.id}"
         cites = cite_records([rec.id], section_label, item_id)
-        verbatim = (a.get("evidence_verbatim") or "").strip()
+        raw_verb = a.get("evidence_verbatim")
+        verbatim = (raw_verb if isinstance(raw_verb, str) else (a.get("evidence_snippet") or "")).strip()
         fact_text = verbatim or (a.get("summary") or rec.title or rec.url).strip()
         why_text = (
             (a.get("why_it_matters") or "").strip()
@@ -484,6 +485,13 @@ def serialize_brief(
         }
 
     exec_sec = raw_sections.get("executive_summary") or {}
+    exec_body = (exec_sec.get("body") or "").strip()
+    exec_rids = [
+        int(x)
+        for x in (exec_sec.get("record_ids") or [])
+        if isinstance(x, int) and x in records_by_id
+    ]
+    exec_cites = cite_records(exec_rids, "Executive Summary", "executive-summary") if exec_rids else []
     headline_raw = (content.get("headline") or "").strip()
     if not headline_raw and exec_items:
         headline_raw = exec_items[0]["headline"]
@@ -509,6 +517,7 @@ def serialize_brief(
         "headline": headline_raw or None,
         "stats": stats,
         "comparison": comparison,
+        "executiveOverview": {"text": exec_body, "citations": exec_cites} if exec_body else None,
         "executiveSummary": exec_items,
         "sections": sections_out,
         "opportunities": opp_out,

@@ -210,7 +210,7 @@ export function Sidebar({
       label: "Signal Stack",
       href: `${base}/signal-stack`,
       Icon: Layers,
-      active: pathname === `${base}/signal-stack` || pathname === `${base}/sources`,
+      active: pathname === `${base}/signal-stack`,
       state: workflow.sources,
     },
     {
@@ -218,7 +218,7 @@ export function Sidebar({
       label: "Signals",
       href: `${base}/signals`,
       Icon: Radar,
-      active: pathname === `${base}/signals` || pathname === `${base}/intelligence`,
+      active: pathname === `${base}/signals`,
       state: workflow.signals,
       badgeCount: unreviewedSignalsCount,
     },
@@ -228,7 +228,6 @@ export function Sidebar({
       href: `${base}/brief`,
       Icon: FileText,
       active:
-        pathname === `${base}/briefs` ||
         pathname === `${base}/brief` ||
         pathname.startsWith(`${base}/brief/`),
       state: workflow.briefs,
@@ -246,7 +245,7 @@ export function Sidebar({
   const intelligenceItems = [
     {
       label: "Customers",
-      href: `${base}/sources`,
+      href: `${base}/signal-stack?category=customers`,
       Icon: Users,
       color: "text-[#0D9488]",
       count: counts.customers,

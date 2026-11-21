@@ -84,6 +84,19 @@ Consequences, stated plainly:
 To close it: `scripts/run_three_companies.py --yes` on a networked machine, then replace the two counts tables with
 that output.
 
+## Non-PRD additions (config-gated or unverified)
+
+The UI and Brief v2 endpoints include several convenience features that are **not** required by `docs/PRD.md`. None of these should be treated as "implemented and verified" end-to-end:
+
+| Feature | Implementation | Config required / verification status |
+|---|---|---|
+| **Email delivery** | `POST /api/companies/{id}/briefs/{briefId}/email`, `EmailBriefPopover.tsx` | Requires SMTP env config (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`); unconfigured by default (`emailConfigured: false`) and **untested against a real SMTP server**. |
+| **Brief & signal feedback** | `POST /api/companies/{id}/briefs/{briefId}/feedback`, `BriefRightRail.tsx`, `patchSignal` | Stored in `reports.content` / `records.analysis` JSON; **not a PRD requirement** and **untested in a live user session**. |
+| **Watchlist toggles** | `POST /api/companies/{id}/watchlist/{watchId}/toggle`, `WatchSection.tsx` | Stored in `company.profile._meta.watchlist` JSON; **not a PRD requirement** and **untested against scheduled alerts**. |
+| **Brief version comparison** | `GET /api/companies/{id}/briefs/compare`, `HistoryDrawer.tsx` | Compares executive headlines between two report rows; **verified at unit/API level only, untested on multi-week live briefs**. |
+| **Action drag/button reorder** | `ActionsSection.tsx` reorder controls, `PATCH /api/companies/{id}/actions/{actionId}` | Persists `order` in `reports.content` JSON; **not a PRD requirement** and **not browser-tested for persistence**. |
+| **Automation override dialogs** | `POST/DELETE /api/companies/{id}/automation/overrides`, `OverrideModal.tsx` | Uses extra `automation_overrides` table; **not a PRD requirement** and **untested against live APScheduler runs**. |
+
 ## Known shortcomings
 
 1. **No live run has completed.** The build environment blocked egress to company sites and `api.groq.com` and had

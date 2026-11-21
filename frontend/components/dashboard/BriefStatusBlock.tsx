@@ -79,8 +79,8 @@ export function BriefStatusBlock({
       <Link
         href={
           brief?.latestBriefId
-            ? `/company/${companyId}/briefs?report=${brief.latestBriefId}`
-            : `/company/${companyId}/briefs`
+            ? `/company/${companyId}/brief/${brief.latestBriefId}`
+            : `/company/${companyId}/brief`
         }
         className="focus-ring inline-flex items-center justify-between rounded-xl border border-[#1F2125]/10 bg-white px-3 py-2 text-xs font-medium text-[#1F2125] no-underline transition-colors hover:border-[#4F46E5]/30 hover:text-[#4F46E5]"
       >

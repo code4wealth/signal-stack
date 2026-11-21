@@ -156,3 +156,64 @@ def test_create_company_and_research_entry_endpoint(monkeypatch) -> None:
         fetched = client.get(f"/api/companies/{company_id}")
         assert fetched.status_code == 200
         assert fetched.json()["website"] == "https://public.test"
+
+
+def test_all_five_long_action_jobs_start_poll_and_fail(monkeypatch) -> None:
+    import analysis
+    import competitors
+    import crawler
+    import discovery
+
+    monkeypatch.setattr(research, "research_company", lambda _db, _c: {"summary": "ok", "_meta": {"pages_fetched": []}})
+    monkeypatch.setattr(discovery, "discover", lambda _db, c: {"company_id": c.id, "created_count": 1, "created": []})
+    monkeypatch.setattr(crawler, "crawl_company", lambda _db, c: {"company_id": c.id, "new_records": 2})
+    monkeypatch.setattr(analysis, "analyse_pending", lambda _db, c, limit=None: {"company_id": c.id, "analysed": 2})
+    monkeypatch.setattr(competitors, "discover_competitors", lambda _db, c: {"company_id": c.id, "competitors": []})
+
+    with TestClient(main.app) as client:
+        created = client.post(
+            "/api/companies",
+            json={"name": "TEST_AllJobsCo", "website": "https://public.test", "context": "TEST"},
+        )
+        assert created.status_code == 201
+        cid = created.json()["id"]
+
+        for kind in ("research", "discover", "crawl", "analyse", "competitors"):
+            started = client.post(f"/api/companies/{cid}/jobs/{kind}")
+            assert started.status_code == 202, (kind, started.text)
+            assert started.json()["job"] == kind
+            done = _poll_until_done(client, started.json()["job_id"])
+            assert done["status"] == "ok", (kind, done)
+
+        # Now verify failure path persists real error body for discover, crawl, analyse, competitors
+        def boom_discover(_db, _c):
+            raise discovery.DiscoveryError("TEST discovery failed loudly")
+
+        def boom_crawl(_db, _c):
+            raise RuntimeError("TEST crawl failed loudly")
+
+        def boom_analyse(_db, _c, limit=None):
+            raise llm.LLMError("TEST analyse Groq unavailable")
+
+        def boom_comp(_db, _c):
+            raise RuntimeError("TEST competitors failed loudly")
+
+        monkeypatch.setattr(discovery, "discover", boom_discover)
+        monkeypatch.setattr(crawler, "crawl_company", boom_crawl)
+        monkeypatch.setattr(analysis, "analyse_pending", boom_analyse)
+        monkeypatch.setattr(competitors, "discover_competitors", boom_comp)
+
+        expected = {
+            "discover": ("TEST discovery failed loudly", 400),
+            "crawl": ("TEST crawl failed loudly", 500),
+            "analyse": ("TEST analyse Groq unavailable", 503),
+            "competitors": ("TEST competitors failed loudly", 500),
+        }
+        for kind, (err_msg, status_code) in expected.items():
+            started = client.post(f"/api/companies/{cid}/jobs/{kind}")
+            assert started.status_code == 202
+            done = _poll_until_done(client, started.json()["job_id"])
+            assert done["status"] == "error", (kind, done)
+            assert err_msg in done["error"]
+            assert done["status_code"] == status_code
+

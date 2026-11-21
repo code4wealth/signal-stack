@@ -46,6 +46,7 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["*.e2b.app", "localhost:3000", "127.0.0.1:3000"],
   env: {
     NEXT_PUBLIC_API_URL: publicApiUrl,
+    NEXT_PUBLIC_USE_MOCKS: process.env.NEXT_PUBLIC_USE_MOCKS === "true" ? "true" : "false",
   },
   experimental: {
     // Confirmed in next@15.5.x (server/config-shared.d.ts, server/lib/router-utils/proxy-request.js):
@@ -54,6 +55,16 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${backend}/api/:path*` }];
+  },
+  webpack(config, { webpack }) {
+    if (process.env.NEXT_PUBLIC_USE_MOCKS !== "true") {
+      config.plugins.push(
+        new webpack.IgnorePlugin({
+          resourceRegExp: /-mocks$/,
+        }),
+      );
+    }
+    return config;
   },
 };
 

@@ -52,7 +52,7 @@ const STEPS: {
     key: "briefs",
     title: "6. Generate Monday Morning Brief",
     description: "Turn top signals into an actionable weekly plan.",
-    hrefSuffix: "/briefs",
+    hrefSuffix: "/brief",
     cta: "Open Briefs",
   },
 ];

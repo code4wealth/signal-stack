@@ -911,13 +911,11 @@ export async function updateCrawlerSettings(
 // Intelligence Feed / Signals (Step 5)
 // ---------------------------------------------------------------------------
 
-const USE_SIGNALS_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
-
 export async function getSignalsOverview(
   companyId: number,
   range: import("./types").SignalRange = "30d",
 ): Promise<import("./types").SignalsOverviewResponse> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockSignalsOverview } = await import("@/lib/signals-mocks");
     return mockSignalsOverview(range);
   }
@@ -932,7 +930,7 @@ export async function listSignals(
   cursor?: string | null,
   limit = 25,
 ): Promise<import("./types").SignalsListResponse> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockSignalsList } = await import("@/lib/signals-mocks");
     return mockSignalsList(filters);
   }
@@ -968,7 +966,7 @@ export async function getSignalDetail(
   companyId: number,
   signalId: number,
 ): Promise<import("./types").SignalDetailResponse> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockSignalDetail } = await import("@/lib/signals-mocks");
     return mockSignalDetail(signalId);
   }
@@ -982,7 +980,7 @@ export async function patchSignal(
   signalId: number,
   body: import("./types").SignalPatchPayload,
 ): Promise<import("./types").SignalItem> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockPatchSignal } = await import("@/lib/signals-mocks");
     return mockPatchSignal(signalId, body);
   }
@@ -997,7 +995,7 @@ export async function bulkUpdateSignals(
   ids: number[],
   body: import("./types").SignalPatchPayload,
 ): Promise<{ updatedCount: number }> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     return { updatedCount: ids.length };
   }
   return post<{ updatedCount: number }>(
@@ -1009,7 +1007,7 @@ export async function bulkUpdateSignals(
 export async function runAnalysis(
   companyId: number,
 ): Promise<{ id: number; job: string; status: string }> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     return { id: 1, job: "analyse", status: "running" };
   }
   return post<{ id: number; job: string; status: string }>(
@@ -1022,7 +1020,7 @@ export async function askSignals(
   question: string,
   quotedText?: string | null,
 ): Promise<import("./types").AskSignalsResponse> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockAskSignals } = await import("@/lib/signals-mocks");
     return mockAskSignals(question);
   }
@@ -1041,7 +1039,7 @@ export async function getDashboard(
   range: import("./types").DashboardRange = "30d",
   category?: import("./types").SourceCategory | null,
 ): Promise<import("./types").DashboardData> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockDashboardData } = await import("@/lib/dashboard-mocks");
     return mockDashboardData(range, category);
   }
@@ -1057,7 +1055,7 @@ export async function searchWorkspace(
   companyId: number,
   query: string,
 ): Promise<import("./types").WorkspaceSearchResponse> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockWorkspaceSearch } = await import("@/lib/dashboard-mocks");
     return mockWorkspaceSearch(query);
   }
@@ -1075,7 +1073,7 @@ export async function searchWorkspace(
 export async function getAutomation(
   companyId: number,
 ): Promise<import("./types").AutomationOverview> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockAutomationOverview } = await import("@/lib/automation-mocks");
     return mockAutomationOverview();
   }
@@ -1089,7 +1087,7 @@ export async function getCalendar(
   from: string,
   to: string,
 ): Promise<import("./types").CalendarDay[]> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockCalendarDays } = await import("@/lib/automation-mocks");
     return mockCalendarDays(from, to);
   }
@@ -1104,7 +1102,7 @@ export async function previewSchedule(
   companyId: number,
   draft: import("./types").ScheduleDraft,
 ): Promise<import("./types").SchedulePreviewResponse> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockPreviewSchedule } = await import("@/lib/automation-mocks");
     return mockPreviewSchedule(draft);
   }
@@ -1156,7 +1154,7 @@ export async function listAutomationRuns(
   filters: import("./types").AutomationRunsFilters = {},
   cursor?: string | null,
 ): Promise<import("./types").AutomationRunsResponse> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockAutomationRuns } = await import("@/lib/automation-mocks");
     return mockAutomationRuns(filters);
   }
@@ -1178,7 +1176,7 @@ export async function getAutomationRun(
   companyId: number,
   runId: number,
 ): Promise<import("./types").AutomationRunDetailResponse> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockAutomationRunDetail } = await import("@/lib/automation-mocks");
     return mockAutomationRunDetail(runId);
   }
@@ -1249,7 +1247,7 @@ export async function previewOverride(
   companyId: number,
   draft: import("./types").OverrideDraft,
 ): Promise<import("./types").OverridePreviewResponse> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockPreviewOverride } = await import("@/lib/automation-mocks");
     return mockPreviewOverride(draft);
   }
@@ -1292,7 +1290,7 @@ export async function exportRunsCsv(
 export async function getLatestBrief(
   companyId: number,
 ): Promise<import("./types").BriefLatestResponse> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockLatestBrief } = await import("@/lib/brief-mocks");
     return mockLatestBrief(companyId);
   }
@@ -1305,7 +1303,7 @@ export async function getBrief(
   companyId: number,
   briefId: string,
 ): Promise<import("./types").Brief> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockBriefById } = await import("@/lib/brief-mocks");
     return mockBriefById(companyId, briefId);
   }
@@ -1322,7 +1320,7 @@ export async function listBriefs(
   nextCursor: string | null;
   total: number;
 }> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockBriefList } = await import("@/lib/brief-mocks");
     return mockBriefList();
   }
@@ -1337,7 +1335,7 @@ export async function listBriefs(
 export async function generateBrief(
   companyId: number,
 ): Promise<import("./types").BriefGenerationState> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockBriefGeneration } = await import("@/lib/brief-mocks");
     return mockBriefGeneration();
   }
@@ -1349,7 +1347,7 @@ export async function generateBrief(
 export async function getBriefGeneration(
   companyId: number,
 ): Promise<import("./types").BriefGenerationState> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockBriefGeneration } = await import("@/lib/brief-mocks");
     return mockBriefGeneration();
   }
@@ -1436,7 +1434,7 @@ export async function compareBriefs(
   a: string,
   b: string,
 ): Promise<import("./types").BriefCompareResult> {
-  if (USE_SIGNALS_MOCKS) {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     const { mockBriefCompare } = await import("@/lib/brief-mocks");
     return mockBriefCompare(a, b);
   }

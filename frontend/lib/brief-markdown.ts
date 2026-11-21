@@ -25,6 +25,24 @@ export function briefToMarkdown(brief: Brief): string {
     "## 01. Executive Summary",
   ];
 
+  const overviewText =
+    brief.executiveOverview?.text?.trim() ||
+    (brief.executiveSummary.length > 0
+      ? brief.executiveSummary
+          .slice(0, 3)
+          .map((item) => item.headline)
+          .join("; ") + "."
+      : "No meaningful verified development was identified during this monitoring period.");
+  const overviewCites =
+    brief.executiveOverview?.citations && brief.executiveOverview.citations.length > 0
+      ? brief.executiveOverview.citations
+      : Array.from(new Set(brief.executiveSummary.slice(0, 3).flatMap((i) => i.fact.citations)));
+  lines.push(
+    overviewCites.length > 0 ? `${overviewText} ${fmtCite(overviewCites)}` : overviewText,
+    "",
+    "## 02. Top Five Developments",
+  );
+
   if (brief.executiveSummary.length === 0) {
     lines.push("No top signals recorded for this period.", "");
   } else {
@@ -42,7 +60,7 @@ export function briefToMarkdown(brief: Brief): string {
   }
 
   brief.sections.forEach((sec, idx) => {
-    const num = String(idx + 2).padStart(2, "0");
+    const num = String(idx + 3).padStart(2, "0");
     lines.push(`## ${num}. ${SECTION_LABELS[sec.key] ?? sec.key}`);
     if (sec.summary) {
       lines.push(`${sec.summary.text} ${fmtCite(sec.summary.citations)}`, "");
@@ -66,7 +84,7 @@ export function briefToMarkdown(brief: Brief): string {
     }
   });
 
-  lines.push("## 06. Opportunities");
+  lines.push("## 07. Opportunities");
   if (brief.opportunities.length === 0) {
     lines.push("No verified opportunities identified this period.", "");
   } else {
@@ -78,7 +96,7 @@ export function briefToMarkdown(brief: Brief): string {
     lines.push("");
   }
 
-  lines.push("## 07. Risks & Threats");
+  lines.push("## 08. Risks & Threats");
   if (brief.risks.length === 0) {
     lines.push("No verified risks identified this period.", "");
   } else {
@@ -90,7 +108,7 @@ export function briefToMarkdown(brief: Brief): string {
     lines.push("");
   }
 
-  lines.push("## 08. Recommended Actions");
+  lines.push("## 09. Recommended Actions");
   if (brief.actions.length === 0) {
     lines.push("No actions recorded.", "");
   } else {
@@ -104,7 +122,7 @@ export function briefToMarkdown(brief: Brief): string {
     lines.push("");
   }
 
-  lines.push("## 09. What We Should Watch");
+  lines.push("## 10. What We Should Watch");
   if (brief.watch.length === 0) {
     lines.push("No watchlist triggers flagged for next week.", "");
   } else {
@@ -114,7 +132,7 @@ export function briefToMarkdown(brief: Brief): string {
     lines.push("");
   }
 
-  lines.push("## 10. Source Appendix");
+  lines.push("## 11. Source Appendix");
   brief.sources.forEach((src) => {
     lines.push(
       `[${src.n}] ${src.title} — ${src.url} (${src.type}, fetched ${src.fetchedAt})`,

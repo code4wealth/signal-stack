@@ -12,9 +12,10 @@ import {
 } from "@/components/ui-shared";
 import { useMotionSafe } from "@/hooks/useMotionSafe";
 import { readingReveal, staggerContainer } from "@/lib/motion";
-import type { BriefSectionItem, BriefSourceItem } from "@/lib/types";
+import type { BriefSectionItem, BriefSourceItem, CitedText } from "@/lib/types";
 
 export function ExecutiveSummarySection({
+  executiveOverview,
   items,
   sources,
   isMock,
@@ -22,6 +23,7 @@ export function ExecutiveSummarySection({
   onJumpToCategoryItem,
   onInspectSignal,
 }: {
+  executiveOverview?: CitedText | null;
   items: BriefSectionItem[];
   sources: BriefSourceItem[];
   isMock?: boolean;
@@ -31,41 +33,96 @@ export function ExecutiveSummarySection({
 }) {
   const { reduced } = useMotionSafe();
 
+  const overviewText =
+    executiveOverview?.text?.trim() ||
+    (items.length > 0
+      ? items
+          .slice(0, 3)
+          .map((item) => item.headline)
+          .join("; ") + "."
+      : "No meaningful verified development was identified during this monitoring period.");
+  const overviewCitations =
+    executiveOverview?.citations && executiveOverview.citations.length > 0
+      ? executiveOverview.citations
+      : Array.from(new Set(items.slice(0, 3).flatMap((i) => i.fact.citations)));
+
   return (
-    <motion.section
-      id="executive-summary"
-      aria-labelledby="heading-executive-summary"
-      data-brief-section
-      variants={readingReveal(reduced)}
-      initial="hidden"
-      whileInView="visible"
-      viewport={{ once: true, margin: "-80px" }}
-      className="space-y-4"
-    >
-      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[#1F2125]/10 pb-3">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <span className="font-mono text-xs font-semibold text-[#4F46E5]">01</span>
-            <h2
-              id="heading-executive-summary"
-              className="font-serif text-[22px] font-medium tracking-[-0.015em] text-[#1F2125]"
-            >
-              Executive summary
-            </h2>
-            {isMock ? (
-              <span className="rounded-full border border-amber-400/50 bg-amber-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-amber-900">
-                MOCK DATA
-              </span>
-            ) : null}
+    <>
+      {/* 01. Executive Summary */}
+      <motion.section
+        id="executive-summary"
+        aria-labelledby="heading-executive-summary"
+        data-brief-section
+        variants={readingReveal(reduced)}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-80px" }}
+        className="space-y-4"
+      >
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[#1F2125]/10 pb-3">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <span className="font-mono text-xs font-semibold text-[#4F46E5]">01</span>
+              <h2
+                id="heading-executive-summary"
+                className="font-serif text-[22px] font-medium tracking-[-0.015em] text-[#1F2125]"
+              >
+                Executive Summary
+              </h2>
+              {isMock ? (
+                <span className="rounded-full border border-amber-400/50 bg-amber-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-amber-900">
+                  MOCK DATA
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-0.5 text-xs text-[#4B5058]">
+              Weekly strategic synthesis grounded in verified evidence.
+            </p>
           </div>
-          <p className="mt-0.5 text-xs text-[#4B5058]">
-            The five developments that matter most this week.
-          </p>
         </div>
-        <span className="font-mono text-xs text-[#4B5058]">
-          {items.length} of 5
-        </span>
-      </div>
+
+        <GlassCard className="p-5 sm:p-6">
+          <p className="text-[15px] leading-[1.7] text-[#1F2125]">
+            <ClaimText
+              text={overviewText}
+              citations={overviewCitations}
+              sources={sources}
+              onJumpToSource={(n) => onJumpToSource(n, "executive-summary")}
+            />
+          </p>
+        </GlassCard>
+      </motion.section>
+
+      {/* 02. Top Five Developments */}
+      <motion.section
+        id="top-five-developments"
+        aria-labelledby="heading-top-five-developments"
+        data-brief-section
+        variants={readingReveal(reduced)}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: "-80px" }}
+        className="space-y-4"
+      >
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[#1F2125]/10 pb-3">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <span className="font-mono text-xs font-semibold text-[#4F46E5]">02</span>
+              <h2
+                id="heading-top-five-developments"
+                className="font-serif text-[22px] font-medium tracking-[-0.015em] text-[#1F2125]"
+              >
+                Top Five Developments
+              </h2>
+            </div>
+            <p className="mt-0.5 text-xs text-[#4B5058]">
+              The five highest-scoring verified developments this week.
+            </p>
+          </div>
+          <span className="font-mono text-xs text-[#4B5058]">
+            {items.length} of 5
+          </span>
+        </div>
 
       {items.length === 0 ? (
         <GlassCard className="p-6 text-sm text-[#4B5058]">
@@ -176,6 +233,7 @@ export function ExecutiveSummarySection({
           Only {items.length} significant development{items.length === 1 ? "" : "s"} this week.
         </p>
       ) : null}
-    </motion.section>
+      </motion.section>
+    </>
   );
 }

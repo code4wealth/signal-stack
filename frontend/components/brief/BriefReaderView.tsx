@@ -39,10 +39,10 @@ import { WatchSection } from "./WatchSection";
 import { BRIEF_SECTION_DEFS } from "./briefMeta";
 
 const CATEGORY_SECTION_NUMBERS: Record<string, string> = {
-  customers: "02",
-  competitors: "03",
-  market: "04",
-  internal: "05",
+  customers: "03",
+  competitors: "04",
+  market: "05",
+  internal: "06",
 };
 
 export function BriefReaderView({
@@ -347,8 +347,9 @@ export function BriefReaderView({
                   />
                 </div>
 
-                {/* 01. Executive Summary */}
+                {/* 01. Executive Summary & 02. Top Five Developments */}
                 <ExecutiveSummarySection
+                  executiveOverview={brief.executiveOverview}
                   items={brief.executiveSummary}
                   sources={brief.sources}
                   isMock={brief.isMock}
@@ -357,7 +358,7 @@ export function BriefReaderView({
                   onInspectSignal={(sid) => setActiveSignalId(sid)}
                 />
 
-                {/* 02–05. Category Intelligence Sections */}
+                {/* 03–06. Category Intelligence Sections */}
                 {brief.sections.map((section) => (
                   <CategoryIntelligenceSection
                     key={section.key}

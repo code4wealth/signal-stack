@@ -13,15 +13,15 @@ function resolveStepLabel(pathname: string, companyId: number): string {
   if (pathname === `${base}/dashboard`) return "Mission control overview";
   if (pathname === base) return "Step 1 of 6: Review company profile";
   if (pathname === `${base}/interview`) return "Step 2 of 6: Founder interview";
-  if (pathname === `${base}/signal-stack` || pathname === `${base}/sources`) {
+  if (pathname === `${base}/signal-stack`) {
     return "Step 3 of 6: Build your Signal Stack";
   }
   if (pathname === `${base}/competitors`) return "Step 4 of 6: Competitor discovery";
   if (pathname === `${base}/crawler`) return "Step 4 of 6: Monitor sources";
-  if (pathname === `${base}/signals` || pathname === `${base}/intelligence`) {
+  if (pathname === `${base}/signals`) {
     return "Step 5 of 6: Analyse signals";
   }
-  if (pathname === `${base}/briefs`) {
+  if (pathname === `${base}/brief` || pathname.startsWith(`${base}/brief/`)) {
     return "Step 6 of 6: Monday Morning Brief";
   }
   if (pathname === `${base}/automation`) return "Step 6 of 6: Automate your intelligence";
@@ -33,10 +33,9 @@ function resolveSectionLabel(pathname: string, companyId: number): string | null
   if (pathname === `${base}/dashboard`) return "Dashboard";
   if (pathname === `${base}/interview`) return "Interview";
   if (pathname === `${base}/competitors`) return "Competitors";
-  if (pathname === `${base}/sources` || pathname === `${base}/signal-stack`) return "Signal Stack";
-  if (pathname === `${base}/signals` || pathname === `${base}/intelligence`) return "Signals";
+  if (pathname === `${base}/signal-stack`) return "Signal Stack";
+  if (pathname === `${base}/signals`) return "Signals";
   if (pathname === `${base}/crawler`) return "Crawler";
-  if (pathname === `${base}/briefs`) return "Briefs";
   if (pathname === `${base}/brief` || pathname.startsWith(`${base}/brief/`)) return "Monday Brief";
   if (pathname === `${base}/automation`) return "Automation";
   return null;

@@ -293,7 +293,7 @@ export function RunDrawer({
                       <Link
                         href={
                           run.output.type === "brief"
-                            ? `/company/${companyId}/briefs`
+                            ? `/company/${companyId}/brief`
                             : run.output.type === "crawl_run"
                               ? `/company/${companyId}/crawler`
                               : run.output.type === "audit"

@@ -2,15 +2,16 @@ import type { Brief, SourceCategory } from "@/lib/types";
 
 export const BRIEF_SECTION_DEFS = [
   { id: "executive-summary", num: "01", label: "Executive Summary", category: null },
-  { id: "customers", num: "02", label: "Customer Signals", category: "customers" as SourceCategory },
-  { id: "competitors", num: "03", label: "Competitor Intelligence", category: "competitors" as SourceCategory },
-  { id: "market", num: "04", label: "Market Intelligence", category: "market" as SourceCategory },
-  { id: "internal", num: "05", label: "Internal Intelligence", category: "internal" as SourceCategory },
-  { id: "opportunities", num: "06", label: "Opportunities", category: null },
-  { id: "risks", num: "07", label: "Risks & Threats", category: null },
-  { id: "actions", num: "08", label: "Recommended Actions", category: null },
-  { id: "watch", num: "09", label: "What We Should Watch", category: null },
-  { id: "sources", num: "10", label: "Source Appendix", category: null },
+  { id: "top-five-developments", num: "02", label: "Top Five Developments", category: null },
+  { id: "customers", num: "03", label: "Customer Signals", category: "customers" as SourceCategory },
+  { id: "competitors", num: "04", label: "Competitor Intelligence", category: "competitors" as SourceCategory },
+  { id: "market", num: "05", label: "Market Intelligence", category: "market" as SourceCategory },
+  { id: "internal", num: "06", label: "Internal Intelligence", category: "internal" as SourceCategory },
+  { id: "opportunities", num: "07", label: "Opportunities", category: null },
+  { id: "risks", num: "08", label: "Risks & Threats", category: null },
+  { id: "actions", num: "09", label: "Recommended Actions", category: null },
+  { id: "watch", num: "10", label: "What We Should Watch", category: null },
+  { id: "sources", num: "11", label: "Source Appendix", category: null },
 ] as const;
 
 export const CATEGORY_ACCENTS: Record<
@@ -61,6 +62,8 @@ export const CATEGORY_ACCENTS: Record<
 export function getSectionCount(brief: Brief, sectionId: string): number {
   switch (sectionId) {
     case "executive-summary":
+      return brief.executiveOverview?.text || brief.executiveSummary.length > 0 ? 1 : 0;
+    case "top-five-developments":
       return brief.executiveSummary.length;
     case "customers":
     case "competitors":

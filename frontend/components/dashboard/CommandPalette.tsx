@@ -119,7 +119,7 @@ export function CommandPalette({
       { id: "nav-stack", group: "Navigate", label: "Signal Stack", subtitle: "Step 3 · Curate monitored sources", href: `${base}/signal-stack`, Icon: Layers },
       { id: "nav-crawler", group: "Navigate", label: "Crawler Monitor", subtitle: "Step 4 · Live crawl runs & logs", href: `${base}/crawler`, Icon: Bot },
       { id: "nav-signals", group: "Navigate", label: "Signals Feed", subtitle: "Step 5 · Opportunities, threats & Ask AI", href: `${base}/signals`, Icon: Radar },
-      { id: "nav-briefs", group: "Navigate", label: "Monday Morning Briefs", subtitle: "Step 6 · Weekly executive report", href: `${base}/briefs`, Icon: FileText },
+      { id: "nav-briefs", group: "Navigate", label: "Monday Morning Briefs", subtitle: "Step 6 · Weekly executive report", href: `${base}/brief`, Icon: FileText },
       { id: "nav-competitors", group: "Navigate", label: "Competitors", subtitle: "Competitor profiles & positioning", href: `${base}/competitors`, Icon: Swords },
       { id: "nav-auto", group: "Navigate", label: "Automation & Internal Data", subtitle: "Uploads, schedules & job history", href: `${base}/automation`, Icon: Activity },
     ];
@@ -155,7 +155,7 @@ export function CommandPalette({
         group: "Actions",
         label: "Open Monday Brief",
         subtitle: "Review or generate weekly executive brief",
-        href: `${base}/briefs`,
+        href: `${base}/brief`,
         Icon: FileSpreadsheet,
       },
     ];

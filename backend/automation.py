@@ -155,6 +155,30 @@ def build_cron_from_fields(
     raise ValueError(f"Unsupported frequency {frequency!r}")
 
 
+_POSIX_DOW_TO_APS = {
+    "0": "sun",
+    "1": "mon",
+    "2": "tue",
+    "3": "wed",
+    "4": "thu",
+    "5": "fri",
+    "6": "sat",
+    "7": "sun",
+}
+
+
+def _posix_dow_to_apscheduler(dow_field: str) -> str:
+    """Translate standard 5-field POSIX crontab day_of_week (0/7=Sun, 1=Mon..6=Sat) to APScheduler names."""
+    import re as _re
+
+    def _repl(match: _re.Match[str]) -> str:
+        tok = match.group(0)
+        return _POSIX_DOW_TO_APS.get(tok, tok)
+
+    # Replace standalone integers 0..7 outside step values (after '/')
+    return _re.sub(r"(?<!/)\b[0-7]\b", _repl, dow_field.strip())
+
+
 def parse_cron_trigger(cron: str, tz_name: str) -> CronTrigger:
     tz = validate_timezone(tz_name)
     cleaned = cron.strip()
@@ -163,16 +187,17 @@ def parse_cron_trigger(cron: str, tz_name: str) -> CronTrigger:
         raise ValueError(f"Cron expression must have exactly 5 fields (minute hour day month day_of_week); got {len(parts)}.")
     minute_f, hour_f, day_f, month_f, dow_f = parts
     try:
-        if day_f.lower() == "last":
-            return CronTrigger(
-                minute=minute_f,
-                hour=hour_f,
-                day="last",
-                month=month_f,
-                day_of_week=dow_f,
-                timezone=tz,
-            )
-        return CronTrigger.from_crontab(cleaned, timezone=tz)
+        # Validate standard crontab syntax first, then translate numeric POSIX weekdays
+        # because APScheduler's from_crontab maps 0->Monday unless weekday names are used.
+        aps_dow = "*" if dow_f == "*" else _posix_dow_to_apscheduler(dow_f)
+        return CronTrigger(
+            minute=minute_f,
+            hour=hour_f,
+            day="last" if day_f.lower() == "last" else day_f,
+            month=month_f,
+            day_of_week=aps_dow,
+            timezone=tz,
+        )
     except Exception as exc:
         raise ValueError(f"Invalid cron expression: {exc}") from exc
 
@@ -363,7 +388,7 @@ def ensure_default_schedules(db: Session, company: Company) -> list[AutomationSc
             enabled=True,
             frequency="weekly",
             cron="0 7 * * 1",
-            timezone="UTC",
+            timezone="Asia/Kolkata",
             days_of_week=[0],
             time_of_day="07:00",
             depends_on="analysis",
