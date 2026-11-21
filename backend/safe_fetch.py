@@ -18,7 +18,9 @@ which narrows but does not eliminate the window.
 
 from __future__ import annotations
 
+import inspect
 import ipaddress
+import logging
 import random
 import socket
 import threading
@@ -29,13 +31,15 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from config import ca_bundle_path, get_settings
+from config import build_ssl_context, ca_bundle_path, get_settings
 
+logger = logging.getLogger("signalstack.safe_fetch")
 settings = get_settings()
 
 ALLOWED_SCHEMES = {"http", "https"}
 MAX_REDIRECTS = 5
 DEFAULT_MAX_ATTEMPTS = 3
+DEFAULT_TOTAL_TIMEOUT_SECONDS = 30.0
 ROBOTS_TTL_SECONDS = 3600.0
 REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 
@@ -100,6 +104,10 @@ class RobotsDisallowed(FetchError):
 
 class FetchFailed(FetchError):
     kind = "fetch"
+
+
+class FetchDeadlineExceeded(FetchFailed):
+    pass
 
 
 @dataclass
@@ -226,9 +234,31 @@ def _per_host_interval() -> float:
     return 1.0 / max(1, settings.fetch_requests_per_second)
 
 
-def _wait_for_host(host: str) -> None:
+def _format_budget_seconds(seconds: float) -> str:
+    rounded = round(seconds, 1)
+    return str(int(rounded)) if rounded == int(rounded) else str(rounded)
+
+
+def _deadline_error(url: str, total_budget: float) -> FetchDeadlineExceeded:
+    host = (urlparse(url).hostname or url).lower()
+    return FetchDeadlineExceeded(
+        f"Site did not respond within {_format_budget_seconds(total_budget)}s: {host}",
+        url=url,
+    )
+
+
+def _wait_for_host(
+    host: str,
+    *,
+    deadline: float | None = None,
+    url: str = "",
+    total_budget: float = DEFAULT_TOTAL_TIMEOUT_SECONDS,
+) -> None:
     interval = _per_host_interval()
     while True:
+        now = time.monotonic()
+        if deadline is not None and now >= deadline:
+            raise _deadline_error(url or host, total_budget)
         with _rate_lock:
             now = time.monotonic()
             last = _last_request_at.get(host, 0.0)
@@ -236,7 +266,13 @@ def _wait_for_host(host: str) -> None:
             if remaining <= 0:
                 _last_request_at[host] = now
                 return
-        time.sleep(min(remaining, 1.0))
+        sleep_for = min(remaining, 1.0)
+        if deadline is not None:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise _deadline_error(url or host, total_budget)
+            sleep_for = min(sleep_for, left)
+        time.sleep(sleep_for)
 
 
 # --------------------------------------------------------------------------- #
@@ -246,7 +282,12 @@ _robots_lock = threading.Lock()
 _robots_cache: dict[str, tuple[float, urllib.robotparser.RobotFileParser | None]] = {}
 
 
-def _robots_for(origin: str) -> urllib.robotparser.RobotFileParser | None:
+def _robots_for(
+    origin: str,
+    *,
+    deadline: float | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> urllib.robotparser.RobotFileParser | None:
     """Fetch+parse robots.txt once per origin. None means 'no rules -> allow'."""
     now = time.monotonic()
     with _robots_lock:
@@ -256,8 +297,14 @@ def _robots_for(origin: str) -> urllib.robotparser.RobotFileParser | None:
 
     parser: urllib.robotparser.RobotFileParser | None = None
     robots_url = origin + "/robots.txt"
+    robots_timeout = min(10.0, float(settings.fetch_timeout_seconds))
+    if deadline is not None:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return None
+        robots_timeout = max(0.1, min(robots_timeout, left))
     try:
-        response = _raw_get(robots_url, timeout=min(10.0, float(settings.fetch_timeout_seconds)))
+        response = _raw_get(robots_url, timeout=robots_timeout, transport=transport)
         if response.status_code == 200:
             parser = urllib.robotparser.RobotFileParser()
             parser.parse(response.text.splitlines())
@@ -279,18 +326,29 @@ def _robots_for(origin: str) -> urllib.robotparser.RobotFileParser | None:
     return parser
 
 
-def robots_allows(url: str, user_agent: str | None = None) -> bool:
+def robots_allows(
+    url: str,
+    user_agent: str | None = None,
+    *,
+    deadline: float | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> bool:
     parsed = urlparse(url)
     origin = f"{parsed.scheme}://{parsed.netloc}"
-    parser = _robots_for(origin)
+    parser = _robots_for(origin, deadline=deadline, transport=transport)
     if parser is None:
         return True
     ua = user_agent or settings.user_agent
     return parser.can_fetch(ua, url)
 
 
-def _raw_get(url: str, timeout: float) -> httpx.Response:
-    with _client(timeout=timeout) as client:
+def _raw_get(
+    url: str,
+    timeout: float,
+    *,
+    transport: httpx.BaseTransport | None = None,
+) -> httpx.Response:
+    with _client(timeout=timeout, transport=transport) as client:
         return client.get(url)
 
 
@@ -298,19 +356,29 @@ def _raw_get(url: str, timeout: float) -> httpx.Response:
 # HTTP plumbing
 # --------------------------------------------------------------------------- #
 def _verify():
-    """CA bundle from the environment when one is configured; True keeps httpx's default check."""
+    """Verified TLS: explicit CA bundle path -> OS native truststore -> certifi."""
+    return ca_bundle_path() or build_ssl_context()
 
-    return ca_bundle_path() or True
 
-
-def _client(timeout: float) -> httpx.Client:
-    return httpx.Client(
-        timeout=timeout,
-        follow_redirects=False,
-        headers={"User-Agent": settings.user_agent, "Accept-Encoding": "gzip, deflate"},
-        trust_env=False,
-        verify=_verify(),
-    )
+def _client(
+    timeout: float,
+    *,
+    transport: httpx.BaseTransport | None = None,
+) -> httpx.Client:
+    kwargs: dict = {
+        "timeout": timeout,
+        "follow_redirects": False,
+        "headers": {
+            "User-Agent": settings.user_agent,
+            "Accept-Encoding": "gzip, deflate",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+        "trust_env": False,
+        "verify": _verify(),
+    }
+    if transport is not None:
+        kwargs["transport"] = transport
+    return httpx.Client(**kwargs)
 
 
 def _decode(content: bytes, content_type: str | None) -> str:
@@ -342,18 +410,32 @@ def _request_once(
     headers: dict[str, str],
     timeout: float,
     max_bytes: int,
+    deadline: float | None = None,
+    total_budget: float = DEFAULT_TOTAL_TIMEOUT_SECONDS,
+    transport: httpx.BaseTransport | None = None,
 ) -> tuple[int, dict[str, str], bytes]:
-    with _client(timeout=timeout) as client:
+    req_timeout = timeout
+    if deadline is not None:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise _deadline_error(url, total_budget)
+        req_timeout = max(0.05, min(timeout, left))
+
+    with _client(timeout=req_timeout, transport=transport) as client:
         with client.stream(method, url, headers=headers) as response:
             chunks: list[bytes] = []
             size = 0
             for chunk in response.iter_bytes():
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise _deadline_error(url, total_budget)
                 size += len(chunk)
                 if size > max_bytes:
                     raise FetchFailed(
                         f"response larger than cap ({max_bytes} bytes)", url=url, status=response.status_code
                     )
                 chunks.append(chunk)
+            if deadline is not None and time.monotonic() >= deadline:
+                raise _deadline_error(url, total_budget)
             return response.status_code, dict(response.headers), b"".join(chunks)
 
 
@@ -365,27 +447,96 @@ def _send_with_retries(
     timeout: float,
     max_bytes: int,
     max_attempts: int,
+    deadline: float | None = None,
+    total_budget: float = DEFAULT_TOTAL_TIMEOUT_SECONDS,
+    transport: httpx.BaseTransport | None = None,
 ) -> tuple[int, dict[str, str], bytes, int]:
     last_error: FetchError | None = None
+    attempt_headers = dict(headers)
     for attempt in range(1, max_attempts + 1):
+        if deadline is not None and time.monotonic() >= deadline:
+            raise _deadline_error(url, total_budget)
         try:
+            req_kwargs: dict = {
+                "headers": attempt_headers,
+                "timeout": timeout,
+                "max_bytes": max_bytes,
+            }
+            try:
+                sig_params = inspect.signature(_request_once).parameters
+                accepts_var_kw = any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_params.values()
+                )
+                if accepts_var_kw or "deadline" in sig_params:
+                    req_kwargs["deadline"] = deadline
+                if accepts_var_kw or "total_budget" in sig_params:
+                    req_kwargs["total_budget"] = total_budget
+                if accepts_var_kw or "transport" in sig_params:
+                    req_kwargs["transport"] = transport
+            except (TypeError, ValueError):
+                pass
             status, resp_headers, body = _request_once(
-                method, url, headers=headers, timeout=timeout, max_bytes=max_bytes
+                method,
+                url,
+                **req_kwargs,
             )
-        except (httpx.TimeoutException,) as exc:
+        except FetchDeadlineExceeded:
+            raise
+        except httpx.TimeoutException as exc:
+            logger.warning(
+                "safe_fetch retry url=%s attempt=%s/%s error=%s",
+                url,
+                attempt,
+                max_attempts,
+                exc.__class__.__name__,
+            )
+            if deadline is not None and time.monotonic() >= deadline:
+                raise _deadline_error(url, total_budget) from exc
             last_error = FetchFailed(f"timeout after {timeout}s: {exc.__class__.__name__}", url=url)
+        except httpx.RemoteProtocolError as exc:
+            # Edge/CDN closed keep-alive connection mid-response; retry with explicit Connection: close.
+            attempt_headers["Connection"] = "close"
+            logger.warning(
+                "safe_fetch retry url=%s attempt=%s/%s error=%s",
+                url,
+                attempt,
+                max_attempts,
+                exc.__class__.__name__,
+            )
+            last_error = FetchFailed(f"transport error: {exc.__class__.__name__}: {exc}", url=url)
         except httpx.HTTPError as exc:
+            logger.warning(
+                "safe_fetch retry url=%s attempt=%s/%s error=%s",
+                url,
+                attempt,
+                max_attempts,
+                exc.__class__.__name__,
+            )
             last_error = FetchFailed(f"transport error: {exc.__class__.__name__}: {exc}", url=url)
         except FetchFailed:
             raise
         else:
             if status == 429 or 500 <= status < 600:
+                logger.warning(
+                    "safe_fetch retry url=%s attempt=%s/%s error=HTTP_%s",
+                    url,
+                    attempt,
+                    max_attempts,
+                    status,
+                )
                 last_error = FetchFailed(f"http {status}", url=url, status=status)
             else:
                 return status, resp_headers, body, attempt
         if attempt < max_attempts:
             backoff = (0.5 * (2 ** (attempt - 1))) + random.uniform(0, 0.25)
+            if deadline is not None:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    raise _deadline_error(url, total_budget)
+                backoff = min(backoff, left)
             time.sleep(backoff)
+            if deadline is not None and time.monotonic() >= deadline:
+                raise _deadline_error(url, total_budget)
     assert last_error is not None
     raise last_error
 
@@ -398,13 +549,17 @@ def fetch(
     last_modified: str | None = None,
     respect_robots: bool = True,
     timeout: float | None = None,
+    total_timeout: float | None = None,
     max_bytes: int | None = None,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     extra_headers: dict[str, str] | None = None,
+    transport: httpx.BaseTransport | None = None,
 ) -> FetchResult:
     """Fetch a URL safely. Raises BlockedURL / RobotsDisallowed / FetchFailed."""
     started = time.monotonic()
     timeout = float(timeout if timeout is not None else settings.fetch_timeout_seconds)
+    total_budget = float(total_timeout if total_timeout is not None else DEFAULT_TOTAL_TIMEOUT_SECONDS)
+    deadline = started + total_budget
     max_bytes = int(max_bytes if max_bytes is not None else settings.fetch_max_bytes)
 
     current_url = validate_url(url)
@@ -413,13 +568,16 @@ def fetch(
     conditional_used = False
 
     while True:
+        if time.monotonic() >= deadline:
+            raise _deadline_error(current_url, total_budget)
+
         parsed = urlparse(current_url)
         host = (parsed.hostname or "").lower()
 
-        if respect_robots and not robots_allows(current_url):
+        if respect_robots and not robots_allows(current_url, deadline=deadline, transport=transport):
             raise RobotsDisallowed(f"robots.txt disallows {current_url}", url=current_url)
 
-        _wait_for_host(host)
+        _wait_for_host(host, deadline=deadline, url=current_url, total_budget=total_budget)
 
         headers: dict[str, str] = {"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
         if extra_headers:
@@ -438,6 +596,9 @@ def fetch(
             timeout=timeout,
             max_bytes=max_bytes,
             max_attempts=max_attempts,
+            deadline=deadline,
+            total_budget=total_budget,
+            transport=transport,
         )
         attempts_total += attempts
 
@@ -463,6 +624,13 @@ def fetch(
             if redirects >= MAX_REDIRECTS:
                 raise FetchFailed(f"too many redirects (>{MAX_REDIRECTS})", url=current_url, status=status)
             next_url = urljoin(current_url, location)
+            logger.info(
+                "safe_fetch redirect from=%s to=%s status=%s hop=%s",
+                current_url,
+                next_url,
+                status,
+                redirects + 1,
+            )
             # Re-validate the hop *before* following it (scheme + DNS + IPs).
             current_url = validate_url(next_url)
             redirects += 1

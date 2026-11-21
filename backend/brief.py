@@ -100,6 +100,9 @@ def _draft_prompt(company, records_payload: list[dict], profile: dict, counts: d
         "executive_record_ids.\n"
         "- strategic_implications: what this means for the founder's stated priorities.\n"
         "- risks_watchlist: what could hurt the company, again only from the records.\n"
+        "- opportunities: up to 6 structured opportunities (opportunity, evidence, relevance, "
+        "impact, next_step, priority high|medium|low, record_ids) backed by cited records.\n"
+        "- risks: up to 6 structured risks (risk, mitigation, record_ids) backed by cited records.\n"
         "- actions: at most 6 concrete actions, each citing the record ids that justify it. An "
         "action without evidence will be deleted.\n\n"
         + llm.wrap_untrusted("records", records_json)
@@ -218,6 +221,36 @@ def build_content(
         }
     )
 
+    opportunities = []
+    for item in draft.opportunities:
+        ids = _clean_ids(item.record_ids, valid)
+        if not ids:
+            continue
+        opportunities.append(
+            {
+                "opportunity": item.opportunity.strip(),
+                "evidence": item.evidence.strip(),
+                "relevance": item.relevance.strip(),
+                "impact": item.impact.strip(),
+                "next_step": item.next_step.strip(),
+                "priority": item.priority,
+                "record_ids": ids,
+            }
+        )
+
+    structured_risks = []
+    for item in draft.risks:
+        ids = _clean_ids(item.record_ids, valid)
+        if not ids:
+            continue
+        structured_risks.append(
+            {
+                "risk": item.risk.strip(),
+                "mitigation": item.mitigation.strip(),
+                "record_ids": ids,
+            }
+        )
+
     actions = []
     for action in draft.actions:
         ids = _clean_ids(action.record_ids, valid)
@@ -276,6 +309,8 @@ def build_content(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "sections": sorted(sections, key=lambda item: SECTION_HEADINGS.index(item["heading"])),
         "top_signals": [payload_by_id[record.id] for record in top],
+        "opportunities": opportunities,
+        "risks": structured_risks,
         "actions": actions,
         "counts": counts,
         "sources": source_rows,
@@ -297,19 +332,38 @@ def render_markdown(content: dict) -> str:
     for section in content["sections"]:
         lines.append(f"## {section['heading']}")
         if section["key"] == "actions" and content["actions"]:
-            for index, action in enumerate(content["actions"], start=1):
+            for action in content["actions"]:
+                mark = "x" if action.get("done") else " "
                 cites = ", ".join(f"record {rid}" for rid in action["record_ids"])
                 lines.append(
-                    f"- [ ] **{action['action']}** — owner {action['owner']} "
+                    f"- [{mark}] **{action['action']}** — owner {action['owner']} "
                     f"({cites}){' — ' + action['why'] if action['why'] else ''}"
                 )
         elif section["body"]:
             lines.append(section["body"])
+        if section["key"] == "strategic_implications" and content.get("opportunities"):
+            lines.append("")
+            lines.append("### Structured Opportunities")
+            for opp in content["opportunities"]:
+                cites = ", ".join(f"record {rid}" for rid in opp["record_ids"])
+                lines.append(
+                    f"- **[{opp['priority'].upper()}] {opp['opportunity']}** ({cites})"
+                    + (f" — Next: {opp['next_step']}" if opp.get("next_step") else "")
+                )
+        if section["key"] == "risks_watchlist" and content.get("risks"):
+            lines.append("")
+            lines.append("### Risks & Mitigations")
+            for item in content["risks"]:
+                cites = ", ".join(f"record {rid}" for rid in item["record_ids"])
+                lines.append(
+                    f"- **{item['risk']}** ({cites})"
+                    + (f" — Mitigation: {item['mitigation']}" if item.get("mitigation") else "")
+                )
         if section["record_ids"]:
             lines.append("")
             lines.append("Citations: " + ", ".join(f"record {rid}" for rid in section["record_ids"]))
         lines.append("")
-    if content["record_index"]:
+    if content.get("record_index"):
         lines.append("## Record index")
         for item in content["record_index"]:
             lines.append(f"- record {item['id']}: [{item['title'] or item['url']}]({item['url']})")
@@ -366,6 +420,10 @@ def generate(db, company) -> Report:
         cited.update(section["record_ids"])
     for action in content["actions"]:
         cited.update(action["record_ids"])
+    for item in content.get("opportunities", []):
+        cited.update(item["record_ids"])
+    for item in content.get("risks", []):
+        cited.update(item["record_ids"])
     missing = [record_id for record_id in cited if db.get(Record, record_id) is None]
     if missing:  # defence in depth: never persist a brief with a dangling citation
         db.rollback()

@@ -12,6 +12,7 @@ Order matters: with ``override=False`` the first file to define a key wins, so a
 from __future__ import annotations
 
 import os
+import ssl
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -50,6 +51,39 @@ def ca_bundle_path() -> str | None:
     return None
 
 
+def ssl_trust_source() -> str:
+    """Describe which CA trust mechanism `build_ssl_context()` will use."""
+    if ca_bundle_path():
+        return "env-ca-bundle"
+    try:
+        import truststore  # noqa: F401
+
+        return "os-truststore"
+    except Exception:
+        return "certifi"
+
+
+def build_ssl_context() -> ssl.SSLContext:
+    """Create a verified TLS client SSLContext using env CA bundle -> OS truststore -> certifi."""
+    ca_path = ca_bundle_path()
+    if ca_path:
+        return ssl.create_default_context(cafile=ca_path)
+
+    try:
+        import truststore
+
+        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    except Exception:
+        pass
+
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
+
+
 def _int(name: str, default: int) -> int:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
@@ -83,8 +117,8 @@ def get_settings() -> Settings:
     default_db = f"sqlite:///{REPO_ROOT / 'backend' / 'signalstack.db'}"
     return Settings(
         groq_api_key=os.getenv("GROQ_API_KEY") or None,
-        groq_model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-        database_url=os.getenv("DATABASE_URL", default_db),
+        groq_model=(os.getenv("GROQ_MODEL") or "").strip() or "llama-3.3-70b-versatile",
+        database_url=(os.getenv("DATABASE_URL") or "").strip() or default_db,
         max_analyses_per_run=_int("MAX_ANALYSES_PER_RUN", 40),
         crawl_concurrency=_int("CRAWL_CONCURRENCY", 4),
         fetch_timeout_seconds=_int("FETCH_TIMEOUT_SECONDS", 15),

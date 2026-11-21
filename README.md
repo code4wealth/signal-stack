@@ -5,41 +5,21 @@ sources in four categories, crawls them, extracts evidence-backed signals, ranks
 executive Monday Morning Brief.
 
 Built for the EDXSO AI Engineer Intern assignment (Assignment 1).
-Demo companies (entered as data, not hardcoded): MeetUniversity, Razorpay, Zomato.
+Demo companies (entered as data in `scripts/demo_companies.json`, not hardcoded): MeetUniversity, Razorpay, Zerodha.
 
-> **Build status.** Built & verified via 117 unit tests. Live pipeline execution is unverified in
-> network-isolated environment; runnable locally via `scripts/run_three_companies.py` with `GROQ_API_KEY`.
-> TypeScript type check is clean and all eight Next.js routes build. No intelligence data has been fabricated —
-> PRD section 12.
+> **Build & verification status.** Backend unit/API suite: **192 passed** (`pytest -q`, mocked HTTP/LLM for external calls), frontend Node suite: **5 passed** (`npm test`), TypeScript clean (`0` errors), ESLint clean (`0` warnings/errors), and all Next.js routes build. Partial live-run output from Windows (`ead1782`) is committed in `run_output.txt`.
 
 ## Results from live runs
 
-> **No live run has completed yet.** Date of last verification attempt: **2026-11-20**.
-> The build environment had no outbound access to company websites (all fetches returned a TLS transport error) and
-> no `GROQ_API_KEY` (`/api/llm/healthcheck` → HTTP 503). The exact failure captured from a real attempt:
->
-> ```
-> POST /api/companies/1/research
-> 502 {"detail": "Could not fetch any page from https://www.meetuniversity.com:
->      homepage: fetch: transport error: ConnectError: TLS/SSL connection has been closed (EOF)"}
->
-> GET /api/llm/healthcheck
-> 503 {"detail": "GROQ_API_KEY is not set. Add it to .env (see .env.example) and restart the server."}
-> ```
->
-> So the counts below are **not measured** and I will not invent them. The pipeline, UI and API were verified
-> against a live server with mocked HTTP/LLM in tests (117 backend tests, TypeScript clean, six routes HTTP 200).
+Captured directly from committed `run_output.txt` (generated via `scripts/run_three_companies.py --skip-interview` on Windows; see `docs/acceptance.md` for what is settled vs still uncaptured):
 
-| Company | Verified sources | Competitors | Collected records | Brief generated |
+| Company | Pages researched | Verified sources stored (dropped) | Crawled records | Analysed / Brief |
 |---|---|---|---|---|
-| MeetUniversity | Not measured — sandbox egress blocked | Not measured | Not measured | no |
-| Razorpay | Not measured — sandbox egress blocked | Not measured | Not measured | no |
-| Zomato | Not measured — sandbox egress blocked | Not measured | Not measured | no |
+| **MeetUniversity** (`https://www.meetuniversity.com`) | 6 pages (3 unverified) | **5** (`competitors: 1, customers: 1, market: 3`; 10 dropped) | 5 new, 0 errors | 5 analysed, 0 flagged · **Brief #1 (3 actions)** |
+| **Razorpay** (`https://razorpay.com`) | 6 pages (0 unverified) | **16** (15 dropped) | 23 new, 1 error | Not captured in `run_output.txt` |
+| **Zerodha** (`https://zerodha.com`) | 6 pages (2 unverified) | Not captured in `run_output.txt` | Not captured in `run_output.txt` | Not captured in `run_output.txt` |
 
-Targets were 20 sources, 5 to 10 competitors and 30 records. Where I fell short: **everywhere, because the run has
-not happened.** Cause: no network egress to the target sites and no Groq key in the build sandbox. To produce the
-real numbers, run `scripts/run_three_companies.py` (see below) on a machine with internet and a key, then replace
-this table with the printed output. Do not copy numbers from anywhere else.
+Targets were 20 sources, 5 to 10 competitors and 30 records. In `run_output.txt`, MeetUniversity completed end-to-end (research → discovery → crawl → analysis → brief #1) with 5 verified sources and 5 records; Razorpay reached 16 verified sources and 23 crawled records; Zerodha completed research; interviews (`--skip-interview`) and `--reassess` output were not captured in `run_output.txt`. To capture the remaining steps cleanly, re-run without `--skip-interview` and with `--reassess` (see below).
 
 ## Features
 
@@ -67,6 +47,7 @@ Not implemented (see `docs/COST_AND_LIMITATIONS.md`):
 - Near-duplicate (syndicated) text detection — dedup is exact hash equality after whitespace normalisation
 - Hosting/deployment of either service; action text editing (the `done` flag is editable, the label is not)
 - Regenerating interview questions once an interview exists (deliberate: it would discard answers)
+- Anti-bot / WAF bypass or browser User-Agent spoofing: sites that block or tarpit automated HTTP clients (for example with CDN challenges or stalled/trickled responses) hit the 30 s per-page / 5 min per-job wall-clock deadlines, save any completed pages as `unverified`, and fail with an explicit error rather than spoofing browser headers or ignoring `robots.txt`
 
 ## Architecture
 ```
@@ -111,8 +92,10 @@ python3 -m venv .venv
 cp .env.example .env          # then add GROQ_API_KEY (repo root or backend/.env — both are read,
                              # repo root wins; a real env var beats both)
 cd backend
-../.venv/bin/uvicorn main:app --reload --port 8000
+../.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
 # API docs: http://127.0.0.1:8000/docs   health: http://127.0.0.1:8000/api/health
+# (Never use hot-reload here: SQLite writes to backend/signalstack.db* inside backend/
+# can restart uvicorn mid-request and abort long requests with empty-body 502s.)
 
 # frontend (new terminal)
 cd frontend
@@ -141,23 +124,42 @@ powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1 -TempDir D:\T
 `backend\requirements.txt` with `--cache-dir`, and copies `.env.example` to `.env` only when `.env` does not
 exist. `setup_windows.ps1` is code-reviewed but not yet executed on Windows — first run is the verification.
 
-To start the backend afterwards:
+To start the backend afterwards (explicitly bound to `127.0.0.1` so Windows `localhost` IPv6 `::1` cannot collide with Next's proxy, and without auto-reload so SQLite writes never restart the server mid-request):
 
 ```powershell
 cd backend
-.\.venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
+.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
+
+Or launch the full stack with network diagnostics and preflight verification:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start_local.ps1
+```
+
+(`dev.ps1` is also code-reviewed only on Linux and not yet executed on Windows.)
 
 ### Produce the real numbers
 
+Run preflight first to confirm `.env` (`GROQ_API_KEY` — never printed), `GROQ_MODEL` via `/api/llm/healthcheck`,
+backend (`127.0.0.1:8000`), frontend (`127.0.0.1:3000`), database state, and public internet egress all pass:
+
 ```bash
-./.venv/bin/python scripts/run_three_companies.py --yes
-# one company, skipping the interactive interview
+# 1. Verify everything is ready before spending Groq tokens
+./.venv/bin/python scripts/preflight.py
+
+# 2. Run the 3-company end-to-end pipeline and save the output
+./.venv/bin/python scripts/run_three_companies.py --yes 2>&1 | tee run_output.txt
+
+# Or one company, skipping the interactive interview:
 ./.venv/bin/python scripts/run_three_companies.py --only meetuniversity --skip-interview --yes
-# the PRD context change
+
+# The PRD context change:
 ./.venv/bin/python scripts/run_three_companies.py --only meetuniversity --skip-interview --yes \
   --reassess meetuniversity \
   --context "International student recruitment and overseas education consultancy"
+
+# 3. Paste/commit the verified output into README.md, docs/acceptance.md, and exports/
 ```
 The companies live in `scripts/demo_companies.json` as data. No company name appears in backend logic (checked by grep).
 
@@ -169,8 +171,9 @@ The companies live in `scripts/demo_companies.json` as data. No company name app
 | `GROQ_MODEL` | Model name. Default `llama-3.3-70b-versatile`. **Check Groq's current free list** — see the warning below |
 | `DATABASE_URL` | Optional. Defaults to `sqlite:///backend/signalstack.db`; any SQLAlchemy URL works |
 | `BACKEND_URL` | Used by the Next.js dev server rewrite; defaults to `http://127.0.0.1:8000` |
-| `NEXT_PUBLIC_API_URL` | Optional absolute API base for a split deployment (empty = use the Next proxy) |
-| `ENABLE_SCHEDULER` | `1` starts APScheduler in-process (default `0`, so `--reload` cannot double-schedule) |
+| `NEXT_PUBLIC_API_URL` | Optional absolute API origin (e.g. `http://127.0.0.1:8000`) read from `frontend/.env*` or repo-root `.env` via `next.config.ts` to bypass the Next proxy. Manual check: open DevTools Network tab on `http://127.0.0.1:3000` and verify API calls target `http://127.0.0.1:8000/api/...` |
+| `CORS_EXTRA_ORIGINS` | Comma-separated extra browser origins allowed by FastAPI (`http://127.0.0.1:3000` and `http://localhost:3000` are already allowed by default) |
+| `ENABLE_SCHEDULER` | `1` starts APScheduler in-process (default `0`, protected by `.scheduler.lock` so only one scheduler can start) |
 | `MAX_ANALYSES_PER_RUN` | Groq budget guard, default 40 |
 | `CRAWL_CONCURRENCY` | Fetches in flight, capped at 4 |
 | `SSL_CERT_FILE` | Optional CA bundle for TLS-inspecting networks (also reads `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`). Unset = httpx default verification |
@@ -192,9 +195,11 @@ Six tables (`companies`, `qa`, `sources`, `records`, `reports`, `job_logs`) are 
 ## Tests
 
 ```bash
-cd backend && ../.venv/bin/pytest -q     # 133 passed
+cd backend && ../.venv/bin/pytest -q     # 192 passed
+cd frontend && npm test                  # 5 passed
 cd frontend && npx tsc --noEmit          # clean
-cd frontend && npm run build             # all 8 routes built
+cd frontend && npm run lint              # clean
+cd frontend && npm run build             # production build clean
 ```
 
 LLM calls and HTTP are mocked in tests. Fixtures are labelled `TEST_` and are never stored as intelligence records.

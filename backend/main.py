@@ -1,6 +1,6 @@
 """FastAPI application entrypoint.
 
-Run from backend/:  uvicorn main:app --reload --port 8000
+Run from backend/:  uvicorn main:app --host 127.0.0.1 --port 8000
 Docs:               http://127.0.0.1:8000/docs
 """
 
@@ -69,6 +69,21 @@ async def _fetch_error_handler(_request: Request, exc: FetchError) -> JSONRespon
 async def _llm_error_handler(_request: Request, exc: LLMError) -> JSONResponse:
     # 503: the LLM is a dependency that is missing/unavailable, not the caller's fault.
     return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.error(
+        "Unhandled error on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc.__class__.__name__,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {exc.__class__.__name__}"},
+    )
 
 
 @app.get("/api/health", tags=["system"])

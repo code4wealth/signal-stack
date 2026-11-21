@@ -254,3 +254,124 @@ def test_check_reachable_reports_failure_without_raising(router) -> None:
     router.get("http://public.test/dead").mock(side_effect=httpx.ConnectError("refused"))
     ok, detail = safe_fetch.check_reachable("http://public.test/dead")
     assert ok is False and "transport error" in detail
+
+
+def test_remote_protocol_error_retries_with_connection_close(router, monkeypatch) -> None:
+    monkeypatch.setattr(safe_fetch.time, "sleep", lambda _seconds: None)
+    router.get("http://public.test/robots.txt").mock(return_value=httpx.Response(404))
+    route = router.get("http://public.test/edge").mock(
+        side_effect=[
+            httpx.RemoteProtocolError("Server disconnected without sending a response."),
+            httpx.Response(200, text="<html><body>recovered after close</body></html>"),
+        ]
+    )
+
+    result = fetch("http://public.test/edge", max_attempts=3)
+
+    assert result.ok and result.attempts == 2
+    assert "recovered after close" in result.text
+    assert route.calls[1].request.headers.get("connection") == "close"
+
+
+def test_ssl_context_uses_truststore_or_env_ca_and_falls_back_to_certifi(monkeypatch, tmp_path) -> None:
+    import ssl
+    import sys
+    import certifi
+    import config
+
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    monkeypatch.delenv("CURL_CA_BUNDLE", raising=False)
+
+    # 1. Default uses OS truststore when available
+    assert config.ssl_trust_source() == "os-truststore"
+    ctx = config.build_ssl_context()
+    assert isinstance(ctx, ssl.SSLContext)
+
+    # 2. Explicit SSL_CERT_FILE overrides truststore
+    ca_file = tmp_path / "corp.pem"
+    ca_file.write_text(open(certifi.where(), "r", encoding="utf-8").read(), encoding="utf-8")
+    monkeypatch.setenv("SSL_CERT_FILE", str(ca_file))
+    assert config.ssl_trust_source() == "env-ca-bundle"
+    assert isinstance(config.build_ssl_context(), ssl.SSLContext)
+
+    # 3. Missing truststore falls back cleanly to certifi
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.setitem(sys.modules, "truststore", None)
+    assert config.ssl_trust_source() == "certifi"
+    assert isinstance(config.build_ssl_context(), ssl.SSLContext)
+
+
+def test_redirect_to_trickle_response_hits_wall_clock_deadline_and_logs(caplog) -> None:
+    import logging
+    import time as real_time
+
+    class TrickleStream(httpx.SyncByteStream):
+        def __iter__(self):
+            for _ in range(100):
+                real_time.sleep(0.05)
+                yield b"x"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url == httpx.URL("http://public.test/robots.txt"):
+            return httpx.Response(404)
+        if request.url == httpx.URL("http://public.test/start"):
+            return httpx.Response(301, headers={"location": "https://other.test/slow"})
+        if request.url == httpx.URL("https://other.test/robots.txt"):
+            return httpx.Response(404)
+        if request.url == httpx.URL("https://other.test/slow"):
+            return httpx.Response(200, stream=TrickleStream(), headers={"content-type": "text/html"})
+        raise AssertionError(f"unexpected request {request.url}")
+
+    transport = httpx.MockTransport(handler)
+    started = real_time.monotonic()
+    with caplog.at_level(logging.INFO, logger="signalstack.safe_fetch"):
+        with pytest.raises(safe_fetch.FetchDeadlineExceeded, match=r"Site did not respond within .*s: other\.test"):
+            fetch(
+                "http://public.test/start",
+                timeout=5.0,
+                total_timeout=0.25,
+                max_attempts=3,
+                transport=transport,
+            )
+    elapsed = real_time.monotonic() - started
+    assert elapsed < 1.5, f"trickle fetch should abort near wall-clock deadline, took {elapsed:.2f}s"
+    assert any(
+        "safe_fetch redirect from=http://public.test/start to=https://other.test/slow status=301 hop=1" in r.message
+        for r in caplog.records
+    )
+
+
+def test_redirect_and_retries_log_every_hop_and_attempt(monkeypatch, caplog) -> None:
+    import logging
+
+    monkeypatch.setattr(safe_fetch.time, "sleep", lambda _s: None)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        if request.url == httpx.URL("http://public.test/redir"):
+            return httpx.Response(301, headers={"location": "https://other.test/hang"})
+        if request.url == httpx.URL("https://other.test/hang"):
+            raise httpx.ReadTimeout("timed out", request=request)
+        raise AssertionError(f"unexpected request {request.url}")
+
+    transport = httpx.MockTransport(handler)
+    with caplog.at_level(logging.INFO, logger="signalstack.safe_fetch"):
+        with pytest.raises(FetchFailed):
+            fetch(
+                "http://public.test/redir",
+                timeout=1.0,
+                total_timeout=5.0,
+                max_attempts=3,
+                transport=transport,
+            )
+
+    redirect_logs = [r.message for r in caplog.records if "safe_fetch redirect " in r.message]
+    retry_logs = [r.message for r in caplog.records if "safe_fetch retry " in r.message]
+    assert len(redirect_logs) == 1
+    assert "from=http://public.test/redir to=https://other.test/hang status=301 hop=1" in redirect_logs[0]
+    assert len(retry_logs) == 3
+    assert all("url=https://other.test/hang" in msg and "error=ReadTimeout" in msg for msg in retry_logs)
+
+

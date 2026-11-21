@@ -197,4 +197,106 @@ def test_research_never_calls_llm_without_pages(session, monkeypatch) -> None:
 
     with pytest.raises(research.ResearchError):
         research.research_company(db_session, company)
+
     assert called["n"] == 0, "no pages -> no LLM call (no hallucinated profile)"
+
+
+def test_collect_site_falls_back_to_www_on_transport_error_but_respects_robots(monkeypatch) -> None:
+    seen: list[str] = []
+
+    def fake_fetch(url, **_kwargs):
+        seen.append(url)
+        if url == "https://zomato.test":
+            raise research.safe_fetch.FetchFailed(
+                "transport error: RemoteProtocolError: Server disconnected without sending a response.",
+                url=url,
+            )
+        if url == "https://www.zomato.test":
+            return fetch_result(
+                url,
+                "<html><head><title>Zomato</title></head><body><main><p>"
+                + ("Food delivery and restaurant discovery platform across India. " * 10)
+                + "</p></main></body></html>",
+            )
+        raise AssertionError(f"unexpected url {url}")
+
+    monkeypatch.setattr(research.safe_fetch, "fetch", fake_fetch)
+    content = research.collect_site("https://zomato.test")
+
+    assert seen == ["https://zomato.test", "https://www.zomato.test"]
+    assert content.homepage is not None
+    assert content.homepage.url == "https://www.zomato.test"
+
+    # Must NEVER bypass robots.txt via www fallback
+    seen.clear()
+
+    def robots_blocked(url, **_kwargs):
+        seen.append(url)
+        raise research.safe_fetch.RobotsDisallowed("robots.txt disallows", url=url)
+
+    monkeypatch.setattr(research.safe_fetch, "fetch", robots_blocked)
+    blocked_content = research.collect_site("https://zomato.test")
+    assert seen == ["https://zomato.test"]
+    assert blocked_content.homepage is None
+    assert "robots:" in blocked_content.failures[0]
+
+
+def test_research_partial_success_saves_unverified_and_marks_job_failed(session, monkeypatch) -> None:
+    db_session, _maker = session
+    company = make_company(db_session, website="https://partial.test/")
+
+    def fake_fetch(url, **_kwargs):
+        if url == "https://partial.test/":
+            return fetch_result(
+                url,
+                "<html><head><title>PartialCo</title></head><body><main>"
+                "<a href='/about'>About</a><p>"
+                + ("PartialCo builds enterprise telemetry pipelines for financial institutions. " * 6)
+                + "</p></main></body></html>",
+            )
+        if url == "https://partial.test/about":
+            raise research.safe_fetch.FetchDeadlineExceeded(
+                "Site did not respond within 30s: partial.test",
+                url=url,
+            )
+        raise AssertionError(f"unexpected url {url}")
+
+    monkeypatch.setattr(research.safe_fetch, "fetch", fake_fetch)
+
+    with pytest.raises(research.ResearchError, match=r"Site did not respond within 30s: partial\.test"):
+        research.research_company(db_session, company)
+
+    db_session.refresh(company)
+    assert company.profile is not None
+    assert company.profile["_meta"]["partial"] is True
+    assert company.profile["_meta"]["pages_fetched"] == ["https://partial.test/"]
+    assert company.profile["products"] == []
+    assert any("Partial unverified page: PartialCo" in note for note in company.profile["unverified"])
+
+
+def test_research_job_fails_with_clear_deadline_message(session, monkeypatch) -> None:
+    import jobs
+    from db import JobLog
+
+    db_session, maker = session
+    company = make_company(db_session, website="https://zomato.test/")
+
+    def fake_fetch(url, **_kwargs):
+        raise research.safe_fetch.FetchDeadlineExceeded(
+            "Site did not respond within 30s: www.zomato.test",
+            url=url,
+        )
+
+    monkeypatch.setattr(research.safe_fetch, "fetch", fake_fetch)
+    monkeypatch.setattr(jobs.db, "SessionLocal", maker)
+    monkeypatch.setattr("net_diag.format_transport_hint", lambda *_a, **_k: "[net_diag: only-www.zomato.test-fails]")
+
+    started = jobs.start_company_job(db_session, company.id, "research", spawn=False)
+    jobs._run_job_worker(started["job_id"], company.id, "research", None)
+
+    row = db_session.get(JobLog, started["job_id"])
+    assert row.status == "error"
+    status = jobs.get_job_status(db_session, started["job_id"])
+    assert status["status"] == "error"
+    assert "Site did not respond within 30s: www.zomato.test" in status["error"]
+

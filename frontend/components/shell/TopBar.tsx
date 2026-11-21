@@ -1,0 +1,154 @@
+"use client";
+
+import Link from "next/link";
+import { useParams, usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronRight, Menu, Search } from "lucide-react";
+
+import { BackendStatus } from "@/components/backend-status";
+import { getBrief, getLatestBrief } from "@/lib/api";
+
+function resolveStepLabel(pathname: string, companyId: number): string {
+  const base = `/company/${companyId}`;
+  if (pathname === `${base}/dashboard`) return "Mission control overview";
+  if (pathname === base) return "Step 1 of 6: Review company profile";
+  if (pathname === `${base}/interview`) return "Step 2 of 6: Founder interview";
+  if (pathname === `${base}/signal-stack`) {
+    return "Step 3 of 6: Build your Signal Stack";
+  }
+  if (pathname === `${base}/competitors`) return "Step 4 of 6: Competitor discovery";
+  if (pathname === `${base}/crawler`) return "Step 4 of 6: Monitor sources";
+  if (pathname === `${base}/signals`) {
+    return "Step 5 of 6: Analyse signals";
+  }
+  if (pathname === `${base}/brief` || pathname.startsWith(`${base}/brief/`)) {
+    return "Step 6 of 6: Monday Morning Brief";
+  }
+  if (pathname === `${base}/automation`) return "Step 6 of 6: Automate your intelligence";
+  return "Signal Stack workspace";
+}
+
+function resolveSectionLabel(pathname: string, companyId: number): string | null {
+  const base = `/company/${companyId}`;
+  if (pathname === `${base}/dashboard`) return "Dashboard";
+  if (pathname === `${base}/interview`) return "Interview";
+  if (pathname === `${base}/competitors`) return "Competitors";
+  if (pathname === `${base}/signal-stack`) return "Signal Stack";
+  if (pathname === `${base}/signals`) return "Signals";
+  if (pathname === `${base}/crawler`) return "Crawler";
+  if (pathname === `${base}/brief` || pathname.startsWith(`${base}/brief/`)) return "Monday Brief";
+  if (pathname === `${base}/automation`) return "Automation";
+  return null;
+}
+
+function formatWeekDate(iso?: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+export function TopBar({
+  companyId,
+  companyName,
+  onOpenMobileMenu,
+  onOpenCommandPalette,
+}: {
+  companyId: number;
+  companyName: string;
+  onOpenMobileMenu: () => void;
+  onOpenCommandPalette?: () => void;
+}) {
+  const pathname = usePathname();
+  const params = useParams<{ briefId?: string }>();
+  const base = `/company/${companyId}`;
+  const isBriefView =
+    pathname === `${base}/brief` || pathname.startsWith(`${base}/brief/`);
+  const briefIdParam = typeof params?.briefId === "string" ? params.briefId : null;
+
+  const latestBriefQuery = useQuery({
+    queryKey: ["brief-latest", companyId],
+    queryFn: () => getLatestBrief(companyId),
+    enabled: isBriefView && !briefIdParam && Number.isFinite(companyId) && companyId > 0,
+    staleTime: 30_000,
+    retry: 0,
+  });
+
+  const specificBriefQuery = useQuery({
+    queryKey: ["brief-detail", companyId, briefIdParam],
+    queryFn: () => getBrief(companyId, briefIdParam as string),
+    enabled: isBriefView && Boolean(briefIdParam) && Number.isFinite(companyId) && companyId > 0,
+    staleTime: 30_000,
+    retry: 0,
+  });
+
+  const weekStart = briefIdParam
+    ? specificBriefQuery.data?.weekStart
+    : latestBriefQuery.data?.brief?.weekStart;
+  const weekLabel = formatWeekDate(weekStart);
+
+  const stepText = isBriefView
+    ? weekLabel
+      ? `Week of ${weekLabel}`
+      : "Monday Brief"
+    : resolveStepLabel(pathname, companyId);
+  const sectionLabel = resolveSectionLabel(pathname, companyId);
+
+  return (
+    <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-4 border-b border-white/60 bg-white/55 px-4 backdrop-blur-xl sm:px-6">
+      <div className="flex min-w-0 items-center gap-3">
+        <button
+          type="button"
+          onClick={onOpenMobileMenu}
+          aria-label="Open workspace navigation"
+          className="focus-ring flex h-8 w-8 items-center justify-center rounded-xl border border-white/80 bg-white/75 text-[#1F2125] md:hidden"
+        >
+          <Menu size={16} strokeWidth={1.75} />
+        </button>
+
+        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 font-mono text-xs">
+          <Link
+            href="/"
+            className="text-[#9AA0AA] no-underline transition-colors hover:text-[#1F2125]"
+          >
+            Companies
+          </Link>
+          <ChevronRight size={13} className="shrink-0 text-[#9AA0AA]" aria-hidden="true" />
+          {sectionLabel ? (
+            <>
+              <Link
+                href={`/company/${companyId}`}
+                className="truncate text-[#9AA0AA] no-underline transition-colors hover:text-[#1F2125]"
+              >
+                {companyName}
+              </Link>
+              <ChevronRight size={13} className="shrink-0 text-[#9AA0AA]" aria-hidden="true" />
+              <span className="truncate font-medium text-[#1F2125]">{sectionLabel}</span>
+            </>
+          ) : (
+            <span className="truncate font-medium text-[#1F2125]">{companyName}</span>
+          )}
+        </nav>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2.5 sm:gap-3">
+        {onOpenCommandPalette ? (
+          <button
+            type="button"
+            onClick={onOpenCommandPalette}
+            aria-label="Open command palette (Command K)"
+            className="focus-ring inline-flex h-8 items-center gap-2 rounded-xl border border-white/80 bg-white/75 px-2.5 text-xs text-[#4B5058] transition-colors hover:bg-white hover:text-[#1F2125]"
+          >
+            <Search size={13} aria-hidden="true" />
+            <span className="hidden md:inline">Search…</span>
+            <kbd className="rounded border border-[#1F2125]/10 bg-[#F4F6FB] px-1.5 py-0.5 font-mono text-[10px] text-[#4B5058]">
+              ⌘K
+            </kbd>
+          </button>
+        ) : null}
+        <span className="hidden font-mono text-[11.5px] text-[#4B5058] sm:inline">{stepText}</span>
+        <BackendStatus />
+      </div>
+    </header>
+  );
+}

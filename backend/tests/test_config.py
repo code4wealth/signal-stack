@@ -125,13 +125,19 @@ def test_ca_bundle_order_ssl_cert_file_first(tmp_path: Path) -> None:
 
 
 def test_safe_fetch_verifies_against_the_configured_bundle(tmp_path: Path) -> None:
+    import ssl
     import safe_fetch
 
     bundle = tmp_path / "ca.crt"
     bundle.write_text("-----BEGIN CERTIFICATE-----\nTEST\n-----END CERTIFICATE-----\n")
     _clear_ca_env()
     try:
-        assert safe_fetch._verify() is True, "default must be real verification, never False"
+        default_verify = safe_fetch._verify()
+        assert default_verify is not False, "default must be real verification, never False"
+        if isinstance(default_verify, ssl.SSLContext):
+            assert default_verify.verify_mode == ssl.CERT_REQUIRED
+        else:
+            assert default_verify is True
         os.environ["SSL_CERT_FILE"] = str(bundle)
         assert safe_fetch._verify() == str(bundle)
     finally:

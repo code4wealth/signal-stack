@@ -16,6 +16,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import feedparser
 from sqlalchemy import select
@@ -37,6 +38,9 @@ class SourceFetch:
     source_id: int
     status: str = "ok"  # ok | not_modified | error
     error: str | None = None
+    http_status: int | None = None
+    elapsed_ms: int = 0
+    robots_blocked: bool = False
     etag: str | None = None
     last_modified: str | None = None
     items: list[dict] = field(default_factory=list)
@@ -125,8 +129,16 @@ def _page_item(url: str, fallback: dict | None = None) -> dict | None:
     return None
 
 
-def fetch_source(source: Source) -> SourceFetch:
+def _domain_of(url: str) -> str:
+    try:
+        return (urlparse(url).hostname or url).replace("www.", "")
+    except Exception:
+        return url
+
+
+def fetch_source(source: Source, *, max_items: int = MAX_ITEMS_PER_SOURCE) -> SourceFetch:
     """Network-only worker: safe to run in a thread pool."""
+    started = time.monotonic()
     result = SourceFetch(source_id=source.id)
 
     try:
@@ -136,18 +148,24 @@ def fetch_source(source: Source) -> SourceFetch:
     except safe_fetch.FetchError as exc:
         result.status = "error"
         result.error = exc.as_detail()
+        result.http_status = exc.status
+        result.robots_blocked = isinstance(exc, safe_fetch.RobotsDisallowed)
+        result.elapsed_ms = int((time.monotonic() - started) * 1000)
         return result
 
+    result.http_status = response.status
     result.etag = response.etag or source.etag
     result.last_modified = response.last_modified or source.last_modified
 
     if response.not_modified:
         result.status = "not_modified"
+        result.elapsed_ms = int((time.monotonic() - started) * 1000)
         return result
 
     if not response.ok:
         result.status = "error"
         result.error = f"http {response.status}"
+        result.elapsed_ms = int((time.monotonic() - started) * 1000)
         return result
 
     items: list[dict] = []
@@ -159,7 +177,7 @@ def fetch_source(source: Source) -> SourceFetch:
     if feed_error:
         result.error = f"feed: {feed_error}"
 
-    for entry in feed_items[:MAX_ITEMS_PER_SOURCE]:
+    for entry in feed_items[:max_items]:
         if normalise_url(entry["url"]) == normalise_url(response.url):
             continue
         item = _page_item(entry["url"], fallback=entry)
@@ -170,6 +188,7 @@ def fetch_source(source: Source) -> SourceFetch:
     if not items and result.status == "ok" and not result.error:
         result.error = "no readable text longer than the minimum"
         result.status = "error"
+    result.elapsed_ms = int((time.monotonic() - started) * 1000)
     return result
 
 
@@ -258,6 +277,7 @@ def crawl_company(db, company, *, concurrency: int | None = None) -> dict:
         "not_modified": 0,
         "sources_checked": len(sources),
         "per_source": [],
+        "duplicate_entries": [],
     }
     by_id = {source.id: source for source in sources}
     now = datetime.now(timezone.utc)
@@ -288,6 +308,15 @@ def crawl_company(db, company, *, concurrency: int | None = None) -> dict:
         for item in result.items:
             outcome = store_item(db, company, source, item)
             counts[outcome] = counts.get(outcome, 0) + 1
+            if outcome == "duplicate" and len(stats["duplicate_entries"]) < 40:
+                stats["duplicate_entries"].append(
+                    {
+                        "source_id": source.id,
+                        "source_name": source.name,
+                        "url": item.get("url", ""),
+                        "title": (item.get("title") or "")[:200],
+                    }
+                )
         stats["new_records"] += counts["new"]
         stats["updated_records"] += counts["updated"]
         stats["duplicates"] += counts["duplicate"]
@@ -312,3 +341,275 @@ def _log(db, company_id: int, job: str, status: str, detail: dict) -> None:
         )
     )
     db.commit()
+
+
+def append_crawl_log(
+    db,
+    company_id: int,
+    run_id: int,
+    level: str,
+    message: str,
+    *,
+    source_domain: str | None = None,
+) -> None:
+    db.add(
+        JobLog(
+            company_id=company_id,
+            job=f"crawl_log:{run_id}",
+            status=level,
+            detail=json.dumps(
+                {
+                    "runId": run_id,
+                    "sourceDomain": source_domain,
+                    "message": message[:1000],
+                }
+            ),
+        )
+    )
+    db.commit()
+
+
+def _read_run_detail(row: JobLog) -> dict:
+    try:
+        data = json.loads(row.detail) if row.detail else {}
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_run_detail(row: JobLog, data: dict) -> None:
+    row.detail = json.dumps(data, default=str)
+
+
+def crawl_company_run(
+    db,
+    company,
+    run_id: int,
+    *,
+    source_ids: list[int] | None = None,
+) -> dict:
+    """Execute one tracked CrawlRun stored in JobLog with per-source progress, real log lines, and cancel support."""
+    run = db.get(JobLog, run_id)
+    if run is None or run.job != "crawl_run":
+        raise ValueError(f"crawl run {run_id} not found")
+
+    started_mono = time.monotonic()
+    run_data = _read_run_detail(run)
+
+    query = select(Source).where(
+        Source.company_id == company.id,
+        Source.status == "approved",
+        Source.category != "internal",
+    )
+    if source_ids:
+        query = query.where(Source.id.in_(source_ids))
+    sources = list(db.scalars(query.order_by(Source.id)).all())
+
+    counts_map = {"new": 0, "changed": 0, "unchanged": 0, "failed": 0, "blocked": 0}
+    per_source: list[dict] = []
+
+    run.status = "running"
+    run_data.update(
+        {
+            "sourcesTotal": len(sources),
+            "sourcesDone": 0,
+            "counts": dict(counts_map),
+            "perSource": [],
+        }
+    )
+    _write_run_detail(run, run_data)
+    db.commit()
+
+    append_crawl_log(
+        db,
+        company.id,
+        run_id,
+        "info",
+        f"Started crawl across {len(sources)} approved source(s) (robots.txt respected, {round(1.0 / max(1, settings.fetch_requests_per_second), 2)}s rate limit)",
+    )
+
+    if not sources:
+        finished_dt = datetime.now(timezone.utc)
+        run.status = "completed"
+        run_data.update(
+            {
+                "finishedAt": finished_dt.isoformat(),
+                "durationMs": int((time.monotonic() - started_mono) * 1000),
+                "currentSourceDomain": None,
+            }
+        )
+        _write_run_detail(run, run_data)
+        db.commit()
+        append_crawl_log(db, company.id, run_id, "warn", "No approved public sources available to crawl")
+        return {"run_id": run.id, "status": run.status, "counts": counts_map}
+
+    profile_meta = (company.profile or {}).get("_meta") or {}
+    budget_limit = (profile_meta.get("crawler_settings") or {}).get("maxPagesPerRun")
+    per_source_cap = MAX_ITEMS_PER_SOURCE
+    if isinstance(budget_limit, int) and budget_limit > 0 and len(sources) > 0:
+        per_source_cap = max(1, min(MAX_ITEMS_PER_SOURCE, max(1, budget_limit // len(sources))))
+
+    for source in sources:
+        db.refresh(run)
+        run_data = _read_run_detail(run)
+        if run_data.get("cancelRequested"):
+            finished_dt = datetime.now(timezone.utc)
+            run.status = "cancelled"
+            run_data.update(
+                {
+                    "finishedAt": finished_dt.isoformat(),
+                    "durationMs": int((time.monotonic() - started_mono) * 1000),
+                    "currentSourceDomain": None,
+                }
+            )
+            _write_run_detail(run, run_data)
+            db.commit()
+            append_crawl_log(db, company.id, run_id, "warn", "Crawl cancelled by user")
+            return {"run_id": run.id, "status": "cancelled", "counts": counts_map}
+
+        domain = _domain_of(source.url)
+        run_data["currentSourceDomain"] = domain
+        _write_run_detail(run, run_data)
+        db.commit()
+        append_crawl_log(db, company.id, run_id, "info", f"Fetching {source.url}", source_domain=domain)
+
+        res = fetch_source(source, max_items=per_source_cap)
+        now = datetime.now(timezone.utc)
+        source.last_checked = now
+        source.etag = res.etag
+        source.last_modified = res.last_modified
+
+        if res.status == "error":
+            source.health = "blocked" if res.robots_blocked else "error"
+            source.last_error = (res.error or "unknown error")[:900]
+            if res.robots_blocked:
+                counts_map["blocked"] += 1
+                src_status = "blocked"
+                append_crawl_log(db, company.id, run_id, "warn", f"Skipped by robots.txt: {source.last_error}", source_domain=domain)
+            else:
+                counts_map["failed"] += 1
+                src_status = "failed"
+                append_crawl_log(db, company.id, run_id, "error", f"Fetch failed: {source.last_error}", source_domain=domain)
+
+            per_source.append(
+                {
+                    "sourceId": source.id,
+                    "sourceName": source.name,
+                    "domain": domain,
+                    "category": source.category,
+                    "status": src_status,
+                    "httpStatus": res.http_status,
+                    "itemsNew": 0,
+                    "itemsChanged": 0,
+                    "durationMs": res.elapsed_ms,
+                    "error": source.last_error,
+                }
+            )
+        elif res.status == "not_modified":
+            source.health = "ok"
+            source.last_ok = now
+            source.last_error = None
+            counts_map["unchanged"] += 1
+            per_source.append(
+                {
+                    "sourceId": source.id,
+                    "sourceName": source.name,
+                    "domain": domain,
+                    "category": source.category,
+                    "status": "not_modified",
+                    "httpStatus": res.http_status or 304,
+                    "itemsNew": 0,
+                    "itemsChanged": 0,
+                    "durationMs": res.elapsed_ms,
+                }
+            )
+            append_crawl_log(db, company.id, run_id, "info", "HTTP 304 Not Modified (ETag/Last-Modified matched)", source_domain=domain)
+        else:
+            source.health = "ok"
+            source.last_ok = now
+            source.last_error = res.error[:900] if res.error else None
+            src_counts = {"new": 0, "updated": 0, "duplicate": 0, "empty": 0}
+            for item in res.items:
+                outcome = store_item(db, company, source, item)
+                src_counts[outcome] = src_counts.get(outcome, 0) + 1
+            counts_map["new"] += src_counts["new"]
+            counts_map["changed"] += src_counts["updated"]
+            counts_map["unchanged"] += src_counts["duplicate"]
+            src_status = "partial" if res.error else "success"
+            per_source.append(
+                {
+                    "sourceId": source.id,
+                    "sourceName": source.name,
+                    "domain": domain,
+                    "category": source.category,
+                    "status": src_status,
+                    "httpStatus": res.http_status or 200,
+                    "itemsNew": src_counts["new"],
+                    "itemsChanged": src_counts["updated"],
+                    "durationMs": res.elapsed_ms,
+                    "error": res.error,
+                }
+            )
+            append_crawl_log(
+                db,
+                company.id,
+                run_id,
+                "success" if (src_counts["new"] or src_counts["updated"]) else "info",
+                f"HTTP {res.http_status or 200} · {src_counts['new']} new, {src_counts['updated']} changed, {src_counts['duplicate']} unchanged ({res.elapsed_ms}ms)",
+                source_domain=domain,
+            )
+
+        run_data["sourcesDone"] = int(run_data.get("sourcesDone", 0)) + 1
+        run_data["counts"] = dict(counts_map)
+        run_data["perSource"] = list(per_source)
+        _write_run_detail(run, run_data)
+        db.commit()
+
+    finished_dt = datetime.now(timezone.utc)
+    total_ms = int((time.monotonic() - started_mono) * 1000)
+    had_failures = counts_map["failed"] > 0 or counts_map["blocked"] > 0
+    had_success = any(row["status"] in ("success", "not_modified", "partial") for row in per_source)
+    final_status = (
+        "completed"
+        if not had_failures
+        else ("partial" if had_success else "failed")
+    )
+
+    run.status = final_status
+    run_data.update(
+        {
+            "finishedAt": finished_dt.isoformat(),
+            "durationMs": total_ms,
+            "currentSourceDomain": None,
+            "counts": dict(counts_map),
+            "perSource": list(per_source),
+        }
+    )
+    _write_run_detail(run, run_data)
+    db.commit()
+
+    _log(
+        db,
+        company.id,
+        "crawl",
+        "ok" if final_status == "completed" else ("partial" if final_status == "partial" else "error"),
+        {
+            "run_id": run.id,
+            "sources_checked": len(sources),
+            "new_records": counts_map["new"],
+            "updated_records": counts_map["changed"],
+            "duplicates": counts_map["unchanged"],
+            "errors": counts_map["failed"],
+            "blocked": counts_map["blocked"],
+            "elapsed_seconds": round(total_ms / 1000.0, 1),
+        },
+    )
+    append_crawl_log(
+        db,
+        company.id,
+        run_id,
+        "success" if final_status == "completed" else ("warn" if final_status == "partial" else "error"),
+        f"Run finished ({final_status}) in {round(total_ms / 1000.0, 1)}s — {counts_map['new']} new, {counts_map['changed']} changed, {counts_map['failed']} failed",
+    )
+    return {"run_id": run.id, "status": final_status, "counts": counts_map}
+
