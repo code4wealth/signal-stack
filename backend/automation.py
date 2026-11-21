@@ -87,6 +87,16 @@ def _ensure_aware(dt: datetime | None) -> datetime | None:
     return dt
 
 
+def _fmt_day_mon(dt: datetime) -> str:
+    """Cross-platform '21 Nov' without GNU '%-d' (which raises ValueError on Windows)."""
+    return f"{dt.day} {dt.strftime('%b')}"
+
+
+def _fmt_weekday_day_mon(dt: datetime) -> str:
+    """Cross-platform 'Sat 21 Nov' without GNU '%-d' (which raises ValueError on Windows)."""
+    return f"{dt.strftime('%a')} {dt.day} {dt.strftime('%b')}"
+
+
 def validate_timezone(tz_name: str) -> ZoneInfo:
     try:
         return ZoneInfo(tz_name)
@@ -745,7 +755,7 @@ def build_upcoming_changes(
         sched = sched_by_id.get(ov.schedule_id) if ov.schedule_id else None
         target_name = sched.name if sched else "All jobs"
         if ov.type == "pause":
-            end_str = _ensure_aware(ov.ends_at).strftime("%-d %b") if ov.ends_at else "until resumed"
+            end_str = _fmt_day_mon(_ensure_aware(ov.ends_at)) if ov.ends_at else "until resumed"
             changes.append(
                 {
                     "id": f"ov-{ov.id}",
@@ -787,7 +797,7 @@ def build_upcoming_changes(
                 }
             )
         elif ov.type == "blackout":
-            end_str = _ensure_aware(ov.ends_at).strftime("%-d %b") if ov.ends_at else start.strftime("%-d %b")
+            end_str = _fmt_day_mon(_ensure_aware(ov.ends_at)) if ov.ends_at else _fmt_day_mon(start)
             changes.append(
                 {
                     "id": f"ov-{ov.id}",
@@ -807,7 +817,7 @@ def build_upcoming_changes(
                         "id": f"audit-{s.id}",
                         "date": nxt[0].isoformat(),
                         "label": "Source audit",
-                        "subLabel": f"Due {nxt[0].strftime('%-d %b')}",
+                        "subLabel": f"Due {_fmt_day_mon(nxt[0])}",
                         "kind": "audit",
                     }
                 )
@@ -1289,24 +1299,24 @@ def preview_override(
                 )
                 if ov_type == "blackout" and sched.job_type == "source_audit":
                     conflicts.append(
-                        f"Monthly source audit ({occ.strftime('%-d %b %H:%M %Z')}) falls inside this blackout window."
+                        f"Monthly source audit ({_fmt_day_mon(occ)} {occ.strftime('%H:%M %Z')}) falls inside this blackout window."
                     )
 
     if ov_type == "run_once" and target_scheds:
         s0 = target_scheds[0]
-        summary = f"This will run {s0.name} once on {s_aware.strftime('%a %-d %b at %H:%M UTC')}"
+        summary = f"This will run {s0.name} once on {_fmt_weekday_day_mon(s_aware)} at {s_aware.strftime('%H:%M UTC')}"
     elif ov_type == "skip" and target_scheds:
         s0 = target_scheds[0]
-        summary = f"This will skip {s0.name} on {s_aware.strftime('%a %-d %b')}"
+        summary = f"This will skip {s0.name} on {_fmt_weekday_day_mon(s_aware)}"
     elif ov_type == "reschedule" and target_scheds and new_time:
         s0 = target_scheds[0]
         n_aware = _ensure_aware(new_time)
-        summary = f"This will move {s0.name} on {s_aware.strftime('%a %-d %b')} to {n_aware.strftime('%a %-d %b at %H:%M UTC')}"
+        summary = f"This will move {s0.name} on {_fmt_weekday_day_mon(s_aware)} to {_fmt_weekday_day_mon(n_aware)} at {n_aware.strftime('%H:%M UTC')}"
     elif ov_type == "pause":
         target_lbl = target_scheds[0].name if len(target_scheds) == 1 else "all active schedules"
-        summary = f"This will pause {target_lbl} until {e_aware.strftime('%a %-d %b')}"
+        summary = f"This will pause {target_lbl} until {_fmt_weekday_day_mon(e_aware)}"
     else:
-        summary = f"Blackout from {s_aware.strftime('%-d %b')} to {e_aware.strftime('%-d %b')} ({len(affected)} scheduled runs skipped)"
+        summary = f"Blackout from {_fmt_day_mon(s_aware)} to {_fmt_day_mon(e_aware)} ({len(affected)} scheduled runs skipped)"
 
     return {
         "summary": summary,

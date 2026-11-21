@@ -251,7 +251,7 @@ export default function DashboardPage() {
             <GlassCard className="flex flex-wrap items-center justify-between gap-3 border-[#DC2626]/25 bg-[#DC2626]/5 p-5">
               <div className="flex items-center gap-2.5 text-sm text-[#991B1B]">
                 <AlertCircle size={18} className="shrink-0 text-[#DC2626]" />
-                <span>Backend not reachable. Check that the API is running.</span>
+                <span>{dashboard.error}</span>
               </div>
               <button
                 type="button"

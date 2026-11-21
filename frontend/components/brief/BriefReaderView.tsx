@@ -234,7 +234,11 @@ export function BriefReaderView({
     return (
       <div className="mx-auto max-w-[780px] px-4 py-10">
         <div className="glass flex flex-wrap items-center justify-between gap-3 rounded-2xl p-6 text-sm text-[#B91C1C]">
-          <span>Backend not reachable. Check that the API is running.</span>
+          <span>
+            {error instanceof Error
+              ? error.message
+              : "Could not load Monday Brief."}
+          </span>
           <button
             type="button"
             onClick={() => refetchAll()}
