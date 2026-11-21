@@ -23,7 +23,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="en"
       className={`${GeistSans.variable} ${GeistMono.variable} ${sourceSerif.variable}`}
     >
-      <body className="min-h-screen bg-bg font-sans text-ink antialiased">
+      <body
+        suppressHydrationWarning
+        className="min-h-screen bg-bg font-sans text-ink antialiased"
+      >
         <a className="skip-link" href="#main-content">
           Skip to content
         </a>
